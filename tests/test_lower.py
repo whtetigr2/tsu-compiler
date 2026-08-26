@@ -47,7 +47,7 @@ def test_repulsion_lowers_to_a_positive_J_under_thrml_convention():
 
 def test_three_body_term_is_rejected_not_silently_dropped():
     """Product of two forms that SHARE no variable is fine; one that produces an
-    order-3 monomial must raise."""
+    order-3 monomial across 3 DISTINCT spins must raise."""
     three = Product(
         LinearForm({VarRef("a"): 1.0, VarRef("b"): 1.0}),
         LinearForm({VarRef("c"): 1.0}), 1.0)
@@ -64,6 +64,23 @@ def test_three_body_term_is_rejected_not_silently_dropped():
     m2 = EnergyModel(tuple(Var(n, Binary()) for n in ("a", "b", "c")), (Cubic(),), 1.0)
     with pytest.raises(ThreeBodyError):
         lower(m2)
+
+
+def test_four_distinct_spin_product_is_rejected_as_pairwise_violation():
+    """A genuine order-4 term across 4 DISTINCT spins (a*b*c*d) is irreducible --
+    no amount of s**2 == 1 folding collapses it -- and must still raise, same as
+    the order-3 case."""
+    class Quartic:
+        weight = 1.0
+        def refs(self):
+            return (VarRef("a"), VarRef("b"), VarRef("c"), VarRef("d"))
+        def sympy_expr(self, sym):
+            return sym["a"] * sym["b"] * sym["c"] * sym["d"]
+
+    m = EnergyModel(tuple(Var(n, Binary()) for n in ("a", "b", "c", "d")),
+                     (Quartic(),), 1.0)
+    with pytest.raises(ThreeBodyError):
+        lower(m)
 
 
 def test_categorical_reaching_lower_is_an_error():
@@ -87,18 +104,54 @@ def test_categorical_indicator_ref_reaching_lower_is_an_error():
         lower(m)
 
 
-def test_single_spin_odd_power_is_rejected_as_three_body():
-    """Regression for the Critical: a term whose sympy_expr raises a single
-    variable's occupancy to an odd power >= 3 (e.g. sym["a"]**3) must be caught
-    by the total-degree check on the raw expansion, not silently folded away or
-    silently mis-lowered. Modeled on the Cubic class above."""
+def test_single_spin_cubed_lowers_successfully_not_rejected():
+    """For a binary spin, s**3 == s: a high power of a SINGLE spin is legitimate
+    algebra (it reduces to a degree-1 bias term), not a pairwise violation. This
+    replaces a prior (incorrect) version of this test that asserted ThreeBodyError
+    here -- that locked in a false positive: s_a**3 is not a surviving order-3
+    term, it genuinely equals s_a. The values below (biases=[-0.5, 0.0],
+    offset=0.5) were verified by independent re-derivation, and the energy
+    reconstruction is checked on every assignment, not just the coefficients."""
     class CubedSingle:
         weight = 1.0
         def refs(self):
             return (VarRef("a"),)
         def sympy_expr(self, sym):
             return sym["a"] ** 3
+        def evaluate(self, assignment):
+            # ground truth: occupancy(a)**3, matching sympy_expr above -- for a
+            # binary occupancy in {0, 1} this equals occupancy(a) exactly, which
+            # is exactly the identity the fix relies on.
+            return self.weight * (float(assignment["a"]) ** 3)
 
     m = EnergyModel(tuple(Var(n, Binary()) for n in ("a", "b")), (CubedSingle(),), 1.0)
-    with pytest.raises(ThreeBodyError):
-        lower(m)
+    im = lower(m)
+    assert len(im.edges) == 0
+    assert im.biases[im.nodes.index("a")] == pytest.approx(-0.5)
+    assert im.biases[im.nodes.index("b")] == pytest.approx(0.0)
+    assert im.offset == pytest.approx(0.5)
+    for va, vb in itertools.product((0, 1), repeat=2):
+        asg = {"a": va, "b": vb}
+        assert ising_energy(im, asg) == pytest.approx(brute_energy(m, asg), abs=1e-12)
+
+
+def test_single_spin_fourth_power_lowers_with_no_couplings():
+    """s**4 == 1 for a binary spin: it folds entirely into the constant offset,
+    contributing no bias and no coupling. Also not a pairwise violation."""
+    class QuarticSingle:
+        weight = 1.0
+        def refs(self):
+            return (VarRef("a"),)
+        def sympy_expr(self, sym):
+            return sym["a"] ** 4
+        def evaluate(self, assignment):
+            # ground truth: occupancy(a)**4, matching sympy_expr above -- for a
+            # binary occupancy in {0, 1} this equals occupancy(a) exactly.
+            return self.weight * (float(assignment["a"]) ** 4)
+
+    m = EnergyModel(tuple(Var(n, Binary()) for n in ("a", "b")), (QuarticSingle(),), 1.0)
+    im = lower(m)
+    assert len(im.edges) == 0
+    for va, vb in itertools.product((0, 1), repeat=2):
+        asg = {"a": va, "b": vb}
+        assert ising_energy(im, asg) == pytest.approx(brute_energy(m, asg), abs=1e-12)

@@ -60,6 +60,12 @@ def _reduce_spin_powers(expr, spin_list):
     2 in one pass -- NOT a single `.subs(s**2, 1)`, which only cancels even powers
     and leaves e.g. s**3 (odd, >= 3) untouched. Reduced monomials that collide
     (e.g. s**3 and s**1 both reduce to s**1) have their coefficients summed.
+
+    This is algebra, not a violation check: for a binary spin s**3 == s (a
+    legitimate degree-1 term) and s**4 == 1 (folds into the constant). A high
+    power of a SINGLE spin is always reducible and never a pairwise violation --
+    only a product across three or more DISTINCT spins is. That distinction is
+    why this reduction must run before `_assert_pairwise`, not after.
     """
     if not spin_list:
         return sp.expand(expr)
@@ -78,19 +84,30 @@ def _reduce_spin_powers(expr, spin_list):
     return sp.expand(result)
 
 
-def _assert_pairwise(target_raw, names, spin_list):
-    """Raise ThreeBodyError if ANY monomial of the RAW (pre-reduction) expanded
-    polynomial has total degree > 2 -- checked via sympy.Poly over the whole
-    expression, not a per-triple `.coeff()` probe. A per-triple scan
-    (`target.coeff(s_i*s_j*s_k)` for each combination of 3 distinct variable
-    names) is blind to a monomial like s_a**3*s_b: `.coeff()` returns exactly 0
-    for that pattern, so the term passes through silently. Checking on the RAW
-    expansion (before folding s**2 -> 1) also matters: reducing first would
-    collapse a genuine violation like s_a**3 down to s_a and hide it entirely.
+def _assert_pairwise(target, names, spin_list):
+    """Raise ThreeBodyError if ANY monomial of the REDUCED polynomial (every spin
+    exponent already folded to 0 or 1 by `_reduce_spin_powers`) has total degree
+    > 2 -- checked via sympy.Poly over the whole expression, not a per-triple
+    `.coeff()` probe. A per-triple scan (`target.coeff(s_i*s_j*s_k)` for each
+    combination of 3 distinct variable names) is blind to a monomial like
+    s_a*s_b*s_c*s_d (order 4): `.coeff()` returns exactly 0 for that pattern, so
+    the term would pass through silently.
+
+    This MUST run on the reduced expression, not the raw pre-reduction one. In
+    the reduced form every exponent is 0 or 1, so a monomial's total degree
+    equals the number of DISTINCT spins it couples -- exactly what "pairwise"
+    means. A high power of a single spin (s_a**3, s_a**4, ...) is not a
+    violation: s**2 == 1 for a binary spin, so s_a**3 == s_a (a legitimate
+    degree-1 bias term) and s_a**4 == 1 (folds into the constant offset).
+    Checking on the raw, unreduced expansion would misclassify both as
+    "order > 2" and reject a perfectly good pairwise (or lower) model -- the
+    same shape of false positive this module exists to prevent (see the
+    module docstring's "Z1 adds up to 7" story). Only a monomial that still
+    couples 3+ distinct spins AFTER reduction is a genuine pairwise violation.
     """
     if not spin_list:
         return
-    poly = sp.Poly(target_raw, *spin_list)
+    poly = sp.Poly(target, *spin_list)
     for monom, coeff in poly.terms():
         deg = sum(monom)
         if deg > 2 and sp.simplify(coeff) != 0:
@@ -123,15 +140,17 @@ def lower(model: EnergyModel) -> IsingModel:
     # sum b s + sum J s s == -E
     target_raw = sp.expand(-E)
 
-    # Reject any surviving term of degree > 2 on the RAW expansion -- catches
-    # every shape: cross terms among 3+ distinct spins AND odd powers of a
-    # single spin (s**3 etc.), neither of which a per-triple coeff scan sees.
-    _assert_pairwise(target_raw, names, spin_list)
-
-    # binary spins: s**2 == 1. Needed to canonicalize same-spin repeats (e.g. a
-    # self-product occ_a*occ_a) into a proper linear/constant term, now that the
-    # pairwise check above has already run on the unreduced expansion.
+    # binary spins: s**2 == 1 (s**k -> s odd, -> 1 even). Must happen BEFORE the
+    # pairwise check: a high power of a single spin (s_a**3, s_a**4, ...) is
+    # legitimate algebra, not a violation, and only resolves to its true degree
+    # (1, or 0 folded into the constant) once reduced.
     target = _reduce_spin_powers(target_raw, spin_list)
+
+    # Reject any surviving term of degree > 2 on the REDUCED expression -- catches
+    # every genuine violation shape (any product across 3+ distinct spins,
+    # regardless of how many variables), without misflagging a reducible high
+    # power of a single spin.
+    _assert_pairwise(target, names, spin_list)
 
     idx = {n: i for i, n in enumerate(names)}
     edges, weights = [], []
