@@ -1,0 +1,19 @@
+name: toy
+description: >
+  Four-variable toy. Exists only to exercise every pass. Belongs to no domain.
+variables:
+  a: {domain: binary}
+  b: {domain: binary}
+  c: {domain: categorical, k: 3}
+terms:
+  # positive weight = penalty. a and b repel.
+  - {kind: product, a: {a: 1.0}, b: {b: 1.0}, weight: 2.0}
+  # negative weight = preference. mild pull toward occupancy.
+  - {kind: linear, form: {a: 1.0, b: 1.0}, weight: -0.5}
+  # c=0 together with a is discouraged.
+  - {kind: product, a: {"c=0": 1.0}, b: {a: 1.0}, weight: 1.5}
+contract:
+  validate:
+    - {rule: forbid_both, vars: [a, b], message: "a and b must not both be occupied"}
+    - {rule: forbid_value_with, var: c, value: 0, other: a,
+       message: "c=0 forbidden while a is occupied"}

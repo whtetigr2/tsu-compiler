@@ -1,0 +1,10 @@
+name: broken
+description: >
+  References a variable that does not exist. Must fail on the IDEAL target, which
+  proves the failure is logical and not a hardware constraint.
+variables:
+  a: {domain: binary}
+terms:
+  - {kind: product, a: {a: 1.0}, b: {nonexistent: 1.0}, weight: 1.0}
+contract:
+  validate: []

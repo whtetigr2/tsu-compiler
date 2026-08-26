@@ -1,0 +1,11 @@
+name: too_strong
+description: >
+  Two variables with a coupling of 40, far above the assumed Jmax of 6. IDEAL
+  passes; Z1 must fail with an ASSUMED-GATE tag.
+variables:
+  a: {domain: binary}
+  b: {domain: binary}
+terms:
+  - {kind: product, a: {a: 1.0}, b: {b: 1.0}, weight: 40.0}
+contract:
+  validate: []

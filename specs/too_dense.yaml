@@ -1,0 +1,10 @@
+name: too_dense
+description: >
+  A 20-node clique. Logically fine, so IDEAL passes. Degree 19 exceeds Z1's 16
+  ports, so Z1 must fail with degree_exceeded.
+generate:
+  kind: clique
+  n: 20
+  weight: 1.0
+contract:
+  validate: []
