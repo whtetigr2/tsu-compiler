@@ -71,3 +71,34 @@ def test_categorical_reaching_lower_is_an_error():
     m = EnergyModel((Var("c", Categorical(3)),), (), 1.0)
     with pytest.raises(ValueError, match="encode"):
         lower(m)
+
+
+def test_categorical_indicator_ref_reaching_lower_is_an_error():
+    """The top-level isinstance(v.domain, Binary) guard only catches a variable
+    DECLARED categorical. `_term_expr`'s `ref.value is not None` branch is the
+    one that catches a categorical-indicator VarRef (name, value) surviving
+    inside a term even when every declared variable is Binary -- exercise that
+    branch directly."""
+    m = EnergyModel(
+        (Var("a", Binary()),),
+        (Linear(LinearForm({VarRef("a", 0): 1.0}), 1.0),),
+        1.0)
+    with pytest.raises(ValueError, match="encode"):
+        lower(m)
+
+
+def test_single_spin_odd_power_is_rejected_as_three_body():
+    """Regression for the Critical: a term whose sympy_expr raises a single
+    variable's occupancy to an odd power >= 3 (e.g. sym["a"]**3) must be caught
+    by the total-degree check on the raw expansion, not silently folded away or
+    silently mis-lowered. Modeled on the Cubic class above."""
+    class CubedSingle:
+        weight = 1.0
+        def refs(self):
+            return (VarRef("a"),)
+        def sympy_expr(self, sym):
+            return sym["a"] ** 3
+
+    m = EnergyModel(tuple(Var(n, Binary()) for n in ("a", "b")), (CubedSingle(),), 1.0)
+    with pytest.raises(ThreeBodyError):
+        lower(m)
