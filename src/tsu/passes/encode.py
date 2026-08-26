@@ -18,6 +18,19 @@ from ..spec import WorkloadSpec
 
 MONOTONE_PENALTY = 10.0
 
+# The monotonicity penalty must dominate the workload's own term weights, or an
+# illegal (non-monotone) chain state can become energetically favourable and the
+# sampler will silently return samples that decode to nothing meaningful -- a wrong
+# answer with no diagnostic, which is the exact failure class this compiler exists
+# to prevent (see encode()'s guard below). A factor of 2 is the stated floor: it
+# guarantees the deterministic per-link cost of a monotonicity violation
+# (MONOTONE_PENALTY) always outweighs what any single term in the spec could gain
+# by exploiting that violation. This is a first-order heuristic, not a certified
+# bound over interactions between multiple concurrent terms -- workloads that stack
+# many large-weight terms against the same chain should still check the legal-vs-
+# illegal energy gap directly, the way toy.yaml's own test does.
+MONOTONE_MARGIN_FACTOR = 2.0
+
 
 @dataclass(frozen=True)
 class Encoded:
@@ -80,15 +93,34 @@ def encode(spec: WorkloadSpec, encoding: str = "domain_wall") -> Encoded:
             f"encoding {encoding!r} is not implemented in the vertical slice; "
             f"only 'domain_wall' is available")
 
+    declared_names = {v.name for v in spec.variables}
+
     categorical, variables = {}, []
     for v in spec.variables:
         if isinstance(v.domain, Binary):
             variables.append(v)
         else:
             chain = _chain_names(v.name, v.domain.k)
+            for cn in chain:
+                if cn in declared_names:
+                    raise ValueError(
+                        f"generated domain-wall spin name {cn!r} for categorical "
+                        f"{v.name!r} collides with a declared variable of the same "
+                        f"name; the '__dw<j>' suffix is reserved for domain-wall "
+                        f"chain spins -- rename the declared variable {cn!r}")
             categorical[v.name] = chain
             variables.extend(Var(n, Binary()) for n in chain)
     variables = tuple(variables)
+
+    if categorical:
+        max_abs_weight = max((abs(t.weight) for t in spec.terms), default=0.0)
+        if MONOTONE_PENALTY <= MONOTONE_MARGIN_FACTOR * max_abs_weight:
+            raise ValueError(
+                f"MONOTONE_PENALTY ({MONOTONE_PENALTY}) does not exceed "
+                f"{MONOTONE_MARGIN_FACTOR}x the workload's largest term weight "
+                f"({max_abs_weight}); the monotonicity penalty must dominate the "
+                f"workload's own weights or an illegal (non-monotone) chain state "
+                f"can become energetically favourable")
 
     terms = []
     for t in spec.terms:

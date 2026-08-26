@@ -1,7 +1,7 @@
 import pytest
-from tsu.spec import load_spec
+from tsu.spec import load_spec, WorkloadSpec, TaskContract
 from tsu.passes.encode import encode
-from tsu.ir import Binary
+from tsu.ir import Binary, Categorical, Linear, LinearForm, Product, Var, VarRef
 
 
 def test_categorical_expands_to_k_minus_one_binary_spins():
@@ -45,3 +45,46 @@ def test_illegal_chain_state_is_penalised():
     enc = encode(s)
     illegal = {"a": 0, "b": 0, "c__dw0": 0, "c__dw1": 1}
     assert enc.model.energy(illegal) > 0.0
+
+
+def test_monotone_penalty_not_dominating_workload_weights_is_rejected():
+    """A categorical plus a term weight large enough that MONOTONE_PENALTY no
+    longer exceeds MONOTONE_MARGIN_FACTOR * max|weight| must fail loudly at
+    encode time, not silently let an illegal chain state win."""
+    spec = WorkloadSpec(
+        name="oversized_weight",
+        variables=(Var("c", Categorical(3)),),
+        terms=(Linear(LinearForm({VarRef("c", 0): 1.0}), 6.0),),
+        contract=TaskContract(()),
+    )
+    with pytest.raises(ValueError, match="MONOTONE_PENALTY"):
+        encode(spec)
+
+
+def test_binary_only_spec_with_large_weight_still_encodes():
+    """The monotonicity-margin guard must only fire when there is a chain to
+    keep monotone; a purely binary workload has none and must not be rejected
+    no matter how large its term weights are."""
+    spec = WorkloadSpec(
+        name="binary_only_big_weight",
+        variables=(Var("x", Binary()), Var("y", Binary())),
+        terms=(Product(LinearForm({VarRef("x"): 1.0}),
+                        LinearForm({VarRef("y"): 1.0}), 1000.0),),
+        contract=TaskContract(()),
+    )
+    enc = encode(spec)  # must not raise
+    assert len(enc.model.variables) == 2
+
+
+def test_generated_chain_name_colliding_with_declared_variable_is_rejected():
+    """A categorical c (k=3) generates 'c__dw0' and 'c__dw1'. If the spec also
+    declares a real variable literally named 'c__dw0', encode must fail loudly
+    instead of silently producing a model with duplicate variable entries."""
+    spec = WorkloadSpec(
+        name="name_collision",
+        variables=(Var("c", Categorical(3)), Var("c__dw0", Binary())),
+        terms=(),
+        contract=TaskContract(()),
+    )
+    with pytest.raises(ValueError, match="collides"):
+        encode(spec)
