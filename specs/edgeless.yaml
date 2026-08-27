@@ -1,0 +1,13 @@
+name: edgeless
+description: >
+  The simplest legal workload: one binary variable, one linear term, no
+  products. Zero edges in the lowered Ising model. Regression for C3: thrml's
+  own IsingEBM.factors indexes an empty edge block and raises a raw IndexError
+  when this reaches the backend unhandled -- this spec exercises that path end
+  to end.
+variables:
+  a: {domain: binary}
+terms:
+  - {kind: linear, form: {a: 1.0}, weight: -1.5}
+contract:
+  validate: []

@@ -79,6 +79,26 @@ def test_6d_regime_report_populated_and_honest_about_what_it_did_not_measure(tmp
     assert r["mixing_indicator"] == "unmeasured"
 
 
+def test_8_a_zero_edge_model_compiles_end_to_end_instead_of_crashing(tmp_path):
+    """C3: the simplest legal workload (one binary variable, one linear term, no
+    products) lowers to an IsingModel with zero edges. thrml's own
+    IsingEBM.factors builds a SpinEBMFactor over that empty edge block and raises
+    a raw `IndexError: tuple index out of range` -- inside `_verify`, AFTER the
+    verdict was already COMPILED, so nothing catches it: no receipt, no verdict,
+    a vendor stack trace. Compiling this spec end to end (through the CLI, which
+    is where a raw exception would otherwise surface) must produce a receipt
+    with a verdict, not a crash."""
+    rc = main(["compile", "specs/edgeless.yaml", "--target", "z1",
+               "--out", str(tmp_path / "r")])
+    assert rc == 0
+    passes = json.loads((tmp_path / "r" / "passes.json").read_text())
+    assert passes["verdict"] == "COMPILED"
+    verification = json.loads((tmp_path / "r" / "verification.json").read_text())
+    assert verification["energy_tv"] is not None, \
+        "the zero-edge exact reference must actually run, not silently skip"
+    assert verification["task_validity"] is not None
+
+
 def test_7_visualize_renders_four_layers_from_receipt_data(tmp_path):
     main(["compile", "specs/toy.yaml", "--target", "z1", "--out", str(tmp_path / "r")])
     html = tmp_path / "r.html"
