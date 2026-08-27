@@ -2,8 +2,16 @@
 
 Every compilation runs `ideal` FIRST. A z1 failure reported without a passing ideal
 control is a defect in this compiler, not a finding about the substrate
-(spec section 5.1). In the vertical slice exactly one candidate is generated, so the
-state machine is exercised end to end while no search occurs.
+(spec section 5.1). The ideal control itself still probes with a single, fixed
+encoding (SLICE_ENCODINGS[0]) -- it exists to prove the SPEC is logically sound
+independent of hardware, not to search; that part of the pipeline is unchanged.
+
+A5: SLICE_ENCODINGS now holds every encoding this compiler can produce, so a real
+search happens once the ideal control passes -- each is tried against the actual
+target and EVERY outcome is retained (rejected candidates included, as evidence).
+Selection among the feasible candidates orders by physical p-bit count, then
+colour blocks, then |J|max, ties broken by declaration order; `compare()` renders
+the full measured table so that ordering is auditable, not just asserted.
 """
 from __future__ import annotations
 
@@ -25,7 +33,7 @@ from .program import build_program
 from .route import route
 from .verify import Verification, tv_noise_floor
 
-SLICE_ENCODINGS = ("domain_wall",)
+SLICE_ENCODINGS = ("domain_wall", "one_hot")
 
 
 @dataclass
@@ -87,10 +95,58 @@ def _try(spec, target, encoding, allow_assumed):
     prog = build_program(ising, report)
     regime = analyse_regime(report, target, weights=ising.weights)
     return (Candidate(encoding, CandidateState.HARDWARE_FEASIBLE, report=report,
-                      regime=regime),
+                      regime=regime, placement=placement),
             {"encoded": enc, "ising": ising, "report": report,
              "gate_checks": checks, "program": prog,
              "regime": regime, "placement": placement})
+
+
+ORDERING_RATIONALE = (
+    "selection order: physical p-bit count, then colour blocks, then |J|max; "
+    "ties broken by declaration order (" + ", ".join(SLICE_ENCODINGS) + ")")
+
+
+def _physical_pbits(report) -> int:
+    """The count of spins actually deployed to the substrate. In this vertical
+    slice `route` never inserts a mediator spin (it is the identity for a graph
+    that already satisfies the target's parity requirement, and raises rather
+    than silently mediating one that does not -- see route.py), so physical
+    p-bit count equals the logical spin count (`report.n_nodes`) for every
+    candidate that reaches HARDWARE_FEASIBLE here. Kept as its own named
+    quantity (not just an alias read as `n_nodes`) because that equality is a
+    property of this slice's `route`, not a general truth the rest of the
+    compiler should assume."""
+    return report.n_nodes
+
+
+def _selection_key(c: "Candidate"):
+    r = c.report
+    return (_physical_pbits(r), r.colour_blocks, r.max_abs_J)
+
+
+def compare(repset: "RepresentationSet") -> tuple[dict, ...]:
+    """The measured table over EVERY candidate in a RepresentationSet -- winner,
+    runner-up, and rejected alike -- so a selection can be audited against the
+    numbers that produced it, not just the ordering_rationale prose. Any field
+    a candidate never reached (e.g. `analyse` never ran because `encode` itself
+    failed) reads None here; callers must not treat that as zero."""
+    rows = []
+    for c in repset.candidates:
+        r, p = c.report, c.placement
+        rows.append({
+            "encoding": c.encoding,
+            "state": c.state.value,
+            "reason": c.reason or "",
+            "logical_spins": r.n_nodes if r else None,
+            "logical_edges": r.n_edges if r else None,
+            "bipartite": r.bipartite if r else None,
+            "mediators": (r.mediators if r and r.mediators >= 0 else None),
+            "physical_pbits": (_physical_pbits(r) if r and p else None),
+            "colour_blocks": r.colour_blocks if r else None,
+            "max_abs_J": r.max_abs_J if r else None,
+            "max_abs_b": r.max_abs_b if r else None,
+        })
+    return tuple(rows)
 
 
 def compile_spec(spec, target: TargetProfile, allow_assumed: bool = False) -> Compilation:
@@ -123,18 +179,34 @@ def compile_spec(spec, target: TargetProfile, allow_assumed: bool = False) -> Co
                                      "no candidate was hardware-feasible"),
             allow_assumed=allow_assumed, gate_checks=checks)
 
-    chosen = feasible[0]
+    chosen = min(feasible, key=_selection_key)
     art = arts[chosen.encoding][1]
     selected = Candidate(chosen.encoding, CandidateState.SELECTED,
-                         report=chosen.report, regime=chosen.regime)
-    final = tuple(selected if c is chosen else c for c in cands)
+                         report=chosen.report, regime=chosen.regime,
+                         placement=chosen.placement)
+
+    final = []
+    for c in cands:
+        if c is chosen:
+            final.append(selected)
+        elif c.state == CandidateState.HARDWARE_FEASIBLE:
+            # feasible, but out-ranked by `chosen` under the selection order --
+            # retained as evidence, not discarded (spec section 9: "search"
+            # means every candidate stays visible, winner or not).
+            final.append(Candidate(
+                c.encoding, CandidateState.VIABLE_NOT_SELECTED,
+                reason=(f"not selected: {chosen.encoding} ranked ahead of "
+                       f"{c.encoding} under {ORDERING_RATIONALE}"),
+                report=c.report, regime=c.regime, placement=c.placement))
+        else:
+            final.append(c)
+    final = tuple(final)
 
     verification = _verify(spec, art)
     return Compilation(
         spec=spec, target=target, verdict="COMPILED", ideal_passed=True,
         ideal_report=ideal_cand, hardware_evaluated=True,
-        repset=RepresentationSet(final, selected,
-                                 "single candidate in the vertical slice"),
+        repset=RepresentationSet(final, selected, ORDERING_RATIONALE),
         allow_assumed=allow_assumed, gate_checks=art["gate_checks"],
         program=art["program"], encoded=art["encoded"], regime=art["regime"],
         placement=art["placement"], verification=verification)

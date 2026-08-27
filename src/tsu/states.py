@@ -23,6 +23,8 @@ class Candidate:
     failure: Any = None
     report: Any = None
     regime: Any = None
+    placement: Any = None   # the Placement this candidate reached, if any (A5:
+                              # `compare()` needs it for physical p-bit count)
 
 
 @dataclass(frozen=True)
