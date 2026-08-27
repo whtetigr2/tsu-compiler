@@ -150,8 +150,17 @@ def _verify(spec, art) -> Verification:
         ok += 1 if spec.contract.validate(enc.decode(bits)).ok else 0
     task_validity = ok / len(got)
 
-    # execution layer: sampler vs its own model
-    idx = (got * (1 << np.arange(n))).sum(axis=1)
+    # execution layer: sampler vs its own model. The index into `probs` MUST be
+    # derived from `states` itself, never from an independently-assumed bit
+    # order -- `exact_distribution`'s enumeration order is an implementation
+    # detail of itertools.product, and a hand-rolled (1 << arange(n)) index
+    # silently assumes a specific one. A previous version assumed LSB-first
+    # and got MSB-first, which inflated execution_tv from ~0.01 to ~0.52 with
+    # no error raised anywhere -- a broken comparison that looked exactly like
+    # a broken sampler. Building the lookup from `states` means the two can
+    # never drift apart again, regardless of how either side is implemented.
+    state_index = {tuple(int(x) for x in row): i for i, row in enumerate(states)}
+    idx = np.array([state_index[tuple(int(x) for x in row)] for row in got])
     hist = np.bincount(idx, minlength=len(probs)).astype(float)
     hist /= hist.sum()
     execution_tv = float(0.5 * np.abs(hist - probs).sum())
