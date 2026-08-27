@@ -6,7 +6,7 @@ from tsu.ir import Binary, EnergyModel, Linear, LinearForm, Product, Var, VarRef
 from tsu.passes.lower import lower
 from tsu.passes.analyse import analyse
 from tsu.passes.program import build_program
-from tsu.backends.thrml_backend import exact_distribution, sample
+from tsu.backends.thrml_backend import exact_distribution, sample, sample_chains
 from tsu.backends.torx_backend import torx_cross_check
 
 
@@ -125,3 +125,46 @@ def test_sampling_handles_a_zero_edge_model_instead_of_raising():
     hist = np.bincount(got[:, 0], minlength=2).astype(float)
     hist /= hist.sum()
     assert np.abs(hist - probs).max() < 0.05
+
+
+def test_sample_chains_returns_the_unflattened_per_chain_shape():
+    """Autocorrelation (see tsu.ess) is meaningless across a chain boundary --
+    `sample`'s (n_chains*n_samples, n_spins) contract flattens that boundary
+    away on purpose for callers that only want i.i.d.-looking draws.
+    `sample_chains` is the SEPARATE function that keeps chains apart, added
+    without changing what `sample` returns or how it is called."""
+    prog, _ = two_spin_program()
+    n_chains, n_samples = 8, 50
+    chains = sample_chains(prog, n_chains=n_chains, n_samples=n_samples,
+                           n_warmup=20, steps_per_sample=2, seed=0)
+    assert chains.shape == (n_chains, n_samples, 2)
+
+
+def test_sample_chains_flattened_equals_sample_bit_for_bit():
+    """`sample` must still be exactly what it always was -- a reshape of the
+    same underlying draws, not a separately-computed (and therefore
+    potentially divergent) run."""
+    prog, _ = two_spin_program()
+    chains = sample_chains(prog, n_chains=6, n_samples=30, n_warmup=15,
+                           steps_per_sample=2, seed=3)
+    flat_expected = sample(prog, n_chains=6, n_samples=30, n_warmup=15,
+                           steps_per_sample=2, seed=3)
+    assert np.array_equal(chains.reshape(-1, chains.shape[-1]), flat_expected)
+
+
+def test_sample_chains_refuses_zero_warmup_same_as_sample():
+    prog, _ = two_spin_program()
+    with pytest.raises(AssertionError, match="n_warmup"):
+        sample_chains(prog, n_chains=4, n_samples=4, n_warmup=0,
+                      steps_per_sample=1, seed=0)
+
+
+def test_sample_chains_handles_the_zero_edge_model():
+    """The same C3 zero-edge closed-form path `sample` uses must also work
+    through `sample_chains` -- it is a separate code path (`_edgeless_sample`
+    reshaped rather than thrml's IsingSamplingProgram), so it needs its own
+    check that it does not hit the same vendor IndexError."""
+    prog, _ = one_spin_no_edges_program()
+    chains = sample_chains(prog, n_chains=5, n_samples=7, n_warmup=3,
+                           steps_per_sample=1, seed=0)
+    assert chains.shape == (5, 7, 1)

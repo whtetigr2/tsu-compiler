@@ -88,12 +88,24 @@ def exact_distribution(prog: SamplingProgram):
     return np.asarray(states).astype(int), probs
 
 
-def sample(prog: SamplingProgram, n_chains: int, n_samples: int, n_warmup: int,
-           steps_per_sample: int, seed: int) -> np.ndarray:
+def sample_chains(prog: SamplingProgram, n_chains: int, n_samples: int,
+                  n_warmup: int, steps_per_sample: int, seed: int) -> np.ndarray:
+    """Same draws as `sample`, but UNFLATTENED: shape (n_chains, n_samples,
+    n_spins). `sample`'s own (n_chains*n_samples, n_spins) contract flattens
+    the chain boundary away on purpose -- fine for a caller that only wants
+    i.i.d.-looking draws to compare against a stationary reference (energy_tv,
+    execution_tv, task_validity), but autocorrelation/effective-sample-size
+    (tsu.ess) is meaningless across that boundary. Added as a SEPARATE
+    function, rather than a flag on `sample`, so `sample`'s existing shape
+    contract -- several callers already depend on it -- never changes based on
+    a caller's intent.
+    """
     assert n_warmup > 0, \
         "n_warmup=0 makes sample_states record BEFORE stepping; see manual 4.4"
     if not prog.ising.edges:
-        return _edgeless_sample(prog.ising, n_chains, n_samples, seed)
+        n = len(prog.ising.nodes)
+        flat = _edgeless_sample(prog.ising, n_chains, n_samples, seed)
+        return flat.reshape(n_chains, n_samples, n)
     nodes, ebm = _model(prog)
     blocks = [Block([nodes[i] for i in b]) for b in prog.blocks]
     program = IsingSamplingProgram(ebm, blocks, [])
@@ -107,4 +119,11 @@ def sample(prog: SamplingProgram, n_chains: int, n_samples: int, n_warmup: int,
     fn = jax.jit(jax.vmap(lambda i, k: sample_states(
         k, program, sched, i, [], [Block(nodes)])))
     out = np.asarray(fn(init, jax.random.split(k_r, n_chains))[0])
-    return out.reshape(-1, len(prog.ising.nodes)).astype(int)
+    return out.astype(int)
+
+
+def sample(prog: SamplingProgram, n_chains: int, n_samples: int, n_warmup: int,
+           steps_per_sample: int, seed: int) -> np.ndarray:
+    chains = sample_chains(prog, n_chains, n_samples, n_warmup,
+                           steps_per_sample, seed)
+    return chains.reshape(-1, chains.shape[-1]).astype(int)
