@@ -61,9 +61,17 @@ def _edgeless_distribution(im: IsingModel):
     return states.astype(int), probs
 
 
-def _edgeless_sample(im: IsingModel, n_chains: int, n_samples: int, seed: int) -> np.ndarray:
+def _edgeless_sample(im: IsingModel, n_chains: int, n_samples: int, seed: int,
+                     clamp_values: dict[int, int] | None = None) -> np.ndarray:
     """Zero couplings: each site is an independent Bernoulli, exact by
-    construction -- no chain, no warmup, no mixing to worry about."""
+    construction -- no chain, no warmup, no mixing to worry about.
+
+    C1: a clamped site (`clamp_values`) is never drawn -- its column is fixed
+    to its clamped value on every draw, the same guarantee the general
+    (edged) path gets from thrml's own `state_clamp`. This is a SEPARATE code
+    path from the general one (see this module's own docstring on why
+    zero-edge models bypass thrml's factor machinery entirely), so it needs
+    its own clamp handling."""
     n = len(im.nodes)
     beta = float(im.beta)
     biases = np.asarray(im.biases, dtype=float)
@@ -71,7 +79,10 @@ def _edgeless_sample(im: IsingModel, n_chains: int, n_samples: int, seed: int) -
     rng = np.random.default_rng(seed)
     total = n_chains * n_samples
     draws = rng.random((total, n)) if n else np.zeros((total, 0))
-    return (draws < p_plus).astype(int)
+    out = (draws < p_plus).astype(int)
+    for i, v in (clamp_values or {}).items():
+        out[:, i] = int(v)
+    return out
 
 
 def exact_distribution(prog: SamplingProgram):
@@ -99,25 +110,42 @@ def sample_chains(prog: SamplingProgram, n_chains: int, n_samples: int,
     function, rather than a flag on `sample`, so `sample`'s existing shape
     contract -- several callers already depend on it -- never changes based on
     a caller's intent.
+
+    C1: `prog.clamped`/`prog.clamp_values` (set by `build_program`) are
+    passed straight through to thrml -- `IsingSamplingProgram`'s own
+    `clamped_blocks` and `sample_states`' own `state_clamp`, exactly the
+    mechanism thrml provides for this, never a hand-rolled "hold it fixed"
+    loop. `nodes_to_sample` stays every node (free AND clamped), so a
+    returned sample's clamped columns show the clamped value, never an
+    ambiguous absence.
     """
     assert n_warmup > 0, \
         "n_warmup=0 makes sample_states record BEFORE stepping; see manual 4.4"
     if not prog.ising.edges:
         n = len(prog.ising.nodes)
-        flat = _edgeless_sample(prog.ising, n_chains, n_samples, seed)
+        flat = _edgeless_sample(prog.ising, n_chains, n_samples, seed,
+                                clamp_values=prog.clamp_values)
         return flat.reshape(n_chains, n_samples, n)
     nodes, ebm = _model(prog)
-    blocks = [Block([nodes[i] for i in b]) for b in prog.blocks]
-    program = IsingSamplingProgram(ebm, blocks, [])
+    free_blocks = [Block([nodes[i] for i in b]) for b in prog.blocks]
+    clamped = tuple(prog.clamped)
+    if clamped:
+        clamped_blocks = [Block([nodes[i] for i in clamped])]
+        state_clamp = [jnp.asarray(
+            [bool(prog.clamp_values[i]) for i in clamped], dtype=bool)]
+    else:
+        clamped_blocks = []
+        state_clamp = []
+    program = IsingSamplingProgram(ebm, free_blocks, clamped_blocks)
     sched = SamplingSchedule(n_warmup=n_warmup, n_samples=n_samples,
                              steps_per_sample=steps_per_sample)
     key = jax.random.key(seed)
     k_i, k_r = jax.random.split(key)
     # uniform-random init, NOT hinton_init, which starts at the mode
     init = [jax.random.bernoulli(k, 0.5, (n_chains, len(b)))
-            for k, b in zip(jax.random.split(k_i, len(blocks)), prog.blocks)]
+            for k, b in zip(jax.random.split(k_i, len(free_blocks)), prog.blocks)]
     fn = jax.jit(jax.vmap(lambda i, k: sample_states(
-        k, program, sched, i, [], [Block(nodes)])))
+        k, program, sched, i, state_clamp, [Block(nodes)])))
     out = np.asarray(fn(init, jax.random.split(k_r, n_chains))[0])
     return out.astype(int)
 

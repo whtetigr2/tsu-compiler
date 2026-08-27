@@ -56,9 +56,24 @@ class Compilation:
     regime: Any = None
     placement: Any = None
     verification: Verification | None = None
+    clamp: Any = None                # C1: the WORKLOAD-level clamp this compile
+                                       # was run under, {} when none
 
 
-def _try(spec, target, encoding, allow_assumed):
+def _physical_clamp(enc, ising, clamp):
+    """C1: translate a WORKLOAD-level clamp ({logical name: value}) into the
+    PHYSICAL clamp `build_program` needs ({node index: 0/1}) -- via
+    `Encoded.encode_clamp` (a clamped categorical becomes its clamped chain
+    spins) and `ising.nodes`' own index. None (not {}) when there is nothing
+    to clamp, so `build_program`'s default (unclamped) path is untouched."""
+    if not clamp:
+        return None
+    spin_clamp = enc.encode_clamp(clamp)
+    idx = {n: i for i, n in enumerate(ising.nodes)}
+    return {idx[name]: value for name, value in spin_clamp.items()}
+
+
+def _try(spec, target, encoding, allow_assumed, clamp=None):
     """Run one candidate through the pipeline. Returns (Candidate, artefacts).
 
     `artefacts["gate_checks"]` is populated whenever the model reached gate
@@ -66,6 +81,12 @@ def _try(spec, target, encoding, allow_assumed):
     candidate passed -- a receipt needs "every gate, passed/failed, with the
     measured value and threshold" (spec section 10), not only the gates a
     COMPILED run happened to pass.
+
+    `clamp` (C1) is a WORKLOAD-level {name: value} map, threaded through to
+    `build_program` as a physical node clamp -- it changes nothing about
+    encode/lower/analyse/gates/placement (clamping is a SAMPLING-time
+    concept: which nodes get resampled, not what the model means), only which
+    nodes `build_program` puts in a free block.
     """
     try:
         enc = encode(spec, encoding)
@@ -94,7 +115,7 @@ def _try(spec, target, encoding, allow_assumed):
                          reason=str(e), failure=e.failures[0], report=report), \
             {"report": report, "gate_checks": checks}
 
-    prog = build_program(ising, report)
+    prog = build_program(ising, report, _physical_clamp(enc, ising, clamp))
     regime = analyse_regime(report, target, weights=ising.weights)
     return (Candidate(encoding, CandidateState.HARDWARE_FEASIBLE, report=report,
                       regime=regime, placement=placement),
@@ -151,7 +172,17 @@ def compare(repset: "RepresentationSet") -> tuple[dict, ...]:
     return tuple(rows)
 
 
-def compile_spec(spec, target: TargetProfile, allow_assumed: bool = False) -> Compilation:
+def compile_spec(spec, target: TargetProfile, allow_assumed: bool = False,
+                 clamp=None) -> Compilation:
+    """`clamp` (C1): an optional {workload variable name: value} map, pinning
+    those variables for the SAMPLING stage only. The preferred entry point
+    for clamping (over a spec-file `clamp:` block) precisely so an
+    application can clamp at run time -- e.g. a player edits one cell --
+    without rewriting or regenerating a spec file. The ideal control below is
+    deliberately run UNCLAMPED regardless: its only job is proving the spec
+    is logically sound on its own terms, independent of any one run's clamp
+    choice.
+    """
     # --- the mandatory ideal control, first and always -----------------------
     ideal_cand, ideal_art = _try(spec, IDEAL, SLICE_ENCODINGS[0], True)
     ideal_ok = ideal_cand.state == CandidateState.HARDWARE_FEASIBLE
@@ -161,11 +192,11 @@ def compile_spec(spec, target: TargetProfile, allow_assumed: bool = False) -> Co
             ideal_report=ideal_cand, hardware_evaluated=False,
             repset=RepresentationSet((ideal_cand,), None,
                                      "ideal control failed; target not evaluated"),
-            allow_assumed=allow_assumed)
+            allow_assumed=allow_assumed, clamp=dict(clamp or {}))
 
     cands, arts = [], {}
     for enc_name in SLICE_ENCODINGS:
-        c, a = _try(spec, target, enc_name, allow_assumed)
+        c, a = _try(spec, target, enc_name, allow_assumed, clamp)
         cands.append(c)
         if a:
             arts[enc_name] = (c, a)
@@ -179,7 +210,7 @@ def compile_spec(spec, target: TargetProfile, allow_assumed: bool = False) -> Co
             ideal_report=ideal_cand, hardware_evaluated=True,
             repset=RepresentationSet(tuple(cands), None,
                                      "no candidate was hardware-feasible"),
-            allow_assumed=allow_assumed, gate_checks=checks)
+            allow_assumed=allow_assumed, gate_checks=checks, clamp=dict(clamp or {}))
 
     chosen = min(feasible, key=_selection_key)
     art = arts[chosen.encoding][1]
@@ -227,7 +258,8 @@ def compile_spec(spec, target: TargetProfile, allow_assumed: bool = False) -> Co
         repset=RepresentationSet(final, selected, ORDERING_RATIONALE),
         allow_assumed=allow_assumed, gate_checks=art["gate_checks"],
         program=art["program"], encoded=art["encoded"], regime=regime,
-        placement=art["placement"], verification=verification)
+        placement=art["placement"], verification=verification,
+        clamp=dict(clamp or {}))
 
 
 def _measure_mixing(ising, chains: np.ndarray) -> EssEstimate:

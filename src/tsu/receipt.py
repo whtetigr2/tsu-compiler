@@ -184,7 +184,19 @@ def write_receipt(c, out_dir) -> Path:
                 "beta": im.beta, "offset": im.offset,
                 "blocks": [list(b) for b in c.program.blocks],
                 "schedule": c.program.schedule,
-                "placement": _placement(c.placement)}
+                "placement": _placement(c.placement),
+                # C1: the clamp this compile was run under, at BOTH layers --
+                # `clamp` is the WORKLOAD-level request (what the caller
+                # asked to pin, in the spec's own variable names -- present
+                # even on a LOGICAL/HARDWARE receipt with no program.ising),
+                # `clamped_nodes`/`clamp_values` are the physical spins it
+                # translated to on the SELECTED program. A sample obtained
+                # under a clamp must never be mistakable for an unconditioned
+                # one, and the converse: an unclamped receipt must visibly
+                # record that nothing was clamped, not omit the field.
+                "clamped_nodes": list(c.program.clamped),
+                "clamp_values": {str(k): v for k, v in c.program.clamp_values.items()}}
+    prog["clamp"] = dict(getattr(c, "clamp", None) or {})
     (d / "program.json").write_text(json.dumps(prog, indent=2))
 
     (d / "environment.json").write_text(json.dumps(_env(), indent=2))

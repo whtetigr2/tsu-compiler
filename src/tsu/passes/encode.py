@@ -86,21 +86,45 @@ class Encoded:
     categorical: Mapping[str, tuple[str, ...]]   # logical name -> chain spin names
     encoding: str = "domain_wall"
 
+    def _encode_one(self, name: str, v: int) -> dict[str, int]:
+        """Physical spin value(s) for ONE logical variable's value -- shared by
+        `encode_assignment` (every variable) and `encode_clamp` (C1: only the
+        variables a caller names, so a run-time clamp need not rewrite a spec
+        file). A categorical value becomes its full chain of spins (exactly
+        the mapping `encode_assignment` already used); a binary value passes
+        straight through."""
+        chain = self.categorical.get(name)
+        if chain is not None:
+            if self.encoding == "domain_wall":
+                return {spin: (1 if j < v else 0) for j, spin in enumerate(chain)}
+            if self.encoding == "one_hot":
+                return {spin: (1 if j == v else 0) for j, spin in enumerate(chain)}
+            raise ValueError(f"unknown encoding {self.encoding!r}")
+        if name in self.binary_names:
+            return {name: int(v)}
+        raise KeyError(
+            f"{name!r} is not a variable of this encoded model (known: "
+            f"{sorted(set(self.categorical) | set(self.binary_names))})")
+
     def encode_assignment(self, asg: Mapping[str, int]) -> dict[str, int]:
         out = {}
-        for name, chain in self.categorical.items():
-            v = asg[name]
-            if self.encoding == "domain_wall":
-                for j, spin in enumerate(chain):
-                    out[spin] = 1 if j < v else 0
-            elif self.encoding == "one_hot":
-                for j, spin in enumerate(chain):
-                    out[spin] = 1 if j == v else 0
-            else:
-                raise ValueError(f"unknown encoding {self.encoding!r}")
+        for name in self.categorical:
+            out.update(self._encode_one(name, asg[name]))
         for n in self.binary_names:
             if n not in out:
                 out[n] = int(asg[n])
+        return out
+
+    def encode_clamp(self, clamp: Mapping[str, int]) -> dict[str, int]:
+        """C1: the physical spin values for a WORKLOAD-level clamp -- only the
+        variables named in `clamp`, each mapped through the SAME per-value
+        encoding `encode_assignment` uses (a clamped categorical becomes its
+        full chain of clamped spins). A caller may clamp any subset, including
+        none or all -- clamping every variable agrees exactly with
+        `encode_assignment` on a full assignment (see test_clamp.py)."""
+        out = {}
+        for name, v in clamp.items():
+            out.update(self._encode_one(name, v))
         return out
 
     def decode(self, bits: Mapping[str, int]) -> dict[str, int]:

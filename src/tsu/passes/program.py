@@ -5,7 +5,8 @@ the partition is asserted here and again in the test suite.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Mapping
 
 from .analyse import GraphReport
 from .lower import IsingModel
@@ -30,22 +31,47 @@ class SamplingProgram:
     blocks: tuple[tuple[int, ...], ...]
     schedule: str = "chromatic_block_gibbs"
     form: str = "monolithic_energy"
+    # C1: clamping. `clamped` is the tuple of PHYSICAL node indices held fixed
+    # -- never resampled, and therefore never a member of any block above.
+    # `clamp_values` is that same set of nodes' fixed 0/1 values. Both default
+    # empty so an unclamped program is bit-for-bit the program this pass
+    # always built.
+    clamped: tuple[int, ...] = ()
+    clamp_values: Mapping[int, int] = field(default_factory=dict)
 
 
-def build_program(ising: IsingModel, report: GraphReport) -> SamplingProgram:
+def build_program(ising: IsingModel, report: GraphReport,
+                  clamp: Mapping[int, int] | None = None) -> SamplingProgram:
+    """`clamp`: physical node index -> its fixed 0/1 value (C1). A clamped
+    node is not resampled, so it must never appear in a free block -- the
+    colouring is partitioned into blocks over the FREE nodes only, and that
+    non-membership is asserted below, not assumed from how the blocks happen to be
+    built."""
+    clamp = dict(clamp or {})
+    clamped_idx = frozenset(clamp)
+
     blocks = []
     for c in range(report.colour_blocks):
-        members = tuple(sorted(n for n, col in report.colouring.items() if col == c))
+        members = tuple(sorted(n for n, col in report.colouring.items()
+                               if col == c and n not in clamped_idx))
         if members:
             blocks.append(members)
     blocks = tuple(blocks)
 
-    members = set()
+    free_members = set()
     for b in blocks:
+        for n in b:
+            assert n not in clamped_idx, \
+                f"clamped node {n} appeared in a free block: {b}"
         for u, v in ising.edges:
             assert not (u in b and v in b), \
                 f"invalid colouring: {u} and {v} are adjacent and share a block"
-        members |= set(b)
-    assert members == set(range(len(ising.nodes))), "blocks must cover every node once"
+        free_members |= set(b)
 
-    return SamplingProgram(ising, blocks)
+    assert free_members.isdisjoint(clamped_idx), \
+        "a clamped node must never appear in a free block"
+    assert free_members | clamped_idx == set(range(len(ising.nodes))), \
+        "free blocks plus the clamp must cover every node exactly once"
+
+    return SamplingProgram(ising, blocks, clamped=tuple(sorted(clamped_idx)),
+                           clamp_values=clamp)
