@@ -124,3 +124,38 @@ def test_metrics_json_never_publishes_the_uncomputed_mediators_sentinel(tmp_path
     assert "<th>mediators</th><td>None</td>" not in text, \
         "mediators must render as its note, not the bare word None"
     assert metrics["mediators_note"] in text
+
+
+def test_task_validity_and_noise_floor_render_their_reason_not_the_word_none(tmp_path):
+    """I8: every verification field except task_validity carried its own note
+    ('energy_note', 'execution_note', 'cross_check_note'); task_validity fell
+    back to a bare 'unavailable' literal with no reason, and
+    execution_noise_floor fell back to a raw null with no note at all -- the
+    visualizer rendered both as the literal string 'None'. A model too large to
+    enumerate exactly (compiled against IDEAL so it still reaches COMPILED)
+    exercises the real path."""
+    from tsu.backends.thrml_backend import EXACT_LIMIT
+
+    n = EXACT_LIMIT + 2
+    variables = tuple(Var(f"x{i}", Binary()) for i in range(n))
+    terms = tuple(
+        Product(LinearForm({VarRef(f"x{i}"): 1.0}),
+               LinearForm({VarRef(f"x{i + 1}"): 1.0}), 1.0)
+        for i in range(n - 1))
+    spec = WorkloadSpec(name="oversized", variables=variables, terms=terms,
+                        contract=TaskContract(()), source_text="name: oversized\n")
+
+    c = compile_spec(spec, IDEAL)
+    assert c.verdict == "COMPILED"
+    d = write_receipt(c, tmp_path / "r")
+
+    verification = json.loads((Path(d) / "verification.json").read_text())
+    assert verification["task_validity"].startswith("unavailable:"), \
+        "task_validity must carry a REASON, not the bare word 'unavailable'"
+    assert verification["execution_noise_floor"].startswith("unavailable:")
+
+    html_out = tmp_path / "r.html"
+    render(d, html_out)
+    text = html_out.read_text(encoding="utf-8")
+    assert "<th>task_validity</th><td>None</td>" not in text
+    assert "<th>execution_noise_floor</th><td>None</td>" not in text

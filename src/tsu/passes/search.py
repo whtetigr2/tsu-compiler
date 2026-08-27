@@ -148,10 +148,16 @@ def _verify(spec, art) -> Verification:
     n = len(ising.nodes)
 
     if n > EXACT_LIMIT:
-        return Verification(None, f"unavailable: 2^{n} too large to enumerate",
-                            None, None, "unavailable: no exact reference", None,
-                            None, "unavailable: model too large",
-                            None, "unavailable: no exact reference")
+        return Verification(
+            energy_tv=None, energy_note=f"unavailable: 2^{n} too large to enumerate",
+            task_validity=None,
+            task_validity_note="unavailable: no exact reference to validate decoded "
+                               "samples against",
+            execution_tv=None, execution_note="unavailable: no exact reference",
+            execution_noise_floor=None,
+            cross_check_tv=None, cross_check_note="unavailable: model too large",
+            codeword_violation_rate=None,
+            codeword_violation_note="unavailable: no exact reference")
 
     states, probs = exact_distribution(prog)
 

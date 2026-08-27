@@ -1,7 +1,22 @@
 import pytest
-from tsu.spec import load_spec
-from tsu.target import Z1
+from tsu.spec import load_spec, TaskContract, WorkloadSpec
+from tsu.ir import Binary, Product, LinearForm, Var, VarRef
+from tsu.target import IDEAL, Z1
 from tsu.passes.search import compile_spec
+from tsu.backends.thrml_backend import EXACT_LIMIT
+
+
+def _oversized_spec(n) -> WorkloadSpec:
+    """n binary variables in a path, n > EXACT_LIMIT -- too large to enumerate
+    exactly. Compiled against IDEAL so it reaches COMPILED and _verify actually
+    runs, taking the n > EXACT_LIMIT branch."""
+    variables = tuple(Var(f"x{i}", Binary()) for i in range(n))
+    terms = tuple(
+        Product(LinearForm({VarRef(f"x{i}"): 1.0}),
+               LinearForm({VarRef(f"x{i + 1}"): 1.0}), 1.0)
+        for i in range(n - 1))
+    return WorkloadSpec(name="oversized", variables=variables, terms=terms,
+                        contract=TaskContract(()), source_text="name: oversized\n")
 
 
 def test_verification_reports_all_three_layers():
@@ -29,15 +44,21 @@ def test_execution_tv_is_within_its_own_noise_floor():
 
 
 def test_verification_says_unavailable_rather_than_guessing():
-    from tsu.passes.verify import Verification
-    v = Verification(energy_tv=None, energy_note="unavailable: 2^n too large",
-                     task_validity=0.9, execution_tv=None,
-                     execution_note="unavailable: no exact reference",
-                     execution_noise_floor=None,
-                     cross_check_tv=None, cross_check_note="unavailable: n > 12")
+    """I8: this used to hand-construct a Verification and assert to_dict echoed
+    it back -- it never called _verify, so it could not fail if the PRODUCTION
+    path ever fabricated a number instead of reporting unavailability. Compiling
+    a model too large to enumerate exactly (n > EXACT_LIMIT) exercises the real
+    path: _verify's own `n > EXACT_LIMIT` branch."""
+    n = EXACT_LIMIT + 2
+    v = compile_spec(_oversized_spec(n), IDEAL).verification
+    assert v is not None
     d = v.to_dict()
-    assert d["energy_tv"] == "unavailable: 2^n too large"
-    assert d["execution_tv"] == "unavailable: no exact reference"
+    for field in ("energy_tv", "task_validity", "execution_tv",
+                 "execution_noise_floor", "cross_check_tv",
+                 "codeword_violation_rate"):
+        assert isinstance(d[field], str) and d[field].startswith("unavailable"), \
+            f"{field} must read 'unavailable: <reason>', not a fabricated number " \
+            f"or a bare 'unavailable' with no reason -- got {d[field]!r}"
 
 
 def test_codeword_violation_rate_is_measured_and_excluded_from_task_validity():

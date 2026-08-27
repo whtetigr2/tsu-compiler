@@ -1,5 +1,13 @@
 """Three-layer equivalence. Never fabricates: absent a reference, the field reads
-"unavailable" with a reason (spec section 10)."""
+"unavailable" with a reason (spec section 10).
+
+I8 (final review): every field here except `task_validity` carried its own note
+alongside it (`energy_note`, `execution_note`, `cross_check_note`); `task_validity`
+alone fell back to a bare `"unavailable"` literal with no reason attached, and
+`execution_noise_floor` fell back to a raw `None` with no note at all -- the
+visualizer then rendered both as the literal string "None". Both now carry (or
+reuse) a note the same way their siblings always have.
+"""
 from __future__ import annotations
 
 import math
@@ -25,15 +33,25 @@ class Verification:
     # instead of folding it into (and inflating) task_validity.
     codeword_violation_rate: float | None = None
     codeword_violation_note: str = ""
+    # I8: task_validity's own reason, in the same form as every sibling field.
+    # Defaults to the old bare literal so a Verification constructed without
+    # setting it explicitly (e.g. an older caller, or a test) still renders the
+    # same "unavailable" it always did -- but a real caller should always set
+    # this to something informative when task_validity is None.
+    task_validity_note: str = "unavailable"
 
     def to_dict(self):
         def f(v, note):
             return v if v is not None else note
         return {
             "energy_tv": f(self.energy_tv, self.energy_note),
-            "task_validity": f(self.task_validity, "unavailable"),
+            "task_validity": f(self.task_validity, self.task_validity_note),
             "execution_tv": f(self.execution_tv, self.execution_note),
-            "execution_noise_floor": self.execution_noise_floor,
+            # execution_noise_floor is computed IN THE SAME BRANCH as
+            # execution_tv and is None exactly when execution_tv is -- reusing
+            # execution_note (rather than inventing a duplicate-text field) is
+            # honest, not a shortcut.
+            "execution_noise_floor": f(self.execution_noise_floor, self.execution_note),
             "cross_check_tv": f(self.cross_check_tv, self.cross_check_note),
             "codeword_violation_rate": f(self.codeword_violation_rate,
                                         self.codeword_violation_note),
