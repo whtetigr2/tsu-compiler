@@ -85,7 +85,7 @@ def _try(spec, target, encoding, allow_assumed):
             {"report": report, "gate_checks": checks}
 
     prog = build_program(ising, report)
-    regime = analyse_regime(report, target)
+    regime = analyse_regime(report, target, weights=ising.weights)
     return (Candidate(encoding, CandidateState.HARDWARE_FEASIBLE, report=report,
                       regime=regime),
             {"encoded": enc, "ising": ising, "report": report,
