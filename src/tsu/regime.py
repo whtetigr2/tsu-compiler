@@ -35,7 +35,11 @@ class RegimeReport:
 
 def analyse_regime(report, target, energy_scale=None) -> RegimeReport:
     cap = target.max_abs_coupling.value
-    util = None if cap == float("inf") else report.max_abs_J / cap
+    # The cap applies to |J| AND |b| alike (spec section 7.1); reporting J alone
+    # understated utilisation for any model whose bias, not its coupling, was the
+    # thing actually close to (or over) the cap (C2).
+    peak = max(report.max_abs_J, report.max_abs_b)
+    util = None if cap == float("inf") else peak / cap
 
     bits = target.coupling_bits.value
     headroom = None
