@@ -40,6 +40,33 @@ def test_validate_passes_a_legal_assignment():
     assert good.violations == ()
 
 
+def test_a_variable_named_const_is_rejected_not_silently_swallowed():
+    """MINOR (final review): a variable declared 'const' and referenced in a
+    term's form parses to LinearForm(coeffs={}, const=<its weight>) -- the
+    variable vanishes from the term with no error, and energy({const: 0,
+    b: 0}) silently returns a wrong nonzero value. Same silent-wrongness class
+    as the '__dw' chain-name collision, guarded the same way: loudly, at parse
+    time."""
+    import tempfile, os, textwrap
+    body = textwrap.dedent("""
+        name: reserved_word
+        variables:
+          const: {domain: binary}
+          b: {domain: binary}
+        terms:
+          - {kind: linear, form: {const: 1.0, b: 1.0}, weight: 1.0}
+        contract:
+          validate: []
+    """)
+    with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as f:
+        f.write(body); p = f.name
+    try:
+        with pytest.raises(ValueError, match="const"):
+            load_spec(p)
+    finally:
+        os.unlink(p)
+
+
 def test_a_contract_without_messages_is_rejected_at_schema_level():
     """A verdict without the violation that caused it is not actionable."""
     import tempfile, os, textwrap

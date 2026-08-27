@@ -111,6 +111,21 @@ def load_spec(path: str) -> WorkloadSpec:
     else:
         variables = []
         for name, d in raw["variables"].items():
+            # "const" is reserved: _parse_form treats the literal key "const" in
+            # a term's `form`/`a`/`b` mapping as the form's CONSTANT, not a
+            # variable reference. A declared variable named "const" would parse
+            # silently -- the variable simply vanishes from every term that
+            # references it (LinearForm(coeffs={}, const=<its weight>) instead
+            # of a real coefficient entry) -- with no error and a wrong energy.
+            # Same silent-wrongness class as the '__dw' chain-name collision in
+            # encode.py, guarded the same way: raise loudly instead.
+            if name == "const":
+                raise ValueError(
+                    "variable name 'const' is reserved: a term's `form`/`a`/`b` "
+                    "mapping treats the key 'const' as the form's constant, not "
+                    "a variable reference, so a declared variable named 'const' "
+                    "would silently vanish from every term that names it -- "
+                    "rename the variable")
             kind = d["domain"]
             dom = Binary() if kind == "binary" else Categorical(int(d["k"]))
             variables.append(Var(name, dom))
