@@ -32,7 +32,8 @@ class GateFailure:
 @dataclass(frozen=True)
 class PlacementFailure:
     failure_class: Literal["degree_exceeded", "parity_conflict",
-                           "geometry_unreachable", "budget_exceeded"]
+                           "geometry_unreachable", "budget_exceeded",
+                           "placement_effort_exhausted"]
     offending: tuple[Offender, ...]
     measured: Any
     limit: Any

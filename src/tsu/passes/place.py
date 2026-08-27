@@ -3,6 +3,16 @@
 EXP-WL1 rated a 3D cubic lattice GREEN with zero mediators on parity; EXP-WL2 then
 found geometry, not parity, was binding. Parity is NECESSARY, never SUFFICIENT, so
 this pass runs an actual embedding and names which failure class it hit.
+
+`_anneal` is a seeded, budgeted heuristic search, not a decision procedure. When it
+does not find a legal embedding within its budget, that is a fact about the search,
+not about the substrate -- see `placement_effort_exhausted` below. C1 of the final
+review found this pass reporting three provably-embeddable grids (an identity map
+`v(x,y) -> (x,y)` realizes every edge) as `geometry_unreachable`, which is the exact
+representation-vs-hardware conflation this project exists to prevent. `_try_grid_embed`
+is the structural fix: it attempts an exact, verified unit-step embedding before ever
+falling back to the annealer, so a graph the annealer would have needed luck for is
+placed deterministically instead.
 """
 from __future__ import annotations
 
@@ -15,6 +25,84 @@ from ..failures import CompileError, Offender, PlacementFailure, Remediation
 from ..target import TargetProfile
 from .analyse import GraphReport
 from .lower import IsingModel
+
+# The four unit steps of an axis-aligned 2D grid. Z1's offset set (rotations of
+# (1,0)) always contains these, so any interaction graph that is a subgraph of the
+# infinite grid under this adjacency embeds directly via the identity map.
+_GRID_UNIT = ((1, 0), (-1, 0), (0, 1), (0, -1))
+
+
+def _try_grid_embed(G: nx.Graph, max_steps: int = 500_000):
+    """Attempt to place every node of G on Z^2 such that every edge is exactly one
+    of the four axis-unit steps. Returns a coords dict covering every node when
+    such a placement exists and this search finds it, else None.
+
+    This is deterministic backtracking, not a heuristic: whenever a node has two or
+    more already-placed neighbours its position is forced (the intersection of
+    each neighbour's four candidate cells), so the only real choice points are
+    frontier nodes with exactly one known neighbour, and any wrong choice among
+    those is caught (and backtracked out of) as soon as a later edge closes the
+    loop. The result is verified against every edge of G before being returned, so
+    a returned coords dict is always correct -- this never claims a false
+    positive. It may fail to find an embedding that exists in principle (the
+    max_steps budget), in which case the caller falls back to the annealer; it
+    never claims the graph is NOT grid-embeddable.
+    """
+    if G.number_of_nodes() == 0:
+        return {}
+
+    all_coords: dict = {}
+    x_shift = 0
+
+    for comp in nx.connected_components(G):
+        sub = G.subgraph(comp)
+        root = next(iter(comp))
+        order = list(nx.bfs_tree(sub, root))          # order[0] == root
+        n_comp = len(order)
+        coords = {root: (0, 0)}
+        used = {(0, 0)}
+        cand_lists: list = [None] * n_comp
+        cand_idx = [0] * n_comp
+        i = 1
+        steps = 0
+        while 1 <= i < n_comp:
+            steps += 1
+            if steps > max_steps:
+                return None
+            v = order[i]
+            if cand_lists[i] is None:
+                known = [u for u in sub.neighbors(v) if u in coords]
+                sets = [{(coords[u][0] + dx, coords[u][1] + dy) for dx, dy in _GRID_UNIT}
+                        for u in known]
+                cand_lists[i] = sorted(set.intersection(*sets) - used) if sets else []
+                cand_idx[i] = 0
+            if cand_idx[i] < len(cand_lists[i]):
+                pos = cand_lists[i][cand_idx[i]]
+                cand_idx[i] += 1
+                coords[v] = pos
+                used.add(pos)
+                i += 1
+            else:
+                cand_lists[i] = None          # abandoning this node: force recompute
+                i -= 1
+                if i >= 1:
+                    used.discard(coords.pop(order[i]))
+        if i == 0:
+            return None                       # this component has no grid embedding
+
+        # shift this component clear of every previously placed one
+        shift = x_shift - min(c[0] for c in coords.values())
+        coords = {k: (x + shift, y) for k, (x, y) in coords.items()}
+        x_shift = max(c[0] for c in coords.values()) + 2
+        all_coords.update(coords)
+
+    # Safety net: verify EVERY edge, not just the ones the search reasoned about.
+    # A bug in the incremental logic must never surface as a false PLACED.
+    for u, v in G.edges():
+        d = (all_coords[u][0] - all_coords[v][0], all_coords[u][1] - all_coords[v][1])
+        if d not in _GRID_UNIT:
+            return None
+    return all_coords
 
 
 @dataclass(frozen=True)
@@ -49,7 +137,14 @@ def _anneal(G, offsets, side, iters, seed):
     return coords, cur
 
 
-def place(ising: IsingModel, report: GraphReport, target: TargetProfile) -> Placement:
+def place(ising: IsingModel, report: GraphReport, target: TargetProfile,
+         *, restarts: int = 6, iters: int = 40_000) -> Placement:
+    """`restarts`/`iters` tune ONLY the annealer fallback's effort budget (default
+    6 x 40,000, the production budget). They exist so a test can force a small,
+    deterministic effort budget without touching production behaviour -- see
+    `placement_effort_exhausted` below, which names running out of THIS budget,
+    not a claim about the substrate.
+    """
     n = len(ising.nodes)
 
     if report.max_degree > target.degree.value:
@@ -86,6 +181,14 @@ def place(ising: IsingModel, report: GraphReport, target: TargetProfile) -> Plac
     if target.bipartite.value and not report.bipartite:
         G = nx.Graph(); G.add_nodes_from(range(n)); G.add_edges_from(ising.edges)
         cycle = nx.find_cycle(G)
+        # report.mediators is -1 when the graph exceeded MAXCUT_EXACT_LIMIT and the
+        # count was never computed. -1 is a sentinel, not a spin count -- publishing
+        # it as `extra_spins` would be the same "search failure reported as
+        # substrate fact" error C1 fixes for placement, just one field over.
+        known_cost = report.mediators >= 0
+        cost = ({"extra_spins": report.mediators, "note": "estimate"} if known_cost
+               else {"note": "extra_spins not computed: graph exceeds the exact "
+                             "max-cut limit"})
         raise CompileError(
             "placement failed: parity conflict",
             [PlacementFailure(
@@ -97,19 +200,35 @@ def place(ising: IsingModel, report: GraphReport, target: TargetProfile) -> Plac
                 remediations=(
                     Remediation("route through mediator",
                                 "hidden-spin mediation is exact and adds one spin "
-                                "per frustrated coupling",
-                                {"extra_spins": report.mediators, "note": "estimate"}),
+                                "per frustrated coupling", cost),
                 ))])
 
     G = nx.Graph(); G.add_nodes_from(range(n)); G.add_edges_from(ising.edges)
+
+    # Try a structured, exact embedding before ever spending annealer budget.
+    # Z1's offset set always contains the four axis-unit steps, so any interaction
+    # graph that is itself a subgraph of the grid (the identity map v(x,y)->(x,y))
+    # places directly and deterministically -- no search, no seed dependence, no
+    # possibility of a false `geometry_unreachable`/`placement_effort_exhausted`.
+    if set(_GRID_UNIT) <= set(target.offsets.value):
+        grid_coords = _try_grid_embed(G)
+        if grid_coords is not None:
+            return Placement(grid_coords, tuple(ising.edges), ())
+
     side = max(4, int(n ** 0.5) + 3)
     best, best_bad = None, None
-    for seed in range(6):
-        coords, nbad = _anneal(G, target.offsets.value, side, 40_000, seed)
+    for seed in range(restarts):
+        coords, nbad = _anneal(G, target.offsets.value, side, iters, seed)
         if best_bad is None or nbad < best_bad:
             best, best_bad = coords, nbad
         if nbad == 0:
             break
+
+    if best is None:
+        # No restarts were attempted (restarts=0, used by tests that want to force
+        # reliance on the structured embedding above). Treat this as "nothing
+        # realized" rather than crashing on a None coords dict below.
+        best = {node: (0, 0) for node in G.nodes()}
 
     offs = set(target.offsets.value)
     realized, unrealized = [], []
@@ -118,17 +237,24 @@ def place(ising: IsingModel, report: GraphReport, target: TargetProfile) -> Plac
         (realized if d in offs else unrealized).append((u, v))
 
     if unrealized:
+        # This is a search running out of budget, not a proof that no legal
+        # offset spans these edges (that would require establishing unreachability
+        # cheaply, which we cannot do in general -- see the module docstring and
+        # C1 in the final review). `geometry_unreachable` is reserved for a case
+        # this pass can actually PROVE; this pass makes no such proof, so it must
+        # never raise that failure_class here.
         raise CompileError(
-            "placement failed: geometry unreachable",
+            "placement failed: placement effort exhausted",
             [PlacementFailure(
-                failure_class="geometry_unreachable",
+                failure_class="placement_effort_exhausted",
                 offending=tuple(Offender("edge", f"{ising.nodes[u]}-{ising.nodes[v]}")
                                 for u, v in unrealized),
                 measured=len(unrealized), limit=0,
                 assumed=target.is_assumed("offsets"),
                 remediations=(
                     Remediation("increase placement effort",
-                                "more restarts or a larger patch may find an embedding"),
+                                "more restarts, more iterations per restart, or a "
+                                "larger patch may find an embedding within budget"),
                     Remediation("change encoding",
                                 "a lower-degree encoding is easier to embed",
                                 {"note": "estimate"}),
