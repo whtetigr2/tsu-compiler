@@ -16,7 +16,23 @@ from .target import PROFILES
 from .viz import render
 
 
+def _force_utf8_stdout() -> None:
+    """Print box-drawing and check marks on a console that defaults to cp1252.
+
+    Windows terminals default to a legacy code page, so writing the report's
+    U+2500 rule or its check marks raises UnicodeEncodeError before a single
+    line reaches the user. Reconfiguring is preferred over degrading the output;
+    `errors="replace"` is the floor so a report is never lost to an encoding.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass
+
+
 def main(argv=None) -> int:
+    _force_utf8_stdout()
     argv = list(sys.argv[1:] if argv is None else argv)
     p = argparse.ArgumentParser(prog="tsu")
     sub = p.add_subparsers(dest="cmd", required=True)
