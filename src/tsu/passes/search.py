@@ -13,7 +13,7 @@ from typing import Any
 import numpy as np
 
 from ..failures import CompileError
-from ..gates import check_gates
+from ..gates import check_gates, gate_checks
 from ..regime import analyse_regime
 from ..states import Candidate, CandidateState, RepresentationSet
 from ..target import IDEAL, TargetProfile
@@ -37,6 +37,10 @@ class Compilation:
     ideal_report: Any
     hardware_evaluated: bool
     repset: RepresentationSet
+    allow_assumed: bool = False
+    gate_checks: tuple = ()          # every gate evaluated against `target`,
+                                      # pass or fail (empty when target was never
+                                      # evaluated, i.e. verdict == LOGICAL)
     program: Any = None
     encoded: Any = None
     regime: Any = None
@@ -45,7 +49,14 @@ class Compilation:
 
 
 def _try(spec, target, encoding, allow_assumed):
-    """Run one candidate through the pipeline. Returns (Candidate, artefacts)."""
+    """Run one candidate through the pipeline. Returns (Candidate, artefacts).
+
+    `artefacts["gate_checks"]` is populated whenever the model reached gate
+    evaluation at all (i.e. encode+lower succeeded), REGARDLESS of whether the
+    candidate passed -- a receipt needs "every gate, passed/failed, with the
+    measured value and threshold" (spec section 10), not only the gates a
+    COMPILED run happened to pass.
+    """
     try:
         enc = encode(spec, encoding)
     except Exception as e:
@@ -59,23 +70,26 @@ def _try(spec, target, encoding, allow_assumed):
                          reason=f"lower failed: {e}"), None
 
     report = analyse(ising)
+    checks = gate_checks(ising, report, target, allow_assumed)
     gate_failures = check_gates(ising, report, target, allow_assumed)
     if gate_failures:
         return Candidate(encoding, CandidateState.HARDWARE_INFEASIBLE,
                          reason=gate_failures[0].cause, failure=gate_failures[0],
-                         report=report), None
+                         report=report), {"report": report, "gate_checks": checks}
     try:
         placement = place(ising, report, target)
         ising = route(ising, report, target)
     except CompileError as e:
         return Candidate(encoding, CandidateState.HARDWARE_INFEASIBLE,
-                         reason=str(e), failure=e.failures[0], report=report), None
+                         reason=str(e), failure=e.failures[0], report=report), \
+            {"report": report, "gate_checks": checks}
 
     prog = build_program(ising, report)
     regime = analyse_regime(report, target)
     return (Candidate(encoding, CandidateState.HARDWARE_FEASIBLE, report=report,
                       regime=regime),
-            {"encoded": enc, "ising": ising, "report": report, "program": prog,
+            {"encoded": enc, "ising": ising, "report": report,
+             "gate_checks": checks, "program": prog,
              "regime": regime, "placement": placement})
 
 
@@ -88,7 +102,8 @@ def compile_spec(spec, target: TargetProfile, allow_assumed: bool = False) -> Co
             spec=spec, target=target, verdict="LOGICAL", ideal_passed=False,
             ideal_report=ideal_cand, hardware_evaluated=False,
             repset=RepresentationSet((ideal_cand,), None,
-                                     "ideal control failed; target not evaluated"))
+                                     "ideal control failed; target not evaluated"),
+            allow_assumed=allow_assumed)
 
     cands, arts = [], {}
     for enc_name in SLICE_ENCODINGS:
@@ -99,11 +114,14 @@ def compile_spec(spec, target: TargetProfile, allow_assumed: bool = False) -> Co
 
     feasible = [c for c in cands if c.state == CandidateState.HARDWARE_FEASIBLE]
     if not feasible:
+        any_art = next(iter(arts.values()), None)
+        checks = any_art[1]["gate_checks"] if any_art else ()
         return Compilation(
             spec=spec, target=target, verdict="HARDWARE", ideal_passed=True,
             ideal_report=ideal_cand, hardware_evaluated=True,
             repset=RepresentationSet(tuple(cands), None,
-                                     "no candidate was hardware-feasible"))
+                                     "no candidate was hardware-feasible"),
+            allow_assumed=allow_assumed, gate_checks=checks)
 
     chosen = feasible[0]
     art = arts[chosen.encoding][1]
@@ -117,6 +135,7 @@ def compile_spec(spec, target: TargetProfile, allow_assumed: bool = False) -> Co
         ideal_report=ideal_cand, hardware_evaluated=True,
         repset=RepresentationSet(final, selected,
                                  "single candidate in the vertical slice"),
+        allow_assumed=allow_assumed, gate_checks=art["gate_checks"],
         program=art["program"], encoded=art["encoded"], regime=art["regime"],
         placement=art["placement"], verification=verification)
 

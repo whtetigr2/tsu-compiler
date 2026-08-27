@@ -69,15 +69,28 @@ def write_receipt(c, out_dir) -> Path:
 
     (d / "target.json").write_text(json.dumps(_sourced(c.target), indent=2))
 
+    # allow_assumed must be recorded so a result obtained under it can never be
+    # mistaken for one obtained under sourced constraints (spec section 10), and
+    # so `replay` can pass the SAME flag back to compile_spec -- without this a
+    # receipt written with --allow-assumed replays without it, hits the gate it
+    # was downgraded past, and reports DIVERGED (C4).
     passes = {"verdict": c.verdict, "ideal_passed": c.ideal_passed,
               "hardware_evaluated": c.hardware_evaluated,
+              "allow_assumed": c.allow_assumed,
               "candidates": [{"encoding": x.encoding, "state": x.state.value,
                               "reason": x.reason} for x in c.repset.candidates],
               "ordering_rationale": c.repset.ordering_rationale}
     (d / "passes.json").write_text(json.dumps(passes, indent=2))
 
-    gates = [] if c.verdict == "COMPILED" else [
-        {"state": x.state.value, "reason": x.reason} for x in c.repset.candidates]
+    # Every gate this compile evaluated against `target`, passed or failed --
+    # not only the ones that aborted it (spec section 10: "every gate,
+    # passed/failed, with the measured value and threshold"). `downgraded` marks
+    # a gate that would have failed but was overridden by --allow-assumed, so a
+    # receipt written under the override is visibly distinguishable from one
+    # obtained under sourced constraints (C4).
+    gates = [{"gate": g.gate, "passed": g.passed, "measured": g.measured,
+             "limit": g.limit, "assumed": g.assumed, "downgraded": g.downgraded}
+            for g in c.gate_checks]
     (d / "gates.json").write_text(json.dumps(gates, indent=2))
 
     rep = c.repset.selected.report if c.repset.selected else None
@@ -124,13 +137,18 @@ def replay(d) -> ReplayResult:
     d = Path(d)
     recorded = json.loads((d / "program.json").read_text())
     target = PROFILES[json.loads((d / "target.json").read_text())["name"]]
+    # Read the SAME allow_assumed flag the receipt was compiled with -- recompiling
+    # without it would hit a gate that was legitimately downgraded and report
+    # DIVERGED for a receipt that is not actually wrong (C4).
+    allow_assumed = json.loads((d / "passes.json").read_text()).get(
+        "allow_assumed", False)
 
     spec = load_spec(str(d / "spec.yaml"))
     if hashlib.sha256(spec.source_text.encode()).hexdigest() != \
             (d / "spec.sha256").read_text().strip():
         return ReplayResult(False, ("spec hash changed",))
 
-    fresh = compile_spec(spec, target)
+    fresh = compile_spec(spec, target, allow_assumed=allow_assumed)
     if fresh.program is None:
         return ReplayResult(not recorded, ("no program on replay",))
 
