@@ -18,6 +18,13 @@ class Verification:
     execution_noise_floor: float | None
     cross_check_tv: float | None
     cross_check_note: str
+    # C5: decode() is a projection, not an inverse -- handed a non-monotone
+    # (invalid) chain it still returns a legal-looking value with no flag. A
+    # sample search.py's decoder cannot vouch for must not silently count toward
+    # task_validity; codeword_violation_rate makes that failure mode visible
+    # instead of folding it into (and inflating) task_validity.
+    codeword_violation_rate: float | None = None
+    codeword_violation_note: str = ""
 
     def to_dict(self):
         def f(v, note):
@@ -28,6 +35,8 @@ class Verification:
             "execution_tv": f(self.execution_tv, self.execution_note),
             "execution_noise_floor": self.execution_noise_floor,
             "cross_check_tv": f(self.cross_check_tv, self.cross_check_note),
+            "codeword_violation_rate": f(self.codeword_violation_rate,
+                                        self.codeword_violation_note),
         }
 
 

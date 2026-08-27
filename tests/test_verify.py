@@ -40,6 +40,20 @@ def test_verification_says_unavailable_rather_than_guessing():
     assert d["execution_tv"] == "unavailable: no exact reference"
 
 
+def test_codeword_violation_rate_is_measured_and_excluded_from_task_validity():
+    """C5: a sample that is not a valid codeword (a non-monotone domain-wall
+    chain) must not be silently decoded and counted toward task_validity -- it
+    must be tracked as a codeword violation instead, visibly, not folded into
+    task_validity's denominator as if it had been a normal valid-or-invalid
+    decoded sample."""
+    v = compile_spec(load_spec("specs/toy.yaml"), Z1).verification
+    assert v.codeword_violation_rate is not None
+    assert 0.0 <= v.codeword_violation_rate <= 1.0
+    # toy.yaml's MONOTONE_PENALTY genuinely dominates its term weights, so
+    # violations should be rare, not absent by construction of the test
+    assert v.codeword_violation_rate < 0.2
+
+
 def test_regime_report_has_cheap_fields_and_unmeasured_elsewhere():
     r = compile_spec(load_spec("specs/toy.yaml"), Z1).regime
     assert r.coupling_utilisation is not None

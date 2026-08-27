@@ -29,7 +29,36 @@ MONOTONE_PENALTY = 10.0
 # bound over interactions between multiple concurrent terms -- workloads that stack
 # many large-weight terms against the same chain should still check the legal-vs-
 # illegal energy gap directly, the way toy.yaml's own test does.
+#
+# C5 (final review): the guard used to compare MONOTONE_PENALTY against
+# `abs(term.weight)` alone, which is not a term's energy scale when its
+# LinearForm carries large coefficients -- Product(LinearForm({c=0: 20.0}),
+# LinearForm({c=2: 20.0}), -1.0) has weight 1.0 (guard sees "1.0, accept") but
+# an actual maximum contribution of 1.0 * 20 * 20 = 400 (guard should reject).
+# `_max_energy_contribution` computes the real bound: a LinearForm's maximum
+# attainable |value| over any binary assignment is |const| + sum(|coeff|) (every
+# coefficient's variable independently maxes out at 0 or 1); a Product's is the
+# product of its two forms' bounds times |weight|; a Linear's is its form's bound
+# times |weight|.
 MONOTONE_MARGIN_FACTOR = 2.0
+
+
+def _max_abs_form(form: LinearForm) -> float:
+    """Maximum |value| a LinearForm can attain over any binary assignment: each
+    coefficient contributes at most its own magnitude (an occupancy or a
+    categorical indicator each range over {0, 1}), so the bound is |const| plus
+    the sum of |coeff| across every term in the form."""
+    return abs(form.const) + sum(abs(w) for w in form.coeffs.values())
+
+
+def _max_energy_contribution(term) -> float:
+    """The maximum |energy| a single spec term can contribute over any binary
+    assignment -- the quantity MONOTONE_PENALTY must actually dominate (C5)."""
+    if isinstance(term, Product):
+        return abs(term.weight) * _max_abs_form(term.a) * _max_abs_form(term.b)
+    if isinstance(term, Linear):
+        return abs(term.weight) * _max_abs_form(term.form)
+    raise ValueError(f"unknown term type {type(term).__name__}")
 
 
 @dataclass(frozen=True)
@@ -57,6 +86,23 @@ class Encoded:
             if not any(n in chain for chain in self.categorical.values()):
                 out[n] = int(bits[n])
         return out
+
+    def is_codeword(self, bits: Mapping[str, int]) -> bool:
+        """True iff every domain-wall chain in `bits` is monotone (n_{j-1} >=
+        n_j: once a chain bit is 0, every later bit in the chain must be 0 too).
+
+        `decode` is a PROJECTION (`sum(bits[s] for s in chain)`), not an inverse:
+        handed a non-monotone chain -- not a valid codeword -- it still returns a
+        legal-looking categorical value with no error and no flag (C5). A caller
+        that needs to know whether the sample it is about to decode is actually
+        meaningful must check this first; `decode`'s own output gives no signal
+        either way.
+        """
+        for chain in self.categorical.values():
+            for j in range(len(chain) - 1):
+                if int(bits[chain[j]]) == 0 and int(bits[chain[j + 1]]) == 1:
+                    return False
+        return True
 
 
 def _chain_names(name: str, k: int) -> tuple[str, ...]:
@@ -113,14 +159,15 @@ def encode(spec: WorkloadSpec, encoding: str = "domain_wall") -> Encoded:
     variables = tuple(variables)
 
     if categorical:
-        max_abs_weight = max((abs(t.weight) for t in spec.terms), default=0.0)
-        if MONOTONE_PENALTY <= MONOTONE_MARGIN_FACTOR * max_abs_weight:
+        max_contribution = max(
+            (_max_energy_contribution(t) for t in spec.terms), default=0.0)
+        if MONOTONE_PENALTY <= MONOTONE_MARGIN_FACTOR * max_contribution:
             raise ValueError(
                 f"MONOTONE_PENALTY ({MONOTONE_PENALTY}) does not exceed "
-                f"{MONOTONE_MARGIN_FACTOR}x the workload's largest term weight "
-                f"({max_abs_weight}); the monotonicity penalty must dominate the "
-                f"workload's own weights or an illegal (non-monotone) chain state "
-                f"can become energetically favourable")
+                f"{MONOTONE_MARGIN_FACTOR}x the workload's largest term's maximum "
+                f"energy contribution ({max_contribution}); the monotonicity "
+                f"penalty must dominate the workload's own weights or an illegal "
+                f"(non-monotone) chain state can become energetically favourable")
 
     terms = []
     for t in spec.terms:

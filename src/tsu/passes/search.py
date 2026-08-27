@@ -150,7 +150,8 @@ def _verify(spec, art) -> Verification:
     if n > EXACT_LIMIT:
         return Verification(None, f"unavailable: 2^{n} too large to enumerate",
                             None, None, "unavailable: no exact reference", None,
-                            None, "unavailable: model too large")
+                            None, "unavailable: model too large",
+                            None, "unavailable: no exact reference")
 
     states, probs = exact_distribution(prog)
 
@@ -161,13 +162,24 @@ def _verify(spec, art) -> Verification:
         worst = max(worst, abs(enc.model.energy(bits) - _from_ising(ising, row)))
     energy_tv = worst
 
-    # task layer: measured on DECODED samples, never inferred from energy
+    # task layer: measured on DECODED samples, never inferred from energy.
+    # `decode` is a PROJECTION, not an inverse (C5): handed a non-monotone
+    # (invalid) domain-wall chain it still returns a legal-looking value with no
+    # flag. A sample that is not a valid codeword is not a decoded sample at
+    # all -- it must count as invalid, not be silently decoded and validated as
+    # if the chain meant something. The codeword-violation rate is reported
+    # separately so it is visible, not folded into (and hidden inside) task_validity.
     got = sample(prog, 32, 200, 400, 2, 0)
     ok = 0
+    codeword_violations = 0
     for row in got:
         bits = dict(zip(ising.nodes, row.tolist()))
+        if not enc.is_codeword(bits):
+            codeword_violations += 1
+            continue
         ok += 1 if spec.contract.validate(enc.decode(bits)).ok else 0
     task_validity = ok / len(got)
+    codeword_violation_rate = codeword_violations / len(got)
 
     # execution layer: sampler vs its own model. The index into `probs` MUST be
     # derived from `states` itself, never from an independently-assumed bit
@@ -197,7 +209,8 @@ def _verify(spec, art) -> Verification:
         execution_tv=execution_tv,
         execution_note=f"noise floor {floor:.6f}",
         execution_noise_floor=floor,
-        cross_check_tv=cross, cross_check_note=cross_note)
+        cross_check_tv=cross, cross_check_note=cross_note,
+        codeword_violation_rate=codeword_violation_rate, codeword_violation_note="")
 
 
 def _from_ising(ising, row) -> float:
