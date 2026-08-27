@@ -65,3 +65,7 @@ def main(argv=None) -> int:
         return 0 if res.matches else 3
 
     return 1
+
+
+if __name__ == "__main__":  # pragma: no cover
+    raise SystemExit(main())
