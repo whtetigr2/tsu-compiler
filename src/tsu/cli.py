@@ -10,6 +10,7 @@ from .passes.encode import encode
 from .passes.lower import lower
 from .passes.search import compile_spec
 from .receipt import replay, write_receipt
+from .report import render_report
 from .spec import load_spec
 from .target import PROFILES
 from .viz import render
@@ -28,6 +29,7 @@ def main(argv=None) -> int:
     v = sub.add_parser("visualize"); v.add_argument("receipt")
     v.add_argument("--out", required=True)
     r = sub.add_parser("replay"); r.add_argument("receipt")
+    rp = sub.add_parser("report"); rp.add_argument("receipt")
 
     a = p.parse_args(argv)
 
@@ -63,6 +65,10 @@ def main(argv=None) -> int:
         res = replay(a.receipt)
         print("MATCHES" if res.matches else f"DIVERGED: {res.diffs}")
         return 0 if res.matches else 3
+
+    if a.cmd == "report":
+        print(render_report(a.receipt))
+        return 0
 
     return 1
 

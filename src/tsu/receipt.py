@@ -12,6 +12,7 @@ from pathlib import Path
 
 import numpy as np
 
+from .ir import Categorical
 from .spec import load_spec
 from .target import PROFILES, Sourced
 
@@ -41,6 +42,25 @@ def _placement(p):
     }
 
 
+def _failure_dict(f):
+    """JSON-safe serialisation of a GateFailure or PlacementFailure -- the SAME
+    object `search.py` used to reject a candidate, not a re-derived summary.
+    None when the candidate carries no failure (e.g. SELECTED, or rejected by a
+    bare exception message with no structured failure object behind it)."""
+    if f is None:
+        return None
+    out = {"measured": f.measured, "limit": f.limit, "assumed": f.assumed,
+           "remediations": [{"action": r.action, "detail": r.detail}
+                            for r in f.remediations]}
+    if hasattr(f, "gate"):
+        out.update(gate=f.gate, cause=f.cause)
+    else:
+        out.update(failure_class=f.failure_class,
+                   offending=[{"kind": o.kind, "detail": o.detail}
+                             for o in f.offending])
+    return out
+
+
 def _env():
     # Nothing outside src/tsu/backends/ may import thrml directly; obtain its
     # version via importlib.metadata instead of `import thrml`.
@@ -67,6 +87,24 @@ def write_receipt(c, out_dir) -> Path:
     digest = hashlib.sha256(c.spec.source_text.encode("utf-8")).hexdigest()
     (d / "spec.sha256").write_text(digest, encoding="utf-8")
 
+    # WORKLOAD-layer counts, generic over any spec and computed ONCE here from
+    # `c.spec` -- so a report renderer (report.py) reads them from the receipt
+    # rather than re-deriving them by re-parsing spec.yaml at render time.
+    # "state cardinality" is the largest number of distinct values any single
+    # declared variable can take (a Binary variable has 2, a Categorical(k) has
+    # k); "constraint classes" is the number of DISTINCT contract rule kinds in
+    # use (not a raw rule count -- two `forbid_value_pair_over_edges` rules with
+    # different values are the same class of check).
+    workload = {
+        "variables": len(c.spec.variables),
+        "logical_interactions": len(c.spec.terms),
+        "state_cardinality": max(
+            (v.domain.k if isinstance(v.domain, Categorical) else 2
+             for v in c.spec.variables), default=0),
+        "constraint_classes": len({r["rule"] for r in c.spec.contract.rules}),
+    }
+    (d / "workload.json").write_text(json.dumps(workload, indent=2))
+
     (d / "target.json").write_text(json.dumps(_sourced(c.target), indent=2))
 
     # allow_assumed must be recorded so a result obtained under it can never be
@@ -74,13 +112,30 @@ def write_receipt(c, out_dir) -> Path:
     # so `replay` can pass the SAME flag back to compile_spec -- without this a
     # receipt written with --allow-assumed replays without it, hits the gate it
     # was downgraded past, and reports DIVERGED (C4).
+    #
+    # `failure` carries the GateFailure/PlacementFailure a rejected candidate
+    # hit, if any -- previously only `reason` (its free-text cause) reached the
+    # receipt, so a report renderer had no structured remediation to point a
+    # reader at. `_failure_dict` serialises the SAME object the compiler used
+    # to reject the candidate, not a re-derived summary of it.
     passes = {"verdict": c.verdict, "ideal_passed": c.ideal_passed,
               "hardware_evaluated": c.hardware_evaluated,
               "allow_assumed": c.allow_assumed,
               "candidates": [{"encoding": x.encoding, "state": x.state.value,
-                              "reason": x.reason} for x in c.repset.candidates],
+                              "reason": x.reason,
+                              "failure": _failure_dict(x.failure)}
+                             for x in c.repset.candidates],
               "ordering_rationale": c.repset.ordering_rationale}
     (d / "passes.json").write_text(json.dumps(passes, indent=2))
+
+    # The A5 comparison table over EVERY candidate (encoding, state, reason,
+    # logical spins/edges, bipartite, mediators, physical p-bits, colour
+    # blocks, |J|max, |b|max) -- persisted so a report renderer can use a
+    # REJECTED candidate's own measured numbers (e.g. too_dense.yaml's degree-
+    # exceeded candidate still reached `analyse`) instead of reporting
+    # "representation never reached" for a compile that, in fact, measured one.
+    from .passes.search import compare
+    (d / "candidates.json").write_text(json.dumps(compare(c.repset), indent=2))
 
     # Every gate this compile evaluated against `target`, passed or failed --
     # not only the ones that aborted it (spec section 10: "every gate,
