@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 from tsu.passes.lower import IsingModel
-from tsu.passes.analyse import analyse
+from tsu.passes.analyse import analyse, MAXCUT_EXACT_LIMIT
 
 
 def ising(nodes, edges, w=None, b=None):
@@ -41,3 +41,17 @@ def test_reports_parameter_magnitudes():
     r = analyse(im)
     assert r.max_abs_J == pytest.approx(4.5)
     assert r.max_abs_b == pytest.approx(7.0)
+
+
+def test_mediators_is_the_minus_one_sentinel_above_the_exact_maxcut_limit():
+    """I5: -1 means 'not computed' (exact max-cut is exponential and this graph
+    exceeds the limit), not zero mediators -- a genuinely different fact from
+    'this bipartite-broken graph needs zero mediators', which is impossible.
+    Consumers (place.py's remediation, receipt.py's metrics.json) must never
+    treat -1 as a spin count."""
+    n = MAXCUT_EXACT_LIMIT + 5    # an odd ring, so it is never bipartite
+    edges = [(i, (i + 1) % n) for i in range(n)]
+    im = ising(range(n), edges)
+    r = analyse(im)
+    assert r.bipartite is False
+    assert r.mediators == -1, "mediators must read the 'not computed' sentinel"

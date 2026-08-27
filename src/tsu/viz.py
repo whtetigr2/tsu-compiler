@@ -3,6 +3,15 @@
 Layer D is rendered from `metrics.json` and `target.json`, never recomputed and
 never hardcoded -- an earlier prototype printed `Oracle verdict: GREEN` as a
 string literal.
+
+I5/I8 (final review): several fields are legitimately absent (a sentinel like
+`mediators == -1` "not computed", or a genuine `null` like `execution_noise_floor`
+when there is no exact reference) and every one of them has an explanatory note
+sitting right next to it in the same JSON -- but this renderer used to print the
+bare value, so an absent field showed up as the literal string "None" with no
+reason visible anywhere on the page. `_resolve_notes` folds a `<field>_note`
+sibling into `<field>` whenever `<field>` itself is null, so the receipt always
+shows a reason instead of a bare `None`.
 """
 from __future__ import annotations
 
@@ -11,10 +20,22 @@ import json
 from pathlib import Path
 
 
+def _resolve_notes(d: dict) -> dict:
+    """For every `<field>_note` key, if `<field>` is None, replace it with the
+    note text and drop the separate `_note` row. Leaves everything else alone."""
+    notes = {k[:-len("_note")]: v for k, v in d.items() if k.endswith("_note")}
+    out = {}
+    for k, v in d.items():
+        if k.endswith("_note"):
+            continue
+        out[k] = notes[k] if v is None and k in notes else v
+    return out
+
+
 def _table(d: dict) -> str:
     rows = "".join(
         f"<tr><th>{html.escape(str(k))}</th><td>{html.escape(str(v))}</td></tr>"
-        for k, v in d.items())
+        for k, v in _resolve_notes(d).items())
     return f"<table>{rows}</table>"
 
 

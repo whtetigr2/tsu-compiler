@@ -114,3 +114,28 @@ def test_effort_exhaustion_is_never_reported_as_geometry_unreachable():
 
     p = place(im, report, Z1)   # production budget: the same graph places cleanly
     assert p.unrealized == ()
+
+
+def test_parity_conflict_remediation_never_publishes_the_uncomputed_sentinel():
+    """I5: report.mediators == -1 means 'not computed' (the graph exceeded
+    MAXCUT_EXACT_LIMIT), not zero. The parity_conflict remediation must not
+    publish it as a numeric extra_spins estimate -- that is the same
+    sentinel-as-a-published-fact error C1 fixes for placement's own verdict,
+    one field over. Reproduced on a 25-node odd ring, exactly as the review
+    found it."""
+    from tsu.passes.analyse import MAXCUT_EXACT_LIMIT
+
+    n = MAXCUT_EXACT_LIMIT + 5
+    edges = [(i, (i + 1) % n) for i in range(n)]
+    im = ising(n, edges)
+    report = analyse(im)
+    assert report.mediators == -1
+
+    with pytest.raises(CompileError) as e:
+        place(im, report, Z1)
+    f = e.value.failures[0]
+    assert f.failure_class == "parity_conflict"
+    rem = next(r for r in f.remediations if r.action == "route through mediator")
+    assert "extra_spins" not in rem.estimated_cost, \
+        "the mediator count was never computed; -1 must not appear as a spin count"
+    assert rem.estimated_cost, "the remediation must still say WHY the count is missing"

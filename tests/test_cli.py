@@ -34,3 +34,23 @@ def test_broken_spec_exits_nonzero_and_says_LOGICAL(tmp_path, capsys):
 def test_inspect_does_not_require_a_target_lattice(capsys):
     assert main(["inspect", "specs/toy.yaml"]) == 0
     assert "edges" in capsys.readouterr().out
+
+
+def test_inspect_never_prints_the_uncomputed_mediators_sentinel(tmp_path, capsys):
+    """I5: rep.mediators == -1 means 'not computed' (exact max-cut is
+    exponential and the graph exceeded MAXCUT_EXACT_LIMIT), not zero
+    mediators. `inspect` must not print the raw sentinel to a user."""
+    n = 25   # > MAXCUT_EXACT_LIMIT (20), and an odd ring is never bipartite
+    lines = ["name: odd_ring", "variables:"]
+    lines += [f"  x{i}: {{domain: binary}}" for i in range(n)]
+    lines += ["terms:"]
+    lines += [f"  - {{kind: product, a: {{x{i}: 1.0}}, "
+             f"b: {{x{(i + 1) % n}: 1.0}}, weight: 1.0}}" for i in range(n)]
+    lines += ["contract:", "  validate: []"]
+    spec_path = tmp_path / "odd_ring.yaml"
+    spec_path.write_text("\n".join(lines), encoding="utf-8")
+
+    assert main(["inspect", str(spec_path)]) == 0
+    out = capsys.readouterr().out
+    assert '"mediators": -1' not in out
+    assert "not computed" in out

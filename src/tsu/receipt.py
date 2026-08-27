@@ -94,10 +94,21 @@ def write_receipt(c, out_dir) -> Path:
     (d / "gates.json").write_text(json.dumps(gates, indent=2))
 
     rep = c.repset.selected.report if c.repset.selected else None
+    # rep.mediators == -1 means "not computed" (the graph exceeded
+    # MAXCUT_EXACT_LIMIT), not zero mediators. Publishing -1 verbatim is the same
+    # sentinel-as-a-published-fact error C1 fixes for placement's own
+    # remediation, one field over (I5): a reader of metrics.json cannot tell "-1
+    # mediators" from a real (impossible) measurement without already knowing
+    # this file's internals. `mediators_note` makes the "not computed" case
+    # explicit instead.
     metrics = {} if rep is None else {
         "n_nodes": rep.n_nodes, "n_edges": rep.n_edges,
         "max_degree": rep.max_degree, "bipartite": rep.bipartite,
-        "mediators": rep.mediators, "colour_blocks": rep.colour_blocks,
+        "mediators": rep.mediators if rep.mediators >= 0 else None,
+        "mediators_note": ("" if rep.mediators >= 0 else
+                           "not computed: graph exceeds the exact max-cut "
+                           "limit (MAXCUT_EXACT_LIMIT)"),
+        "colour_blocks": rep.colour_blocks,
         "max_abs_J": rep.max_abs_J, "max_abs_b": rep.max_abs_b}
     (d / "metrics.json").write_text(json.dumps(metrics, indent=2))
 

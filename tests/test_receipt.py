@@ -3,10 +3,13 @@ from pathlib import Path
 
 import pytest
 
-from tsu.spec import load_spec
-from tsu.target import Z1
+from tsu.spec import load_spec, TaskContract, WorkloadSpec
+from tsu.ir import Binary, Product, LinearForm, Var, VarRef
+from tsu.passes.analyse import MAXCUT_EXACT_LIMIT
+from tsu.target import IDEAL, Z1
 from tsu.passes.search import compile_spec
 from tsu.receipt import write_receipt, load_receipt, replay
+from tsu.viz import render
 
 
 def test_receipt_contains_every_required_artifact(tmp_path):
@@ -83,3 +86,41 @@ def test_gates_json_records_passed_gates_too_on_an_ordinary_compile(tmp_path):
     assert gates, "gates.json must not be empty on a COMPILED receipt"
     assert all(g["passed"] for g in gates)
     assert all(not g["downgraded"] for g in gates)
+
+
+def _odd_ring_spec(n) -> WorkloadSpec:
+    variables = tuple(Var(f"x{i}", Binary()) for i in range(n))
+    terms = tuple(
+        Product(LinearForm({VarRef(f"x{i}"): 1.0}),
+               LinearForm({VarRef(f"x{(i + 1) % n}"): 1.0}), 1.0)
+        for i in range(n))
+    return WorkloadSpec(name="odd_ring", variables=variables, terms=terms,
+                        contract=TaskContract(()), source_text="name: odd_ring\n")
+
+
+def test_metrics_json_never_publishes_the_uncomputed_mediators_sentinel(tmp_path):
+    """I5: -1 means 'not computed', not zero. A 25-node odd ring exceeds
+    MAXCUT_EXACT_LIMIT (20) and is never bipartite, so its mediator count is
+    never computed -- compiled against IDEAL (which has no bipartite
+    requirement, so this reaches COMPILED and metrics.json is actually
+    written), the receipt must record `mediators: null` with a reason, never
+    the raw sentinel."""
+    n = MAXCUT_EXACT_LIMIT + 5
+    spec = _odd_ring_spec(n)
+    c = compile_spec(spec, IDEAL)
+    assert c.verdict == "COMPILED"
+    assert c.repset.selected.report.mediators == -1, \
+        "the reproduction depends on this being uncomputed -- sanity-check it"
+
+    d = write_receipt(c, tmp_path / "r")
+    metrics = json.loads((Path(d) / "metrics.json").read_text())
+    assert metrics["mediators"] is None, \
+        "the uncomputed sentinel must never be published as a spin count"
+    assert metrics["mediators_note"], "the receipt must say WHY it is missing"
+
+    html_out = tmp_path / "r.html"
+    render(d, html_out)
+    text = html_out.read_text(encoding="utf-8")
+    assert "<th>mediators</th><td>None</td>" not in text, \
+        "mediators must render as its note, not the bare word None"
+    assert metrics["mediators_note"] in text

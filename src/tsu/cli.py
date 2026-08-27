@@ -34,9 +34,13 @@ def main(argv=None) -> int:
     if a.cmd == "inspect":
         spec = load_spec(a.spec)
         rep = analyse(lower(encode(spec).model))
+        # rep.mediators == -1 means "not computed" (exact max-cut is exponential
+        # and this graph exceeded MAXCUT_EXACT_LIMIT), not zero mediators (I5).
+        mediators = rep.mediators if rep.mediators >= 0 else \
+            "not computed: graph exceeds the exact max-cut limit"
         print(json.dumps({"nodes": rep.n_nodes, "edges": rep.n_edges,
                           "max_degree": rep.max_degree, "bipartite": rep.bipartite,
-                          "mediators": rep.mediators,
+                          "mediators": mediators,
                           "colour_blocks": rep.colour_blocks,
                           "max_abs_J": rep.max_abs_J}, indent=2))
         return 0
