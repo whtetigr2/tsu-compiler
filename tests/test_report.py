@@ -46,14 +46,22 @@ def test_never_prints_the_bare_word_none_or_a_blank_value(tmp_path):
             pytest.fail(f"a label with no value at all: {line!r}")
 
 
-def test_diversity_is_never_measured_and_says_so(tmp_path):
-    """Diversity has no producer anywhere in this compiler (unlike ESS/Mixing,
-    see the next tests) -- it must always read the honest placeholder."""
+def test_diversity_prints_the_real_measurement_now_that_something_computes_it(tmp_path):
+    """C4: superseded from the old permanent 'unavailable: not measured'
+    placeholder -- the SAME transition ESS/Mixing already went through below
+    (that placeholder was honest only because nothing computed the field
+    yet; now something does). toy.yaml's small state space is exactly the
+    "known trap" C4's brief names: the reachable valid set's own size must
+    print alongside the distinct/valid count so the ratio cannot be misread."""
     c = compile_spec(load_spec("specs/toy.yaml"), Z1)
+    assert c.verification.diversity_distinct is not None
+    assert c.verification.diversity_reachable is not None
     d = write_receipt(c, tmp_path / "r")
     text = render_report(d)
     diversity_line = next(l for l in text.splitlines() if l.strip().startswith("Diversity:"))
-    assert "unavailable: not measured" in diversity_line
+    assert "unavailable" not in diversity_line
+    assert str(c.verification.diversity_distinct) in diversity_line
+    assert str(c.verification.diversity_reachable) in diversity_line
 
 
 def test_ess_and_mixing_print_the_real_measurement_when_the_chain_supports_it(tmp_path):

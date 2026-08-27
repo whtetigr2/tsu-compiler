@@ -48,6 +48,20 @@ class Verification:
     # chain too short to support one.
     ess: float | None = None
     ess_note: str = "unavailable: not measured"
+    # C4: diversity. `diversity_distinct` (distinct decoded, task-valid
+    # configurations seen) and `diversity_valid_samples` (how many samples
+    # that count is OVER) need no exact reference -- computed unconditionally
+    # in `_verify`, same as task_validity/codeword_violation_rate, so they
+    # default here only for a Verification built without running `_verify`
+    # (e.g. an older test). `diversity_reachable` -- the SIZE of the whole
+    # valid state space -- is the number that makes distinct/valid readable
+    # rather than misleading on a small space; it needs the logical state
+    # space to be enumerable and so is None-with-a-reason when it is not.
+    diversity_distinct: int | None = None
+    diversity_note: str = "unavailable: not measured"
+    diversity_valid_samples: int | None = None
+    diversity_reachable: int | None = None
+    diversity_reachable_note: str = "unavailable: not measured"
 
     def to_dict(self):
         def f(v, note):
@@ -65,6 +79,10 @@ class Verification:
             "codeword_violation_rate": f(self.codeword_violation_rate,
                                         self.codeword_violation_note),
             "ess": f(self.ess, self.ess_note),
+            "diversity_distinct": f(self.diversity_distinct, self.diversity_note),
+            "diversity_valid_samples": self.diversity_valid_samples,
+            "diversity_reachable": f(self.diversity_reachable,
+                                    self.diversity_reachable_note),
         }
 
 

@@ -125,7 +125,13 @@ def write_receipt(c, out_dir) -> Path:
                               "reason": x.reason,
                               "failure": _failure_dict(x.failure)}
                              for x in c.repset.candidates],
-              "ordering_rationale": c.repset.ordering_rationale}
+              "ordering_rationale": c.repset.ordering_rationale,
+              # C4: wall time (seconds) per pass this compile's own verdict
+              # is sourced from -- the selected candidate's pipeline on
+              # COMPILED, else the best-reached candidate's on LOGICAL/
+              # HARDWARE, so a rejected compile still shows the cost of the
+              # passes it actually ran, not an empty dict.
+              "pass_durations": dict(getattr(c, "pass_durations", None) or {})}
     (d / "passes.json").write_text(json.dumps(passes, indent=2))
 
     # The A5 comparison table over EVERY candidate (encoding, state, reason,
@@ -213,6 +219,17 @@ def write_receipt(c, out_dir) -> Path:
                 "clamp_values": {str(k): v for k, v in c.program.clamp_values.items()}}
     prog["clamp"] = dict(getattr(c, "clamp", None) or {})
     (d / "program.json").write_text(json.dumps(prog, indent=2))
+
+    # C4: compilation/sampler cost, and the CPU reference baseline. Peak
+    # memory is measured (via `tracemalloc`) around the WHOLE compile_spec
+    # call, so it is present regardless of verdict. `sampler`/`baseline` come
+    # straight from `_verify`'s own measurement and are empty ({}) whenever
+    # verification never ran (a LOGICAL or HARDWARE verdict) -- never a
+    # fabricated number standing in for one.
+    cost = {"peak_memory_bytes": getattr(c, "peak_memory_bytes", None),
+            "sampler": dict((getattr(c, "sample_cost", None) or {}).get("sampler") or {}),
+            "baseline": dict((getattr(c, "sample_cost", None) or {}).get("baseline") or {})}
+    (d / "cost.json").write_text(json.dumps(cost, indent=2))
 
     (d / "environment.json").write_text(json.dumps(_env(), indent=2))
     return d

@@ -11,10 +11,12 @@ real measurement when the compile's own sampling run supported a reliable
 estimate, and `unavailable: <reason>` -- a short chain, or too few effective
 samples relative to the estimated autocorrelation time -- when it did not;
 either way this file only ever renders what verification.json/regime.json
-already recorded, never a number it computed itself. Diversity is still not
-computed anywhere in this compiler, so it always reads
-`unavailable: not measured`; that is a true statement about what was
-measured, not a placeholder standing in for a number nobody has.
+already recorded, never a number it computed itself. Diversity (C4: distinct
+valid configurations over total valid samples, plus the reachable valid
+set's own size where it is enumerable, so the ratio cannot be misread on a
+small state space) follows the same rule -- a real measurement when
+verification has run, `unavailable: <reason>` for the reachable-set half
+when the logical state space was too large to enumerate exactly.
 """
 from __future__ import annotations
 
@@ -276,13 +278,27 @@ def render_report(receipt_dir) -> str:
     # sampling run supported a reliable estimate (verification.json's `ess`,
     # regime.json's `mixing_indicator`), and `unavailable: <reason>` -- never
     # a fabricated number -- when it did not (short chain, or N/tau below
-    # tsu.ess's reliability threshold). Diversity is still not computed
-    # anywhere in this compiler -- print the honest state, not a placeholder
-    # pretending toward one.
+    # tsu.ess's reliability threshold).
     lines.append(_line("ESS:", _verif(verification, "ess")))
     lines.append(_line("Mixing:", _regime(regime, "mixing_indicator")))
     lines.append(_line("Valid-state fraction:", _verif(verification, "task_validity")))
-    lines.append(_line("Diversity:", "unavailable: not measured"))
+    # C4: diversity -- distinct valid configurations over total valid samples
+    # need no exact reference and are always real once verification has run
+    # (same as task_validity); the reachable-valid-set SIZE is the number
+    # that makes that ratio readable rather than misleading on a small state
+    # space, and is unavailable-with-a-reason only when the logical state
+    # space was too large to enumerate exactly.
+    distinct = _verif(verification, "diversity_distinct")
+    if isinstance(distinct, str):
+        diversity_line = distinct
+    else:
+        valid_n = verification.get("diversity_valid_samples")
+        reachable = _verif(verification, "diversity_reachable")
+        tail = f"{reachable}" if isinstance(reachable, str) else \
+            f"{reachable} reachable valid state(s)"
+        diversity_line = f"{distinct}/{valid_n if valid_n is not None else '?'} " \
+                         f"valid samples distinct ({tail})"
+    lines.append(_line("Diversity:", diversity_line))
     lines.append("")
 
     # -- VERDICT ------------------------------------------------------------
@@ -549,7 +565,7 @@ def render_explain(receipt_dir) -> str:
     lines.append(_eline("Logical edges:", n_edges_display))
     lines.append(_eline("Max degree:", _metric(metrics, verdict, "max_degree")))
     lines.append(_eline("Graph:", graph_display))
-    lines.append(_eline("Connectivity residual (|E|-MaxCut):", mediators))
+    lines.append(_eline("Connectivity residual (|E| - max-cut):", mediators))
     lines.append("")
 
     # -- PHYSICAL MAPPING: placement, mediators, p-bits, colour blocks ------
@@ -595,10 +611,12 @@ def render_explain(receipt_dir) -> str:
     clamp = program.get("clamp") or {}
     lines.append(_eline("Clamp:", clamp if clamp else "none"))
     sampler_cost = cost.get("sampler") or {}
+    wall_time = sampler_cost.get("wall_time_s")
+    sps = sampler_cost.get("samples_per_second")
     lines.append(_eline("Sampler wall time (s):",
-                       sampler_cost.get("wall_time_s", "unavailable: not recorded")))
+                       wall_time if wall_time is not None else "unavailable: not recorded"))
     lines.append(_eline("Samples/second:",
-                       sampler_cost.get("samples_per_second", "unavailable: not recorded")))
+                       sps if sps is not None else "unavailable: not recorded"))
     lines.append("")
 
     # -- VERIFICATION: each layer's equivalence result, or unavailable ------
@@ -617,8 +635,16 @@ def render_explain(receipt_dir) -> str:
     lines.append(_eline("Diversity (reachable valid states):",
                        _verif(verification, "diversity_reachable")))
     baseline = cost.get("baseline") or {}
-    lines.append(_eline("CPU baseline exact wall time (s):",
-                       baseline.get("exact_wall_time_s", "unavailable: not recorded")))
+    exact_wall_time = baseline.get("exact_wall_time_s")
+    if exact_wall_time is not None:
+        lines.append(_eline("CPU baseline exact wall time (s):", exact_wall_time))
+        lines.append(_eline("CPU baseline sampler wall time (s):",
+                           baseline.get("sampler_wall_time_s", "unavailable: not recorded")))
+    else:
+        lines.append(_eline("CPU baseline exact wall time (s):",
+                           _as_unavailable(baseline.get("note") or "not recorded")))
+    if baseline.get("disclaimer"):
+        lines.append(f"    ({baseline['disclaimer']})")
     lines.append("")
 
     # -- APPLICATION (2): the decoded result and task-level validity --------

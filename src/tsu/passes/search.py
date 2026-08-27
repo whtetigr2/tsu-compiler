@@ -16,7 +16,9 @@ the full measured table so that ordering is auditable, not just asserted.
 from __future__ import annotations
 
 import dataclasses
-from dataclasses import dataclass
+import time
+import tracemalloc
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -58,6 +60,18 @@ class Compilation:
     verification: Verification | None = None
     clamp: Any = None                # C1: the WORKLOAD-level clamp this compile
                                        # was run under, {} when none
+    # C4: compilation cost. `pass_durations` is per-pass wall time (seconds)
+    # for whichever candidate's pipeline this compile's own verdict is
+    # sourced from -- the selected candidate's on COMPILED, else the best-
+    # reached candidate's on LOGICAL/HARDWARE, so a rejected compile still
+    # shows the cost of the passes it actually ran. `peak_memory_bytes` is
+    # measured (via `tracemalloc`) around the WHOLE compile_spec call.
+    pass_durations: dict = field(default_factory=dict)
+    peak_memory_bytes: int | None = None
+    sample_cost: dict = field(default_factory=dict)   # C4: sampler wall time/
+                                                         # throughput/params and
+                                                         # the CPU baseline, from
+                                                         # _verify
 
 
 def _physical_clamp(enc, ising, clamp):
@@ -87,41 +101,59 @@ def _try(spec, target, encoding, allow_assumed, clamp=None):
     encode/lower/analyse/gates/placement (clamping is a SAMPLING-time
     concept: which nodes get resampled, not what the model means), only which
     nodes `build_program` puts in a free block.
+
+    C4: `artefacts["durations"]` records wall time (seconds) for each pass
+    this candidate actually reached -- an encode/lower failure returns None
+    for artefacts (as it always has) and so carries no durations; every
+    candidate that reaches `analyse` records at least that much, however it
+    is ultimately rejected.
     """
+    durations: dict[str, float] = {}
+
+    def _timed(name, fn, *args):
+        t0 = time.perf_counter()
+        out = fn(*args)
+        durations[name] = time.perf_counter() - t0
+        return out
+
     try:
-        enc = encode(spec, encoding)
+        enc = _timed("encode", encode, spec, encoding)
     except Exception as e:
         return Candidate(encoding, CandidateState.SEMANTICALLY_INVALID,
                          reason=f"encode failed: {e}"), None
 
     try:
-        ising = lower(enc.model)
+        ising = _timed("lower", lower, enc.model)
     except Exception as e:
         return Candidate(encoding, CandidateState.SEMANTICALLY_INVALID,
                          reason=f"lower failed: {e}"), None
 
-    report = analyse(ising)
+    report = _timed("analyse", analyse, ising)
+    t0 = time.perf_counter()
     checks = gate_checks(ising, report, target, allow_assumed)
     gate_failures = check_gates(ising, report, target, allow_assumed)
+    durations["gate_checks"] = time.perf_counter() - t0
     if gate_failures:
         return Candidate(encoding, CandidateState.HARDWARE_INFEASIBLE,
                          reason=gate_failures[0].cause, failure=gate_failures[0],
-                         report=report), {"report": report, "gate_checks": checks}
+                         report=report), {"report": report, "gate_checks": checks,
+                                          "durations": durations}
     try:
-        placement = place(ising, report, target)
-        ising = route(ising, report, target)
+        placement = _timed("place", place, ising, report, target)
+        ising = _timed("route", route, ising, report, target)
     except CompileError as e:
         return Candidate(encoding, CandidateState.HARDWARE_INFEASIBLE,
                          reason=str(e), failure=e.failures[0], report=report), \
-            {"report": report, "gate_checks": checks}
+            {"report": report, "gate_checks": checks, "durations": durations}
 
-    prog = build_program(ising, report, _physical_clamp(enc, ising, clamp))
-    regime = analyse_regime(report, target, weights=ising.weights)
+    prog = _timed("build_program", build_program, ising, report,
+                 _physical_clamp(enc, ising, clamp))
+    regime = _timed("regime", analyse_regime, report, target, ising.weights)
     return (Candidate(encoding, CandidateState.HARDWARE_FEASIBLE, report=report,
                       regime=regime, placement=placement),
             {"encoded": enc, "ising": ising, "report": report,
              "gate_checks": checks, "program": prog,
-             "regime": regime, "placement": placement})
+             "regime": regime, "placement": placement, "durations": durations})
 
 
 ORDERING_RATIONALE = (
@@ -174,6 +206,24 @@ def compare(repset: "RepresentationSet") -> tuple[dict, ...]:
 
 def compile_spec(spec, target: TargetProfile, allow_assumed: bool = False,
                  clamp=None) -> Compilation:
+    """The public entry point. Wraps `_compile_spec_impl` in `tracemalloc`
+    (C4: compilation cost) so peak memory of the WHOLE compile is measured
+    around every code path -- LOGICAL/HARDWARE/COMPILED alike -- without
+    threading a measurement through each of `_compile_spec_impl`'s several
+    return points. `Compilation` is a plain (non-frozen) dataclass
+    specifically so this can attach the measurement after the fact."""
+    tracemalloc.start()
+    try:
+        result = _compile_spec_impl(spec, target, allow_assumed, clamp)
+    finally:
+        _current, peak = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+    result.peak_memory_bytes = peak
+    return result
+
+
+def _compile_spec_impl(spec, target: TargetProfile, allow_assumed: bool = False,
+                       clamp=None) -> Compilation:
     """`clamp` (C1): an optional {workload variable name: value} map, pinning
     those variables for the SAMPLING stage only. The preferred entry point
     for clamping (over a spec-file `clamp:` block) precisely so an
@@ -192,7 +242,8 @@ def compile_spec(spec, target: TargetProfile, allow_assumed: bool = False,
             ideal_report=ideal_cand, hardware_evaluated=False,
             repset=RepresentationSet((ideal_cand,), None,
                                      "ideal control failed; target not evaluated"),
-            allow_assumed=allow_assumed, clamp=dict(clamp or {}))
+            allow_assumed=allow_assumed, clamp=dict(clamp or {}),
+            pass_durations=(ideal_art or {}).get("durations", {}))
 
     cands, arts = [], {}
     for enc_name in SLICE_ENCODINGS:
@@ -205,17 +256,21 @@ def compile_spec(spec, target: TargetProfile, allow_assumed: bool = False,
     if not feasible:
         any_art = next(iter(arts.values()), None)
         checks = any_art[1]["gate_checks"] if any_art else ()
+        durations = any_art[1].get("durations", {}) if any_art else {}
         return Compilation(
             spec=spec, target=target, verdict="HARDWARE", ideal_passed=True,
             ideal_report=ideal_cand, hardware_evaluated=True,
             repset=RepresentationSet(tuple(cands), None,
                                      "no candidate was hardware-feasible"),
-            allow_assumed=allow_assumed, gate_checks=checks, clamp=dict(clamp or {}))
+            allow_assumed=allow_assumed, gate_checks=checks, clamp=dict(clamp or {}),
+            pass_durations=durations)
 
     chosen = min(feasible, key=_selection_key)
     art = arts[chosen.encoding][1]
 
-    verification, ess_result = _verify(spec, art)
+    verification, ess_result, sample_cost = _verify(spec, art)
+    durations = dict(art.get("durations", {}))
+    durations["verify"] = sample_cost.pop("verify_wall_time_s", 0.0)
     # RegimeReport.mixing_indicator can only be populated AFTER `_verify` has
     # actually sampled the chosen candidate's program -- `chosen.regime` (built
     # in `_try`, before any sampling happened) still reads None/"unmeasured"
@@ -259,7 +314,7 @@ def compile_spec(spec, target: TargetProfile, allow_assumed: bool = False,
         allow_assumed=allow_assumed, gate_checks=art["gate_checks"],
         program=art["program"], encoded=art["encoded"], regime=regime,
         placement=art["placement"], verification=verification,
-        clamp=dict(clamp or {}))
+        clamp=dict(clamp or {}), pass_durations=durations, sample_cost=sample_cost)
 
 
 def _measure_mixing(ising, chains: np.ndarray) -> EssEstimate:
@@ -278,10 +333,18 @@ def _measure_mixing(ising, chains: np.ndarray) -> EssEstimate:
     return effective_sample_size(energy)
 
 
-def _verify(spec, art) -> tuple[Verification, EssEstimate]:
+# C4: the fixed sampling parameters `_verify` draws with, named once so the
+# receipt's own record of them (cost.json's `sampler.params`) can never drift
+# from what was actually run.
+_VERIFY_SAMPLE_PARAMS = dict(n_chains=32, n_samples=200, n_warmup=400,
+                             steps_per_sample=2, seed=0)
+
+
+def _verify(spec, art) -> tuple[Verification, EssEstimate, dict]:
     from ..backends.thrml_backend import EXACT_LIMIT, exact_distribution, sample_chains
     from ..backends.torx_backend import torx_cross_check
 
+    verify_t0 = time.perf_counter()
     enc, prog, ising = art["encoded"], art["program"], art["ising"]
     n = len(ising.nodes)
 
@@ -307,25 +370,78 @@ def _verify(spec, art) -> tuple[Verification, EssEstimate]:
     # chain boundaries; `got` is the exact same draws flattened, unchanged
     # from before, for the task/execution layers that only need i.i.d.-
     # looking samples against a stationary reference.
-    chains = sample_chains(prog, 32, 200, 400, 2, 0)
+    sampler_t0 = time.perf_counter()
+    chains = sample_chains(prog, **_VERIFY_SAMPLE_PARAMS)
+    sampler_wall_time = time.perf_counter() - sampler_t0
+    n_drawn = _VERIFY_SAMPLE_PARAMS["n_chains"] * _VERIFY_SAMPLE_PARAMS["n_samples"]
+    sample_cost = {"sampler": {
+        "wall_time_s": sampler_wall_time,
+        "samples_per_second": (n_drawn / sampler_wall_time
+                               if sampler_wall_time > 0 else None),
+        "params": dict(_VERIFY_SAMPLE_PARAMS),
+    }}
+
     got = chains.reshape(-1, chains.shape[-1])
     ess_result = _measure_mixing(ising, chains)
     ok = 0
     codeword_violations = 0
+    # C4: diversity. Needs no exact reference (same as task_validity above),
+    # computed unconditionally over the SAME samples -- distinct decoded,
+    # TASK-VALID configurations, over how many valid samples that count is
+    # drawn from. The KNOWN TRAP the brief names: on a small state space a
+    # high distinct/valid ratio is not evidence of much, so the size of the
+    # whole reachable VALID set is reported alongside it below (when the
+    # logical state space is enumerable), so the number can be read
+    # correctly rather than mistaken for "how random" the sampler is.
+    distinct_valid = set()
     for row in got:
         bits = dict(zip(ising.nodes, row.tolist()))
         if not enc.is_codeword(bits):
             codeword_violations += 1
             continue
-        ok += 1 if spec.contract.validate(enc.decode(bits)).ok else 0
+        decoded = enc.decode(bits)
+        if spec.contract.validate(decoded).ok:
+            ok += 1
+            distinct_valid.add(tuple(sorted(decoded.items())))
     task_validity = ok / len(got)
     codeword_violation_rate = codeword_violations / len(got)
+    diversity_distinct = len(distinct_valid)
+    diversity_valid_samples = ok
+
+    # The reachable valid set's size is a WORKLOAD-level enumeration (over
+    # spec.assignments(), not Ising states) and needs no encoding/backend at
+    # all -- gated on the SAME n (encoded spin count) the rest of this
+    # function already uses as its "small enough to enumerate exactly"
+    # threshold, since a spec whose spin count is this large also has a
+    # combinatorially large logical assignment space.
+    if n <= EXACT_LIMIT:
+        diversity_reachable = sum(
+            1 for a in spec.assignments() if spec.contract.validate(a).ok)
+        diversity_reachable_note = ""
+    else:
+        diversity_reachable = None
+        diversity_reachable_note = f"unavailable: 2^{n} too large to enumerate"
+
+    diversity_kwargs = dict(
+        diversity_distinct=diversity_distinct, diversity_note="",
+        diversity_valid_samples=diversity_valid_samples,
+        diversity_reachable=diversity_reachable,
+        diversity_reachable_note=diversity_reachable_note)
 
     ess_kwargs = dict(
         ess=ess_result.ess,
         ess_note="" if ess_result.reliable else ess_result.reason)
 
     if n > EXACT_LIMIT:
+        sample_cost["baseline"] = {
+            "available": False,
+            "note": f"unavailable: 2^{n} too large to enumerate",
+            "exact_wall_time_s": None,
+            "sampler_wall_time_s": sampler_wall_time,
+            "disclaimer": "a correctness-and-cost REFERENCE only when "
+                          "available; no speed or hardware claim",
+        }
+        sample_cost["verify_wall_time_s"] = time.perf_counter() - verify_t0
         return Verification(
             energy_tv=None, energy_note=f"unavailable: 2^{n} too large to enumerate",
             task_validity=task_validity, task_validity_note="",
@@ -333,9 +449,24 @@ def _verify(spec, art) -> tuple[Verification, EssEstimate]:
             execution_noise_floor=None,
             cross_check_tv=None, cross_check_note="unavailable: model too large",
             codeword_violation_rate=codeword_violation_rate,
-            codeword_violation_note="", **ess_kwargs), ess_result
+            codeword_violation_note="", **ess_kwargs, **diversity_kwargs
+        ), ess_result, sample_cost
 
+    # C4: CPU reference baseline -- a correctness-and-cost REFERENCE, never a
+    # speed/hardware claim. Both wall times are recorded honestly; nothing
+    # here states or implies either approach is faster than the other.
+    exact_t0 = time.perf_counter()
     states, probs = exact_distribution(prog)
+    exact_wall_time = time.perf_counter() - exact_t0
+    sample_cost["baseline"] = {
+        "available": True,
+        "note": "",
+        "exact_wall_time_s": exact_wall_time,
+        "sampler_wall_time_s": sampler_wall_time,
+        "disclaimer": "a correctness-and-cost REFERENCE only; no speed or "
+                      "hardware claim -- neither wall time is evidence that "
+                      "either approach is faster than the other",
+    }
 
     # energy layer: the lowered model must reproduce the encoded model's energies
     worst = 0.0
@@ -368,6 +499,7 @@ def _verify(spec, art) -> tuple[Verification, EssEstimate]:
     else:
         cross, cross_note = float(0.5 * np.abs(tx - probs).sum()), ""
 
+    sample_cost["verify_wall_time_s"] = time.perf_counter() - verify_t0
     return Verification(
         energy_tv=energy_tv, energy_note="",
         task_validity=task_validity,
@@ -376,7 +508,8 @@ def _verify(spec, art) -> tuple[Verification, EssEstimate]:
         execution_noise_floor=floor,
         cross_check_tv=cross, cross_check_note=cross_note,
         codeword_violation_rate=codeword_violation_rate, codeword_violation_note="",
-        **ess_kwargs), ess_result
+        **ess_kwargs, **diversity_kwargs
+    ), ess_result, sample_cost
 
 
 def _from_ising(ising, row) -> float:
