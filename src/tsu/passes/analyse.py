@@ -1,6 +1,6 @@
 """IsingModel -> GraphReport. Measures; claims nothing.
 
-`mediators` is the connectivity residual |E| - MaxCut(G), the floor on mediator
+`mediators` is the connectivity residual |E| - (max-cut value of G), the floor on mediator
 count for a bipartite substrate. It is a NECESSARY condition and never a sufficient
 one -- EXP-WL2 found geometry, not parity, binding for a 3D lattice. `place` decides
 realizability (spec section 6.1).
@@ -23,7 +23,7 @@ class GraphReport:
     n_edges: int
     max_degree: int
     bipartite: bool
-    mediators: int          # -1 when the graph is too large for an exact MaxCut
+    mediators: int          # -1 when the graph is too large for an exact max-cut
     colouring: dict
     colour_blocks: int
     max_abs_J: float
