@@ -12,7 +12,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .ir import Categorical
+from .ir import Categorical, Linear, Product
 from .spec import load_spec
 from .target import PROFILES, Sourced
 
@@ -166,6 +166,21 @@ def write_receipt(c, out_dir) -> Path:
         "colour_blocks": rep.colour_blocks,
         "max_abs_J": rep.max_abs_J, "max_abs_b": rep.max_abs_b}
     (d / "metrics.json").write_text(json.dumps(metrics, indent=2))
+
+    # C3 (ENERGY layer of `tsu explain`): the term inventory of the ENCODED
+    # model that was actually lowered and placed -- how many of the IR's own
+    # two term kinds (Linear/Product; ir.py's own docstring: "nothing else")
+    # -- so `tsu explain` can state the energy model's shape without
+    # re-parsing spec.yaml or recomputing anything the compiler has not
+    # already computed. Empty when the compile never reached `encode` (a
+    # LOGICAL verdict).
+    energy = {}
+    if c.encoded is not None:
+        counts = {"linear": 0, "product": 0}
+        for t in c.encoded.model.terms:
+            counts["linear" if isinstance(t, Linear) else "product"] += 1
+        energy = {"term_counts": counts, "n_terms": len(c.encoded.model.terms)}
+    (d / "energy.json").write_text(json.dumps(energy, indent=2))
 
     (d / "regime.json").write_text(json.dumps(
         c.regime.to_dict() if c.regime else {}, indent=2))

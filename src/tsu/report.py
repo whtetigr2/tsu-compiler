@@ -22,6 +22,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 # The noise-floor multiple SAMPLING is judged against, matching the same
 # tolerance test_4 (spec section 12) uses for "sampled matches exact" -- not a
 # new, independently invented threshold.
@@ -368,3 +370,264 @@ def _failure_narrative(passes: dict, verification: dict, checks, verdict: str):
                     return f"{label}: {v}", ()
             return f"{label} check did not pass", ()
     return "unavailable: no failing layer identified", ()
+
+
+# ============================================================================
+# C3: `tsu explain` -- the fuller, teaching-trace rendering. `tsu report`
+# above stays the terse form; this is additive, not a replacement. Same
+# honesty rules apply: rendered from receipt data alone, never recomputed,
+# never hardcoded; any field the receipt does not contain prints
+# `unavailable: <reason>`. Where this can state WHY a choice was made, it is
+# sourced from recorded evidence already in the receipt (candidates.json's
+# rows, passes.json's `ordering_rationale`, gates.json's remediations) --
+# never freshly invented prose about a specific compile's numbers. The one
+# exception is a small, STATIC glossary of what each generic term/rule KIND
+# *is* mathematically (`_TERM_KIND_GLOSS` below) -- a fixed label for a
+# recorded kind string, exactly the role `_KERNEL_LABELS` already plays for
+# `schedule`, not a claim about any particular compile's evidence.
+# ============================================================================
+
+_TERM_KIND_GLOSS = {
+    "linear": "a linear penalty/preference over one or more variables",
+    "product": "a pairwise penalty/preference between two linear forms",
+    "product_over_edges": "one pairwise term per edge of the spec's edge set",
+    "conserve_over_edges": "a squared linear form per node: "
+                          "weight*(inflow-outflow-net)**2",
+}
+
+
+def _yaml_safe_load(text: str) -> dict:
+    try:
+        return yaml.safe_load(text) or {}
+    except Exception:
+        return {}
+
+
+def _term_kind_counts(spec_raw: dict) -> dict:
+    counts: dict[str, int] = {}
+    for t in spec_raw.get("terms", []) or []:
+        k = t.get("kind", "?")
+        counts[k] = counts.get(k, 0) + 1
+    return counts
+
+
+def _contract_rule_counts(spec_raw: dict) -> dict:
+    counts: dict[str, int] = {}
+    for r in (spec_raw.get("contract") or {}).get("validate", []) or []:
+        k = r.get("rule", "?")
+        counts[k] = counts.get(k, 0) + 1
+    return counts
+
+
+def _candidate_field(v):
+    return "unavailable" if v is None else _fmt(v)
+
+
+def _magnitude_range(values, verdict: str, label: str) -> str:
+    if not values:
+        if verdict != "COMPILED":
+            return _as_unavailable(f"representation was never reached (verdict={verdict})")
+        return f"unavailable: no {label} in this model"
+    mags = [abs(v) for v in values]
+    return f"[{_fmt(min(mags))}, {_fmt(max(mags))}]"
+
+
+def render_explain(receipt_dir) -> str:
+    d = Path(receipt_dir)
+    workload = _load(d, "workload.json")
+    target = _load(d, "target.json")
+    metrics = _load(d, "metrics.json")
+    passes = _load(d, "passes.json")
+    candidates_table = _load(d, "candidates.json") or []
+    gates = _load(d, "gates.json")
+    regime = _load(d, "regime.json")
+    verification = _load(d, "verification.json")
+    program = _load(d, "program.json")
+    energy = _load(d, "energy.json")
+    cost = _load(d, "cost.json")
+    spec_yaml_path = d / "spec.yaml"
+    spec_raw = _yaml_safe_load(spec_yaml_path.read_text(encoding="utf-8")) \
+        if spec_yaml_path.exists() else {}
+
+    verdict = passes.get("verdict", "unavailable")
+
+    def _eline(label: str, value: Any) -> str:
+        return _line(label, value, width=38)
+
+    lines = ["TSU COMPILATION EXPLAIN", "=" * 40, ""]
+
+    # -- APPLICATION (1): what the spec declared, in its own vocabulary -----
+    lines.append("APPLICATION")
+    lines.append(_eline("Spec name:", spec_raw.get("name") or
+                       "unavailable: not recorded"))
+    description = (spec_raw.get("description") or "").strip()
+    lines.append(_eline("Description:",
+                       description.splitlines()[0] if description else
+                       "unavailable: not recorded in spec.yaml"))
+    lines.append(_eline("Variables:",
+                       workload.get("variables", "unavailable: not recorded")))
+    lines.append(_eline("State cardinality:",
+                       workload.get("state_cardinality", "unavailable: not recorded")))
+    lines.append(_eline("Constraint rule kinds:",
+                       workload.get("constraint_classes", "unavailable: not recorded")))
+    lines.append("")
+
+    # -- FORMULATION: the constraints restated as energy terms, and WHY -----
+    lines.append("FORMULATION")
+    if "generate" in spec_raw:
+        lines.append(_eline("Generated shape:",
+                           spec_raw["generate"].get("kind", "unavailable")))
+    lines.append(_eline("Declared terms:",
+                       workload.get("logical_interactions", "unavailable: not recorded")))
+    term_counts = _term_kind_counts(spec_raw)
+    if term_counts:
+        for kind in sorted(term_counts):
+            gloss = _TERM_KIND_GLOSS.get(kind, "a generic structural term template")
+            lines.append(f"    {kind} x{term_counts[kind]} -- {gloss}")
+    else:
+        lines.append("    unavailable: no hand-written terms in spec.yaml")
+    rule_counts = _contract_rule_counts(spec_raw)
+    for kind in sorted(rule_counts):
+        lines.append(f"    contract rule {kind} x{rule_counts[kind]}")
+    lines.append("")
+
+    # -- REPRESENTATION: encoding, candidates considered, why this one won --
+    selected = _selected_candidate(passes)
+    rep_row = _representative_row(candidates_table)
+    encoding_display = (selected["encoding"].replace("_", "-") if selected else
+                        _as_unavailable(f"no candidate selected (verdict={verdict})"))
+    n_nodes_display = _rep_display(metrics, rep_row, verdict, "n_nodes", "logical_spins")
+    n_edges_display = _rep_display(metrics, rep_row, verdict, "n_edges", "logical_edges")
+    bip_raw, bip_fallback = _rep_raw(metrics, rep_row, "bipartite", "bipartite")
+    if bip_raw is None:
+        graph_display = _metric(metrics, verdict, "bipartite")
+    else:
+        graph_display = "bipartite" if bip_raw else "non-bipartite"
+
+    lines.append("REPRESENTATION")
+    lines.append(_eline("Encoding selected:", encoding_display))
+    lines.append(_eline("Logical variables:", n_nodes_display))
+    lines.append(_eline("Logical edges:", n_edges_display))
+    lines.append(_eline("Graph:", graph_display))
+    if candidates_table:
+        lines.append(_eline("Candidates considered:", len(candidates_table)))
+        for row in candidates_table:
+            lines.append(
+                f"    {row['encoding']:<12} {row['state']:<22} "
+                f"pbits={_candidate_field(row.get('physical_pbits'))} "
+                f"colour_blocks={_candidate_field(row.get('colour_blocks'))} "
+                f"|J|max={_candidate_field(row.get('max_abs_J'))}")
+    else:
+        lines.append("  Candidates considered: unavailable: not recorded")
+    lines.append(_eline("Selection rationale:",
+                       passes.get("ordering_rationale") or "unavailable: not recorded"))
+    lines.append("")
+
+    # -- ENERGY: term inventory, |J|/|b| ranges ------------------------------
+    term_inv = energy.get("term_counts")
+    if term_inv:
+        linear_n, product_n = term_inv.get("linear", 0), term_inv.get("product", 0)
+        inventory = f"linear={linear_n}, product={product_n} " \
+                   f"(total {energy.get('n_terms', linear_n + product_n)})"
+    elif verdict != "COMPILED":
+        inventory = _as_unavailable(f"representation was never reached (verdict={verdict})")
+    else:
+        inventory = "unavailable: not recorded"
+    lines.append("ENERGY")
+    lines.append(_eline("Term inventory:", inventory))
+    lines.append(_eline("|J| range:",
+                       _magnitude_range(program.get("weights") or [], verdict, "couplings")))
+    lines.append(_eline("|b| range:",
+                       _magnitude_range(program.get("biases") or [], verdict, "biases")))
+    lines.append("")
+
+    # -- TOPOLOGY: logical graph, degree, bipartiteness, connectivity -------
+    mediators = _rep_display(metrics, rep_row, verdict, "mediators", "mediators",
+                             "mediators_note")
+    lines.append("TOPOLOGY")
+    lines.append(_eline("Logical spins:", n_nodes_display))
+    lines.append(_eline("Logical edges:", n_edges_display))
+    lines.append(_eline("Max degree:", _metric(metrics, verdict, "max_degree")))
+    lines.append(_eline("Graph:", graph_display))
+    lines.append(_eline("Connectivity residual (|E|-MaxCut):", mediators))
+    lines.append("")
+
+    # -- PHYSICAL MAPPING: placement, mediators, p-bits, colour blocks ------
+    n_edges_raw, n_edges_fb = _rep_raw(metrics, rep_row, "n_edges", "logical_edges")
+    n_nodes_raw, n_nodes_fb = _rep_raw(metrics, rep_row, "n_nodes", "logical_spins")
+    mediators_raw, mediators_fb = _rep_raw(metrics, rep_row, "mediators", "mediators")
+    if isinstance(mediators_raw, int) and n_nodes_raw is not None:
+        physical_pbits = _fmt(n_nodes_raw + mediators_raw)
+    else:
+        physical_pbits = mediators
+    placement = program.get("placement")
+    lines.append("PHYSICAL MAPPING")
+    lines.append(_eline("Mediators inserted:", mediators))
+    lines.append(_eline("Physical p-bits:", physical_pbits))
+    lines.append(_eline("Colour blocks:",
+                       _rep_display(metrics, rep_row, verdict, "colour_blocks",
+                                    "colour_blocks")))
+    if placement is None:
+        placement_line = _as_unavailable(f"no placement recorded (verdict={verdict})")
+        lines.append(_eline("Placement:", placement_line))
+    else:
+        lines.append(_eline("Placed nodes:", len(placement.get("coords", {}))))
+        lines.append(_eline("Realized edges:", len(placement.get("realized", []))))
+        lines.append(_eline("Unrealized edges:", len(placement.get("unrealized", []))))
+    lines.append("")
+
+    # -- SAMPLER: kernel, schedule, blocks, and the clamp (C1) if any -------
+    schedule = program.get("schedule")
+    kernel = _KERNEL_LABELS.get(schedule, schedule) if schedule else \
+        _as_unavailable(f"no program built (verdict={verdict})")
+    blocks = program.get("blocks")
+    lines.append("SAMPLER")
+    lines.append(_eline("Kernel:", kernel))
+    lines.append(_eline("Schedule:", schedule or
+                       _as_unavailable(f"no program built (verdict={verdict})")))
+    if blocks:
+        sizes = [len(b) for b in blocks]
+        lines.append(_eline("Free blocks:", f"{len(blocks)} (sizes {sizes})"))
+    else:
+        lines.append(_eline("Free blocks:",
+                           _as_unavailable(f"no program built (verdict={verdict})")
+                           if verdict != "COMPILED" else "0"))
+    clamp = program.get("clamp") or {}
+    lines.append(_eline("Clamp:", clamp if clamp else "none"))
+    sampler_cost = cost.get("sampler") or {}
+    lines.append(_eline("Sampler wall time (s):",
+                       sampler_cost.get("wall_time_s", "unavailable: not recorded")))
+    lines.append(_eline("Samples/second:",
+                       sampler_cost.get("samples_per_second", "unavailable: not recorded")))
+    lines.append("")
+
+    # -- VERIFICATION: each layer's equivalence result, or unavailable ------
+    lines.append("VERIFICATION")
+    lines.append(_eline("Energy equivalence (TV):", _verif(verification, "energy_tv")))
+    lines.append(_eline("Execution TV:", _verif(verification, "execution_tv")))
+    lines.append(_eline("Execution noise floor:",
+                       _verif(verification, "execution_noise_floor")))
+    lines.append(_eline("Cross-check TV (torx):", _verif(verification, "cross_check_tv")))
+    lines.append(_eline("Codeword violation rate:",
+                       _verif(verification, "codeword_violation_rate")))
+    lines.append(_eline("ESS:", _verif(verification, "ess")))
+    lines.append(_eline("Mixing (IAT):", _regime(regime, "mixing_indicator")))
+    lines.append(_eline("Diversity (distinct valid):",
+                       _verif(verification, "diversity_distinct")))
+    lines.append(_eline("Diversity (reachable valid states):",
+                       _verif(verification, "diversity_reachable")))
+    baseline = cost.get("baseline") or {}
+    lines.append(_eline("CPU baseline exact wall time (s):",
+                       baseline.get("exact_wall_time_s", "unavailable: not recorded")))
+    lines.append("")
+
+    # -- APPLICATION (2): the decoded result and task-level validity --------
+    lines.append("APPLICATION")
+    lines.append(_eline("Task validity:", _verif(verification, "task_validity")))
+    lines.append(_eline(
+        "Decoded result:",
+        "unavailable: not recorded (no single concrete sample is persisted "
+        "in this receipt; task validity above is measured over the whole "
+        "sampling run, not one decoded draw)"))
+
+    return "\n".join(lines) + "\n"

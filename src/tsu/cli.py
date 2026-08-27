@@ -10,7 +10,7 @@ from .passes.encode import encode
 from .passes.lower import lower
 from .passes.search import compile_spec
 from .receipt import replay, write_receipt
-from .report import render_report
+from .report import render_explain, render_report
 from .spec import load_spec
 from .target import PROFILES
 from .viz import render
@@ -46,6 +46,7 @@ def main(argv=None) -> int:
     v.add_argument("--out", required=True)
     r = sub.add_parser("replay"); r.add_argument("receipt")
     rp = sub.add_parser("report"); rp.add_argument("receipt")
+    ex = sub.add_parser("explain"); ex.add_argument("receipt")
 
     a = p.parse_args(argv)
 
@@ -84,6 +85,10 @@ def main(argv=None) -> int:
 
     if a.cmd == "report":
         print(render_report(a.receipt))
+        return 0
+
+    if a.cmd == "explain":
+        print(render_explain(a.receipt))
         return 0
 
     return 1
