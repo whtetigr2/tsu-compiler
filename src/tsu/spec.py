@@ -183,6 +183,89 @@ def _value_indicator(var: Var, value: int) -> LinearForm:
     return LinearForm({VarRef(var.name, value): 1.0})
 
 
+def _flow_var_name(prefix: str, u: str, v: str) -> str:
+    """The naming convention for a `conserve_over_edges` (C2) flow variable:
+    one Binary spin per edge (u, v) of the spec's own edge set, read as "the
+    flow from u to v" in the direction the edge is already declared. Shared
+    by variable generation and term generation so the two can never name a
+    variable differently."""
+    return f"{prefix}__{u}__{v}"
+
+
+def _conserve_over_edges_variables(t: Mapping[str, Any], edges, existing_names: set):
+    """Term template (C2): a `conserve_over_edges` term needs one flow
+    variable PER EDGE of the spec's edge set -- generated here, before the
+    term itself, following `grid`'s own precedent of generating variables
+    from a structural shape rather than requiring them hand-declared. Raises
+    on a name collision rather than silently shadowing an existing variable,
+    the same guard encode.py's chain-name generation already uses."""
+    prefix = t["flow_prefix"]
+    variables = []
+    for u, v in edges:
+        name = _flow_var_name(prefix, u, v)
+        if name in existing_names:
+            raise ValueError(
+                f"generated conserve_over_edges flow variable {name!r} "
+                f"collides with an existing variable; choose a different "
+                f"flow_prefix")
+        variables.append(Var(name, Binary()))
+        existing_names.add(name)
+    return variables
+
+
+def _conserve_over_edges_terms(t: Mapping[str, Any], edges):
+    """Term template (C2): flow conservation over a node's incident edges.
+
+    For every node n of the edge set, emits `weight * (inflow - outflow -
+    net)**2` -- a squared linear form (Product(L, L, weight)), hence PAIRWISE
+    once lowered, exactly the shape one-hot's own exactly-one penalty already
+    uses. `inflow`/`outflow` sum the incident flow variables by the edge's
+    own declared direction; `net = sinks.get(n, 0) - sources.get(n, 0)` is
+    the node's own source/sink value, 0 (ordinary conservation: inflow ==
+    outflow) for a node named in neither map. A sink (net > 0) wants net
+    inflow; a source (net < 0) wants net outflow -- the sign a reader would
+    expect from "sinks accumulate, sources emit".
+
+    Named for the MATHEMATICS -- conservation of a signed quantity over an
+    edge set -- not for reachability or any workload; it serves any
+    conservation-shaped constraint the same way `product_over_edges` serves
+    any pairwise one.
+    """
+    prefix = t["flow_prefix"]
+    weight = float(t["weight"])
+    sources = t.get("sources", {}) or {}
+    sinks = t.get("sinks", {}) or {}
+    nodes = sorted({n for e in edges for n in e})
+    node_set = set(nodes)
+
+    for name in list(sources) + list(sinks):
+        if name not in node_set:
+            raise ValueError(
+                f"conserve_over_edges: {name!r} (in sources/sinks) is not a "
+                f"node of this edge set")
+
+    incident_in: dict[str, list[str]] = {n: [] for n in nodes}
+    incident_out: dict[str, list[str]] = {n: [] for n in nodes}
+    for u, v in edges:
+        name = _flow_var_name(prefix, u, v)
+        incident_out[u].append(name)
+        incident_in[v].append(name)
+
+    terms = []
+    for n in nodes:
+        net = float(sinks.get(n, 0.0)) - float(sources.get(n, 0.0))
+        coeffs: dict[VarRef, float] = {}
+        for name in incident_in[n]:
+            r = VarRef(name)
+            coeffs[r] = coeffs.get(r, 0.0) + 1.0
+        for name in incident_out[n]:
+            r = VarRef(name)
+            coeffs[r] = coeffs.get(r, 0.0) - 1.0
+        L = LinearForm(coeffs, const=-net)
+        terms.append(Product(L, L, weight))
+    return terms
+
+
 def _product_over_edges(t: Mapping[str, Any], edges, var_by_name: Mapping[str, Var]):
     """Term template (A2): one Product per edge of the spec's edge set --
     "apply this pairwise term across every edge", generic over any edge-defined
@@ -231,6 +314,20 @@ def load_spec(path: str) -> WorkloadSpec:
             variables.append(Var(name, dom))
         variables = tuple(variables)
 
+    # C2: conserve_over_edges generates FLOW VARIABLES from the edge set,
+    # before term parsing (which needs them present in var_by_name/the model
+    # even though nothing else ever declares them by hand) -- following
+    # `grid`'s own precedent of variables generated from a structural shape.
+    declared_names = {v.name for v in variables}
+    for t in raw.get("terms", []):
+        if t.get("kind") == "conserve_over_edges":
+            if not edges:
+                raise ValueError(
+                    "conserve_over_edges requires a non-empty edge set (e.g. "
+                    "from a `generate` block); this spec has none")
+            variables = variables + tuple(
+                _conserve_over_edges_variables(t, edges, declared_names))
+
     var_by_name = {v.name: v for v in variables}
 
     # Hand-written terms are parsed regardless of whether the spec also has a
@@ -249,6 +346,8 @@ def load_spec(path: str) -> WorkloadSpec:
                                        float(t["weight"])))
         elif kind == "product_over_edges":
             extra_terms.extend(_product_over_edges(t, edges, var_by_name))
+        elif kind == "conserve_over_edges":
+            extra_terms.extend(_conserve_over_edges_terms(t, edges))
         else:
             raise ValueError(f"unknown term kind {kind!r}")
     terms = tuple(generated_terms) + tuple(extra_terms)
