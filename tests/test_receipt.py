@@ -128,12 +128,22 @@ def test_metrics_json_never_publishes_the_uncomputed_mediators_sentinel(tmp_path
 
 def test_task_validity_and_noise_floor_render_their_reason_not_the_word_none(tmp_path):
     """I8: every verification field except task_validity carried its own note
-    ('energy_note', 'execution_note', 'cross_check_note'); task_validity fell
-    back to a bare 'unavailable' literal with no reason, and
-    execution_noise_floor fell back to a raw null with no note at all -- the
-    visualizer rendered both as the literal string 'None'. A model too large to
-    enumerate exactly (compiled against IDEAL so it still reaches COMPILED)
-    exercises the real path."""
+    ('energy_note', 'execution_note', 'cross_check_note'); execution_noise_floor
+    fell back to a raw null with no note at all -- the visualizer rendered it
+    as the literal string 'None'. A model too large to enumerate exactly
+    (compiled against IDEAL so it still reaches COMPILED) exercises the real
+    path.
+
+    UPDATED (WFC stress test finding, search.py's `_verify`): task_validity
+    used to be gated behind the SAME `n > EXACT_LIMIT` early return the
+    genuinely exact-reference-dependent fields need, even though it needs only
+    samples and the task contract -- never an exact reference (verify.py's own
+    module docstring). That was itself a defect, not just a missing note: no
+    spec large enough to need this compiler's exact-enumeration escape hatch
+    could ever get a real task_validity number. It is now computed
+    unconditionally; only energy_tv/execution_tv/execution_noise_floor/
+    cross_check_tv -- which truly do need an exact reference -- stay
+    unavailable for a model this large."""
     from tsu.backends.thrml_backend import EXACT_LIMIT
 
     n = EXACT_LIMIT + 2
@@ -150,9 +160,11 @@ def test_task_validity_and_noise_floor_render_their_reason_not_the_word_none(tmp
     d = write_receipt(c, tmp_path / "r")
 
     verification = json.loads((Path(d) / "verification.json").read_text())
-    assert verification["task_validity"].startswith("unavailable:"), \
-        "task_validity must carry a REASON, not the bare word 'unavailable'"
+    assert isinstance(verification["task_validity"], float), \
+        "task_validity needs no exact reference and must be a real number here"
+    assert 0.0 <= verification["task_validity"] <= 1.0
     assert verification["execution_noise_floor"].startswith("unavailable:")
+    assert verification["energy_tv"].startswith("unavailable:")
 
     html_out = tmp_path / "r.html"
     render(d, html_out)

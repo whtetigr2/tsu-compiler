@@ -219,28 +219,17 @@ def _verify(spec, art) -> Verification:
     enc, prog, ising = art["encoded"], art["program"], art["ising"]
     n = len(ising.nodes)
 
-    if n > EXACT_LIMIT:
-        return Verification(
-            energy_tv=None, energy_note=f"unavailable: 2^{n} too large to enumerate",
-            task_validity=None,
-            task_validity_note="unavailable: no exact reference to validate decoded "
-                               "samples against",
-            execution_tv=None, execution_note="unavailable: no exact reference",
-            execution_noise_floor=None,
-            cross_check_tv=None, cross_check_note="unavailable: model too large",
-            codeword_violation_rate=None,
-            codeword_violation_note="unavailable: no exact reference")
-
-    states, probs = exact_distribution(prog)
-
-    # energy layer: the lowered model must reproduce the encoded model's energies
-    worst = 0.0
-    for row, p in zip(states, probs):
-        bits = dict(zip(ising.nodes, row.tolist()))
-        worst = max(worst, abs(enc.model.energy(bits) - _from_ising(ising, row)))
-    energy_tv = worst
-
-    # task layer: measured on DECODED samples, never inferred from energy.
+    # Task layer FIRST, unconditionally: it is measured on DECODED SAMPLES
+    # against the task contract and needs no exact reference at all (spec.py's
+    # own docstring: "Workload correctness is measured on DECODED samples and
+    # is never inferred from energy"). This must NOT be gated behind the same
+    # `n > EXACT_LIMIT` early return the genuinely exact-reference-dependent
+    # layers below need -- it previously was, which meant no spec large enough
+    # to need this compiler's own exact-enumeration escape hatch could ever
+    # get a real task_validity number, contradicting the very reason that
+    # escape hatch exists. Found via the WFC stress test's 4x4 grid instance
+    # (adjacency_4x4_k4.yaml), which exists specifically to exercise this path.
+    #
     # `decode` is a PROJECTION, not an inverse (C5): handed a non-monotone
     # (invalid) domain-wall chain it still returns a legal-looking value with no
     # flag. A sample that is not a valid codeword is not a decoded sample at
@@ -259,9 +248,30 @@ def _verify(spec, art) -> Verification:
     task_validity = ok / len(got)
     codeword_violation_rate = codeword_violations / len(got)
 
-    # execution layer: sampler vs its own model. The index into `probs` MUST be
-    # derived from `states` itself, never from an independently-assumed bit
-    # order -- `exact_distribution`'s enumeration order is an implementation
+    if n > EXACT_LIMIT:
+        return Verification(
+            energy_tv=None, energy_note=f"unavailable: 2^{n} too large to enumerate",
+            task_validity=task_validity, task_validity_note="",
+            execution_tv=None, execution_note="unavailable: no exact reference",
+            execution_noise_floor=None,
+            cross_check_tv=None, cross_check_note="unavailable: model too large",
+            codeword_violation_rate=codeword_violation_rate,
+            codeword_violation_note="")
+
+    states, probs = exact_distribution(prog)
+
+    # energy layer: the lowered model must reproduce the encoded model's energies
+    worst = 0.0
+    for row, p in zip(states, probs):
+        bits = dict(zip(ising.nodes, row.tolist()))
+        worst = max(worst, abs(enc.model.energy(bits) - _from_ising(ising, row)))
+    energy_tv = worst
+
+    # execution layer: sampler vs its own model, reusing the SAME samples `got`
+    # already drawn above for the task layer (one sampling run serves both).
+    # The index into `probs` MUST be derived from `states` itself, never from
+    # an independently-assumed bit order -- `exact_distribution`'s enumeration
+    # order is an implementation
     # detail of itertools.product, and a hand-rolled (1 << arange(n)) index
     # silently assumes a specific one. A previous version assumed LSB-first
     # and got MSB-first, which inflated execution_tv from ~0.01 to ~0.52 with
