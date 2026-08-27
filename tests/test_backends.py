@@ -10,10 +10,16 @@ from tsu.backends.thrml_backend import exact_distribution, sample
 from tsu.backends.torx_backend import torx_cross_check
 
 
-def two_spin_program(w=2.0):
+def two_spin_program(w=2.0, bias_a=0.7):
+    """I3: `bias_a` (nonzero by default) makes p(0,1) != p(1,0), so a test
+    comparing per-state probabilities can actually detect a state-ordering bug
+    -- a symmetric model (no bias) makes such a bug invisible, which is exactly
+    why the MSB/LSB mismatch this fixture regression-tests survived once already
+    (see `_verify`'s own comment in search.py)."""
     m = EnergyModel((Var("a", Binary()), Var("b", Binary())),
                     (Product(LinearForm({VarRef("a"): 1.0}),
-                             LinearForm({VarRef("b"): 1.0}), w),), 1.0)
+                             LinearForm({VarRef("b"): 1.0}), w),
+                     Linear(LinearForm({VarRef("a"): 1.0}), bias_a)), 1.0)
     im = lower(m)
     return build_program(im, analyse(im)), m
 
@@ -27,11 +33,20 @@ def test_exact_distribution_matches_a_hand_computed_boltzmann():
 
 
 def test_sampling_reproduces_the_exact_distribution_within_noise():
+    """I3: the histogram index MUST be derived from `exact_distribution`'s own
+    `states` array, exactly as `_verify` does in search.py -- never a hand-rolled
+    `(got * (1 << arange(n))).sum(axis=1))` LSB-first index, which silently
+    assumes a specific bit order that `exact_distribution` (MSB-first via
+    itertools.product) does not use. With the symmetric (no-bias) model this
+    fixture used to build, that mismatch was invisible: p(0,1) == p(1,0) made a
+    permuted comparison look correct by accident. With `two_spin_program`'s
+    now-asymmetric bias, an LSB-first index reproducibly fails this assertion."""
     prog, _ = two_spin_program()
     states, probs = exact_distribution(prog)
     got = sample(prog, n_chains=32, n_samples=400, n_warmup=500,
                  steps_per_sample=2, seed=0)
-    idx = (got * (1 << np.arange(got.shape[1]))).sum(axis=1)
+    state_index = {tuple(int(x) for x in row): i for i, row in enumerate(states)}
+    idx = np.array([state_index[tuple(int(x) for x in row)] for row in got])
     hist = np.bincount(idx, minlength=len(probs)).astype(float)
     hist /= hist.sum()
     assert np.abs(hist - probs).max() < 0.05
@@ -43,6 +58,14 @@ def test_torx_cross_check_agrees_with_thrml_by_a_DIFFERENT_route():
     The value of this control is that torx reaches the answer by driving PISING to
     stationarity, which is a different computation from thrml's energy softmax. A
     cross-check that recomputes the same formula is not a control.
+
+    I3: this compared `tx` against `probs` element-wise on a SYMMETRIC model
+    (no bias), which made a basis-order mismatch between the two routes
+    invisible -- p(0,1) == p(1,0) means a permuted comparison looks correct by
+    accident. `two_spin_program`'s now-asymmetric bias makes this a real check:
+    torx agrees with thrml to within 1e-6 (verified to ~1e-16 in practice) with
+    the asymmetric model, which is the actual evidence that the two routes use
+    the same state ordering, not merely a coincidence of symmetry.
     """
     prog, _ = two_spin_program()
     _, probs = exact_distribution(prog)
