@@ -46,16 +46,78 @@ def test_never_prints_the_bare_word_none_or_a_blank_value(tmp_path):
             pytest.fail(f"a label with no value at all: {line!r}")
 
 
-def test_ess_and_mixing_and_diversity_are_never_measured_and_say_so(tmp_path):
+def test_diversity_is_never_measured_and_says_so(tmp_path):
+    """Diversity has no producer anywhere in this compiler (unlike ESS/Mixing,
+    see the next tests) -- it must always read the honest placeholder."""
     c = compile_spec(load_spec("specs/toy.yaml"), Z1)
     d = write_receipt(c, tmp_path / "r")
     text = render_report(d)
-    assert "unavailable: not measured" in text
+    diversity_line = next(l for l in text.splitlines() if l.strip().startswith("Diversity:"))
+    assert "unavailable: not measured" in diversity_line
+
+
+def test_ess_and_mixing_print_the_real_measurement_when_the_chain_supports_it(tmp_path):
+    """toy.yaml's compiled chain mixes fast enough (tau ~ 0.9 -- see
+    tests/test_verify.py and tests/test_ess.py) that tsu.ess's reliability
+    threshold is cleared: ESS/Mixing must now print REAL numbers sourced from
+    the receipt (verification.json's `ess`, regime.json's `mixing_indicator`),
+    not the old permanent placeholder -- that placeholder was honest only
+    because nothing computed these fields yet; now something does."""
+    c = compile_spec(load_spec("specs/toy.yaml"), Z1)
+    assert c.verification.ess is not None, \
+        "toy.yaml's chain should mix well enough for a reliable ESS estimate"
+    d = write_receipt(c, tmp_path / "r")
+    text = render_report(d)
     ess_line = next(l for l in text.splitlines() if l.strip().startswith("ESS:"))
     mixing_line = next(l for l in text.splitlines() if l.strip().startswith("Mixing:"))
-    diversity_line = next(l for l in text.splitlines() if l.strip().startswith("Diversity:"))
-    for line in (ess_line, mixing_line, diversity_line):
-        assert "unavailable: not measured" in line
+    assert "unavailable" not in ess_line
+    assert "unavailable" not in mixing_line
+    # the numbers rendered must be the SAME numbers the receipt recorded --
+    # report.py must never recompute, only format.
+    assert f"{c.verification.ess:.6g}" in ess_line
+    assert f"{c.regime.mixing_indicator:.6g}" in mixing_line
+
+
+def test_ess_and_mixing_print_unavailable_with_a_reason_when_the_chain_is_too_short(
+        tmp_path, monkeypatch):
+    """The other honest half: when tsu.ess itself decides a chain is too
+    short/too correlated to trust (see test_ess.py's validity-domain tests),
+    the report must print `unavailable: <reason>`, never a fabricated number.
+    Forcing this end-to-end (not just at the tsu.ess unit level) proves the
+    wiring -- search.py, Verification, RegimeReport, report.py -- actually
+    propagates a None-with-reason result all the way to the rendered text,
+    rather than only the happy path ever being exercised."""
+    import numpy as np
+    from tsu.backends import thrml_backend
+
+    real_sample_chains = thrml_backend.sample_chains
+
+    def fake_sample_chains(prog, n_chains, n_samples, n_warmup, steps_per_sample, seed):
+        # A short, strongly autocorrelated chain: N/tau is far below tsu.ess's
+        # reliability threshold no matter what the real program mixes like.
+        real = real_sample_chains(
+            prog, n_chains, n_samples, n_warmup, steps_per_sample, seed)
+        n = real.shape[-1]
+        rng = np.random.default_rng(0)
+        x = np.zeros((n_chains, n_samples))
+        for t in range(1, n_samples):
+            x[:, t] = 0.97 * x[:, t - 1] + rng.normal(size=n_chains)
+        alternating = (x > np.median(x)).astype(int)
+        forced = np.tile(alternating[:, :, None], (1, 1, n))
+        return forced
+
+    monkeypatch.setattr(thrml_backend, "sample_chains", fake_sample_chains)
+    c = compile_spec(load_spec("specs/toy.yaml"), Z1)
+    assert c.verification.ess is None
+    assert c.verification.ess_note.startswith("unavailable")
+    assert c.regime.mixing_indicator is None
+
+    d = write_receipt(c, tmp_path / "r")
+    text = render_report(d)
+    ess_line = next(l for l in text.splitlines() if l.strip().startswith("ESS:"))
+    mixing_line = next(l for l in text.splitlines() if l.strip().startswith("Mixing:"))
+    assert "unavailable" in ess_line
+    assert "unavailable" in mixing_line
 
 
 def test_a_logical_failure_renders_unavailable_sections_and_a_reason_block(tmp_path):

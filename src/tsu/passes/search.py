@@ -15,11 +15,13 @@ the full measured table so that ordering is auditable, not just asserted.
 """
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 
+from ..ess import EssEstimate, effective_sample_size
 from ..failures import CompileError
 from ..gates import check_gates, gate_checks
 from ..regime import analyse_regime
@@ -181,8 +183,25 @@ def compile_spec(spec, target: TargetProfile, allow_assumed: bool = False) -> Co
 
     chosen = min(feasible, key=_selection_key)
     art = arts[chosen.encoding][1]
+
+    verification, ess_result = _verify(spec, art)
+    # RegimeReport.mixing_indicator can only be populated AFTER `_verify` has
+    # actually sampled the chosen candidate's program -- `chosen.regime` (built
+    # in `_try`, before any sampling happened) still reads None/"unmeasured"
+    # for it. Patch it in here, once, from the SAME EssEstimate that fed
+    # `verification.ess`, so both fields are honest about the same measurement
+    # (or the same reason neither could be measured) rather than being
+    # computed twice and risking drifting apart.
+    regime = chosen.regime
+    if regime is not None:
+        if ess_result.reliable:
+            regime = dataclasses.replace(regime, mixing_indicator=ess_result.iat)
+        else:
+            regime = dataclasses.replace(
+                regime, mixing_indicator_note=ess_result.reason)
+
     selected = Candidate(chosen.encoding, CandidateState.SELECTED,
-                         report=chosen.report, regime=chosen.regime,
+                         report=chosen.report, regime=regime,
                          placement=chosen.placement)
 
     final = []
@@ -202,18 +221,33 @@ def compile_spec(spec, target: TargetProfile, allow_assumed: bool = False) -> Co
             final.append(c)
     final = tuple(final)
 
-    verification = _verify(spec, art)
     return Compilation(
         spec=spec, target=target, verdict="COMPILED", ideal_passed=True,
         ideal_report=ideal_cand, hardware_evaluated=True,
         repset=RepresentationSet(final, selected, ORDERING_RATIONALE),
         allow_assumed=allow_assumed, gate_checks=art["gate_checks"],
-        program=art["program"], encoded=art["encoded"], regime=art["regime"],
+        program=art["program"], encoded=art["encoded"], regime=regime,
         placement=art["placement"], verification=verification)
 
 
-def _verify(spec, art) -> Verification:
-    from ..backends.thrml_backend import EXACT_LIMIT, exact_distribution, sample
+def _measure_mixing(ising, chains: np.ndarray) -> EssEstimate:
+    """chains: (n_chains, n_samples, n_spins) from ONE sampling run, kept
+    UNFLATTENED -- autocorrelation across a chain boundary is meaningless
+    (thrml_backend.sample_chains' own docstring). The scalar functional fed to
+    tsu.ess is the sample's own energy under `ising`, the standard physics-
+    MCMC mixing diagnostic (Sokal 1989, "Monte Carlo Methods in Statistical
+    Mechanics", sec. 1: the autocorrelation time of the energy/magnetisation
+    is the quantity actually tracked), rather than any single spin coordinate
+    -- so the estimate reflects mixing of the WHOLE joint state, not one axis
+    of it."""
+    n_chains, n_samples, _ = chains.shape
+    energy = np.array([[_from_ising(ising, chains[ci, ti]) for ti in range(n_samples)]
+                       for ci in range(n_chains)])
+    return effective_sample_size(energy)
+
+
+def _verify(spec, art) -> tuple[Verification, EssEstimate]:
+    from ..backends.thrml_backend import EXACT_LIMIT, exact_distribution, sample_chains
     from ..backends.torx_backend import torx_cross_check
 
     enc, prog, ising = art["encoded"], art["program"], art["ising"]
@@ -236,7 +270,14 @@ def _verify(spec, art) -> Verification:
     # all -- it must count as invalid, not be silently decoded and validated as
     # if the chain meant something. The codeword-violation rate is reported
     # separately so it is visible, not folded into (and hidden inside) task_validity.
-    got = sample(prog, 32, 200, 400, 2, 0)
+    #
+    # Kept UNFLATTENED (`chains`) so the ESS/mixing estimate below can see
+    # chain boundaries; `got` is the exact same draws flattened, unchanged
+    # from before, for the task/execution layers that only need i.i.d.-
+    # looking samples against a stationary reference.
+    chains = sample_chains(prog, 32, 200, 400, 2, 0)
+    got = chains.reshape(-1, chains.shape[-1])
+    ess_result = _measure_mixing(ising, chains)
     ok = 0
     codeword_violations = 0
     for row in got:
@@ -248,6 +289,10 @@ def _verify(spec, art) -> Verification:
     task_validity = ok / len(got)
     codeword_violation_rate = codeword_violations / len(got)
 
+    ess_kwargs = dict(
+        ess=ess_result.ess,
+        ess_note="" if ess_result.reliable else ess_result.reason)
+
     if n > EXACT_LIMIT:
         return Verification(
             energy_tv=None, energy_note=f"unavailable: 2^{n} too large to enumerate",
@@ -256,7 +301,7 @@ def _verify(spec, art) -> Verification:
             execution_noise_floor=None,
             cross_check_tv=None, cross_check_note="unavailable: model too large",
             codeword_violation_rate=codeword_violation_rate,
-            codeword_violation_note="")
+            codeword_violation_note="", **ess_kwargs), ess_result
 
     states, probs = exact_distribution(prog)
 
@@ -298,7 +343,8 @@ def _verify(spec, art) -> Verification:
         execution_note=f"noise floor {floor:.6f}",
         execution_noise_floor=floor,
         cross_check_tv=cross, cross_check_note=cross_note,
-        codeword_violation_rate=codeword_violation_rate, codeword_violation_note="")
+        codeword_violation_rate=codeword_violation_rate, codeword_violation_note="",
+        **ess_kwargs), ess_result
 
 
 def _from_ising(ising, row) -> float:

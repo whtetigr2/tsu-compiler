@@ -6,10 +6,15 @@ the exact defect viz.py's own docstring documents from an earlier prototype:
 "Oracle verdict: GREEN" printed regardless of what the receipt actually said).
 
 Any field the receipt does not contain prints `unavailable: <reason>` here --
-never a blank, a zero, or an invented value. ESS, Mixing and Diversity are not
-computed anywhere in this compiler today, so they always read
-`unavailable: not measured`; that is a true statement about what was measured,
-not a placeholder standing in for a number nobody has.
+never a blank, a zero, or an invented value. ESS and Mixing (tsu.ess) print a
+real measurement when the compile's own sampling run supported a reliable
+estimate, and `unavailable: <reason>` -- a short chain, or too few effective
+samples relative to the estimated autocorrelation time -- when it did not;
+either way this file only ever renders what verification.json/regime.json
+already recorded, never a number it computed itself. Diversity is still not
+computed anywhere in this compiler, so it always reads
+`unavailable: not measured`; that is a true statement about what was
+measured, not a placeholder standing in for a number nobody has.
 """
 from __future__ import annotations
 
@@ -265,10 +270,15 @@ def render_report(receipt_dir) -> str:
     lines.append(_line("Colour blocks:",
                        _rep_display(metrics, rep_row, verdict, "colour_blocks",
                                     "colour_blocks")))
-    # ESS/Mixing/Diversity are not computed anywhere in this compiler today --
-    # print the honest state, not a placeholder pretending toward one.
-    lines.append(_line("ESS:", "unavailable: not measured"))
-    lines.append(_line("Mixing:", "unavailable: not measured"))
+    # ESS/Mixing (tsu.ess) render the real measurement when the compile's own
+    # sampling run supported a reliable estimate (verification.json's `ess`,
+    # regime.json's `mixing_indicator`), and `unavailable: <reason>` -- never
+    # a fabricated number -- when it did not (short chain, or N/tau below
+    # tsu.ess's reliability threshold). Diversity is still not computed
+    # anywhere in this compiler -- print the honest state, not a placeholder
+    # pretending toward one.
+    lines.append(_line("ESS:", _verif(verification, "ess")))
+    lines.append(_line("Mixing:", _regime(regime, "mixing_indicator")))
     lines.append(_line("Valid-state fraction:", _verif(verification, "task_validity")))
     lines.append(_line("Diversity:", "unavailable: not measured"))
     lines.append("")

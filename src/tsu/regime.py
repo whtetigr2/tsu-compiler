@@ -28,6 +28,16 @@ class RegimeReport:
     regime: str
     basis: str
     precision_headroom_note: str = ""
+    # mixing_indicator is the integrated autocorrelation time (tau) tsu.ess
+    # estimated from the compile's own sampling run, when the chain supported
+    # a reliable estimate (see search.py's compile_spec, which patches this
+    # field in once verification has actually sampled). `mixing_indicator_note`
+    # carries the reason when it did not (too few samples, or N/tau below
+    # tsu.ess's reliability threshold) -- defaults to "" so a RegimeReport
+    # built before mixing was ever attempted (every candidate's regime is
+    # computed in `_try`, before any sampling has happened) still renders the
+    # same bare "unmeasured" it always did.
+    mixing_indicator_note: str = ""
 
     def to_dict(self):
         return {
@@ -37,7 +47,8 @@ class RegimeReport:
                 if self.precision_headroom is not None else self.precision_headroom_note,
             "beta_recommendation": self.beta_recommendation,
             "mixing_indicator": self.mixing_indicator
-                if self.mixing_indicator is not None else "unmeasured",
+                if self.mixing_indicator is not None
+                else (self.mixing_indicator_note or "unmeasured"),
             "regime": self.regime,
             "basis": self.basis,
         }

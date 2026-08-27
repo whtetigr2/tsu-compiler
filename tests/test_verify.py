@@ -85,8 +85,20 @@ def test_codeword_violation_rate_is_measured_and_excluded_from_task_validity():
     assert v.codeword_violation_rate < 0.2
 
 
-def test_regime_report_has_cheap_fields_and_unmeasured_elsewhere():
+def test_regime_report_has_cheap_fields_and_measures_mixing_when_the_chain_supports_it():
+    """toy.yaml's compiled chain mixes fast enough (tau ~ 0.9, close to the
+    i.i.d. tau=1 floor -- a 4-spin chromatic-block-Gibbs chain has little to
+    decorrelate) that N/tau clears tsu.ess's reliability threshold, so
+    mixing_indicator is now a REAL measurement, not the old permanent None --
+    the whole point of wiring tsu.ess in was to stop reporting "unmeasured"
+    for a quantity the compiler can, in fact, measure here. `energy_scale`
+    stays an example of a field this vertical slice genuinely never
+    computes (see regime.py's own docstring: "cheap fields only")."""
     r = compile_spec(load_spec("specs/toy.yaml"), Z1).regime
     assert r.coupling_utilisation is not None
-    assert r.mixing_indicator is None
+    assert r.mixing_indicator is not None
+    assert r.mixing_indicator == pytest.approx(1.0, abs=0.5), \
+        "a well-mixing 4-spin chain's IAT should sit close to the i.i.d. floor of 1"
+    assert r.energy_scale is None, \
+        "energy_scale is still never computed in this vertical slice"
     assert r.regime in ("feasible", "precision_limited", "unmeasured")

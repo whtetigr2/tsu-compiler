@@ -39,6 +39,15 @@ class Verification:
     # same "unavailable" it always did -- but a real caller should always set
     # this to something informative when task_validity is None.
     task_validity_note: str = "unavailable"
+    # Effective sample size (tsu.ess), measured on the SAME samples `got` in
+    # search.py's `_verify` was already drawn from, kept unflattened per-chain
+    # (thrml_backend.sample_chains) long enough to estimate an autocorrelation
+    # time from. None with `ess_note` explaining why whenever the estimate is
+    # not trustworthy (too few samples, or N/tau below tsu.ess's AR(1)-
+    # validated reliability threshold) -- never a fabricated number for a
+    # chain too short to support one.
+    ess: float | None = None
+    ess_note: str = "unavailable: not measured"
 
     def to_dict(self):
         def f(v, note):
@@ -55,6 +64,7 @@ class Verification:
             "cross_check_tv": f(self.cross_check_tv, self.cross_check_note),
             "codeword_violation_rate": f(self.codeword_violation_rate,
                                         self.codeword_violation_note),
+            "ess": f(self.ess, self.ess_note),
         }
 
 

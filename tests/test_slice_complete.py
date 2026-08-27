@@ -73,10 +73,18 @@ def test_6c_decode_round_trips_all_twelve_states_and_validate_names_violations()
 
 
 def test_6d_regime_report_populated_and_honest_about_what_it_did_not_measure(tmp_path):
+    """toy.yaml's chain mixes fast enough (see tsu.ess/test_ess.py and
+    test_verify.py) that mixing_indicator is now a REAL number, not the old
+    permanent "unmeasured" -- tsu.ess wiring means this compiler can actually
+    measure it here. `energy_scale` is this vertical slice's remaining
+    honestly-unmeasured cheap field (regime.py's own docstring: "cheap fields
+    only"), so it is what now demonstrates the "honest about what it did not
+    measure" half of this test's name."""
     main(["compile", "specs/toy.yaml", "--target", "z1", "--out", str(tmp_path / "r")])
     r = json.loads((tmp_path / "r" / "regime.json").read_text())
     assert r["coupling_utilisation"] is not None
-    assert r["mixing_indicator"] == "unmeasured"
+    assert isinstance(r["mixing_indicator"], float)
+    assert r["energy_scale"] is None
 
 
 def test_8_a_zero_edge_model_compiles_end_to_end_instead_of_crashing(tmp_path):
