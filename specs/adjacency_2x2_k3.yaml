@@ -1,0 +1,38 @@
+name: adjacency_2x2_k3
+description: >
+  Adjacency-constrained value assignment on a 2x2 grid, k=3 -- the family Wave
+  Function Collapse belongs to, expressed here purely through GENERIC
+  mechanisms: spec.py's `grid` shape generator (A1), the `product_over_edges`
+  term template (A2), and the `forbid_value_pair_over_edges` contract rule
+  (A3). None of those know or care what a "value" represents; the domain
+  story lives only here, in this description field, per CLAUDE.md's rule that
+  zero workload-specific logic enters src/.
+
+  The story, for a reader's intuition only: value 0 is "water", value 1 is
+  "shore", value 2 is "mountain". Water must never sit directly next to
+  mountain -- a shore tile must separate them. That single rule is declared
+  once below and applied uniformly over every edge of the grid by
+  `product_over_edges` (the energy penalty) and `forbid_value_pair_over_edges`
+  (the task-layer check on decoded samples).
+
+  Deliberately small: domain-wall gives 8 spins (256 states), one-hot gives 12
+  spins (4096 states) -- both within thrml_backend.EXACT_LIMIT (18), so every
+  verification layer (energy equivalence, sampled-vs-exact TV, task validity)
+  produces a REAL NUMBER for this instance, not an "unavailable". See
+  adjacency_4x4_k4.yaml for the instance that exceeds exact enumeration.
+generate:
+  kind: grid
+  width: 2
+  height: 2
+  variable_domain: {domain: categorical, k: 3}
+terms:
+  # weight kept under BOTH encodings' structural-penalty dominance guard
+  # (MONOTONE_PENALTY / ONE_HOT_PENALTY = 10.0, margin factor 2.0 in
+  # encode.py -- a single term's own maximum energy contribution must stay
+  # under 5.0, and this term's is exactly `weight` since each side's
+  # indicator has max |value| = 1).
+  - {kind: product_over_edges, a_value: 0, b_value: 2, weight: 4.0}
+contract:
+  validate:
+    - {rule: forbid_value_pair_over_edges, a_value: 0, b_value: 2,
+       message: "value 0 directly adjacent to value 2 with no buffer between"}

@@ -227,8 +227,8 @@ def _verify(spec, art) -> Verification:
     # layers below need -- it previously was, which meant no spec large enough
     # to need this compiler's own exact-enumeration escape hatch could ever
     # get a real task_validity number, contradicting the very reason that
-    # escape hatch exists. Found via the WFC stress test's 4x4 grid instance
-    # (adjacency_4x4_k4.yaml), which exists specifically to exercise this path.
+    # escape hatch exists. Found via a large generated-shape spec exercising
+    # exactly this path (a spec whose logical spin count exceeds EXACT_LIMIT).
     #
     # `decode` is a PROJECTION, not an inverse (C5): handed a non-monotone
     # (invalid) domain-wall chain it still returns a legal-looking value with no
