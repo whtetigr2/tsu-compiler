@@ -48,17 +48,27 @@ def test_verification_says_unavailable_rather_than_guessing():
     it back -- it never called _verify, so it could not fail if the PRODUCTION
     path ever fabricated a number instead of reporting unavailability. Compiling
     a model too large to enumerate exactly (n > EXACT_LIMIT) exercises the real
-    path: _verify's own `n > EXACT_LIMIT` branch."""
+    path: _verify's own `n > EXACT_LIMIT` branch.
+
+    UPDATED (WFC-style stress test finding): task_validity and
+    codeword_violation_rate need only samples and the task contract -- never
+    an exact reference -- so `_verify` no longer gates them behind this same
+    branch (see search.py's `_verify` for the fix). Only the genuinely
+    exact-reference-dependent fields stay unavailable here; task_validity and
+    codeword_violation_rate must instead be real, fabrication-free numbers."""
     n = EXACT_LIMIT + 2
     v = compile_spec(_oversized_spec(n), IDEAL).verification
     assert v is not None
     d = v.to_dict()
-    for field in ("energy_tv", "task_validity", "execution_tv",
-                 "execution_noise_floor", "cross_check_tv",
-                 "codeword_violation_rate"):
+    for field in ("energy_tv", "execution_tv", "execution_noise_floor",
+                 "cross_check_tv"):
         assert isinstance(d[field], str) and d[field].startswith("unavailable"), \
             f"{field} must read 'unavailable: <reason>', not a fabricated number " \
             f"or a bare 'unavailable' with no reason -- got {d[field]!r}"
+    for field in ("task_validity", "codeword_violation_rate"):
+        assert isinstance(d[field], float) and 0.0 <= d[field] <= 1.0, \
+            f"{field} needs no exact reference and must be a real measured " \
+            f"number even for an oversized model -- got {d[field]!r}"
 
 
 def test_codeword_violation_rate_is_measured_and_excluded_from_task_validity():
