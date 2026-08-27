@@ -231,14 +231,17 @@ def render_report(receipt_dir) -> str:
     mediators = _rep_display(metrics, rep_row, verdict, "mediators", "mediators",
                              "mediators_note")
 
-    coupling_gate = _gate(gates, "coupling_cap")
-    field_gate = _gate(gates, "field_cap")
-    coupling_range = ("PASS" if coupling_gate and coupling_gate["passed"] else
-                      "FAIL" if coupling_gate else
-                      _as_unavailable(f"gate not evaluated (verdict={verdict})"))
-    field_range = ("PASS" if field_gate and field_gate["passed"] else
-                  "FAIL" if field_gate else
-                  _as_unavailable(f"gate not evaluated (verdict={verdict})"))
+    def _gate_display(g):
+        if g is None:
+            return _as_unavailable(f"gate not evaluated (verdict={verdict})")
+        if g["passed"]:
+            return "PASS"
+        if g["downgraded"]:
+            return "FAIL (downgraded via --allow-assumed)"
+        return "FAIL"
+
+    coupling_range = _gate_display(_gate(gates, "coupling_cap"))
+    field_range = _gate_display(_gate(gates, "field_cap"))
     headroom = _regime(regime, "precision_headroom")
     coupling_precision = (headroom if isinstance(headroom, str) else
                           "PASS" if headroom >= 1.0 else "FAIL")
@@ -281,8 +284,14 @@ def render_report(receipt_dir) -> str:
     else:
         topological = "✓" if not placement.get("unrealized") else "✗"
 
+    # A gate that failed its threshold but was DOWNGRADED (--allow-assumed)
+    # did not block the compile -- `passed=False, downgraded=True` together
+    # mean "the compile proceeded past this one under the override", not "this
+    # is why the compile failed". Treating a downgraded gate the same as an
+    # ordinary failure would make a genuinely COMPILED receipt's own HARDWARE
+    # line read ✗, contradicting the verdict it is supposed to explain.
     hardware = ("?" if not gates else
-               "✓" if all(g["passed"] for g in gates) else "✗")
+               "✓" if all(g["passed"] or g["downgraded"] for g in gates) else "✗")
 
     execution_tv = _verif(verification, "execution_tv")
     floor = _verif(verification, "execution_noise_floor")
@@ -304,7 +313,7 @@ def render_report(receipt_dir) -> str:
     if verdict == "COMPILED" and all_pass:
         lines.append(f"  REPRESENTATION FITS {target_name.upper()}")
     else:
-        reason, remediations = _failure_narrative(passes, verification, checks)
+        reason, remediations = _failure_narrative(passes, verification, checks, verdict)
         lines.append("Reason:")
         lines.append(reason)
         lines.append("")
@@ -318,12 +327,18 @@ def render_report(receipt_dir) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _failure_narrative(passes: dict, verification: dict, checks):
+def _failure_narrative(passes: dict, verification: dict, checks, verdict: str):
     """The Reason/Suggested-next-action content for a report that did not fully
     pass -- taken from the ALREADY-RECORDED GateFailure/PlacementFailure a
     rejected candidate carries (passes.json's `candidates[*].failure`, written
-    by receipt.py's `_failure_dict`), never freshly composed prose."""
-    rejected = _rejected_candidate(passes)
+    by receipt.py's `_failure_dict`), never freshly composed prose.
+
+    A rejected candidate's failure is only the reason for THIS narrative when
+    the compile itself did not succeed (verdict != COMPILED) -- a losing
+    candidate in a multi-candidate search (A5) is not why a COMPILED receipt
+    is missing a checkmark; a verification layer whose evidence is genuinely
+    unavailable (e.g. a model too large to enumerate exactly) is."""
+    rejected = _rejected_candidate(passes) if verdict != "COMPILED" else None
     if rejected and rejected.get("failure"):
         f = rejected["failure"]
         cause = f.get("cause") or (

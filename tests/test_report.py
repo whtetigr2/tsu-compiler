@@ -113,6 +113,23 @@ def test_a_rejected_candidates_own_measurements_are_used_not_blanket_unavailable
     assert "100 (from domain_wall" in text    # direct couplings: 190 - 90 mediators
 
 
+def test_a_downgraded_gate_does_not_read_as_a_hardware_failure_on_a_compiled_receipt(tmp_path):
+    """too_strong.yaml's coupling exceeds Z1's ASSUMED cap and fails outright,
+    but compiles clean with --allow-assumed (test_search.py's own regression).
+    A downgraded gate (passed=False, downgraded=True) did not block the
+    compile -- the report's HARDWARE line must read as passing, and the
+    Reason block must not blame a candidate for a compile that succeeded."""
+    c = compile_spec(load_spec("specs/too_strong.yaml"), Z1, allow_assumed=True)
+    assert c.verdict == "COMPILED"
+    d = write_receipt(c, tmp_path / "r")
+    text = render_report(d)
+    lines = text.splitlines()
+    hardware_line = next(l for l in lines if l.strip().endswith("HARDWARE"))
+    assert "✓" in hardware_line
+    coupling_line = next(l for l in lines if l.strip().startswith("Coupling range:"))
+    assert "downgraded" in coupling_line.lower()
+
+
 def test_cli_report_subcommand_prints_the_same_render(tmp_path, capsys):
     out = tmp_path / "r"
     assert main(["compile", "specs/toy.yaml", "--target", "z1",
