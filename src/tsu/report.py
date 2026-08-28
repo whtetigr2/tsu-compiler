@@ -439,6 +439,23 @@ def _magnitude_range(values, verdict: str, label: str) -> str:
     return f"[{_fmt(min(mags))}, {_fmt(max(mags))}]"
 
 
+def _sample_headline(sample: dict, verdict: str) -> str:
+    """G2: the one-line summary for `sample.json`'s decoded result -- sourced
+    from the SAME record `search.py`'s `_verify` persisted, never
+    recomputed. Three honest outcomes: a real solution (codeword + task-
+    valid), a FAILING sample (codeword but task-invalid, itemised below),
+    or -- when not even one codeword was drawn -- the recorded note, never a
+    blank or a fabricated stand-in."""
+    if not sample or sample.get("decoded") is None:
+        if sample and sample.get("note"):
+            return _as_unavailable(sample["note"])
+        if verdict != "COMPILED":
+            return _as_unavailable(f"no sample recorded (verdict={verdict})")
+        return "unavailable: not recorded"
+    return ("valid codeword, task-valid" if sample["task_valid"] else
+           "valid codeword, TASK-INVALID (see violations below)")
+
+
 def render_explain(receipt_dir) -> str:
     d = Path(receipt_dir)
     workload = _load(d, "workload.json")
@@ -455,6 +472,7 @@ def render_explain(receipt_dir) -> str:
     formulation = _load(d, "formulation.json")
     if not isinstance(formulation, list):
         formulation = []
+    sample = _load(d, "sample.json")
     spec_yaml_path = d / "spec.yaml"
     spec_raw = _yaml_safe_load(spec_yaml_path.read_text(encoding="utf-8")) \
         if spec_yaml_path.exists() else {}
@@ -656,10 +674,17 @@ def render_explain(receipt_dir) -> str:
     # -- APPLICATION (2): the decoded result and task-level validity --------
     lines.append("APPLICATION")
     lines.append(_eline("Task validity:", _verif(verification, "task_validity")))
-    lines.append(_eline(
-        "Decoded result:",
-        "unavailable: not recorded (no single concrete sample is persisted "
-        "in this receipt; task validity above is measured over the whole "
-        "sampling run, not one decoded draw)"))
+    lines.append(_eline("Decoded result:", _sample_headline(sample, verdict)))
+    if sample.get("decoded") is not None:
+        for name, value in sample["decoded"].items():
+            lines.append(f"    {name} = {_fmt(value)}")
+        lines.append(_eline("Codeword:", sample["is_codeword"]))
+        lines.append(_eline("Task-valid:", sample["task_valid"]))
+        for v in sample.get("violations") or ():
+            lines.append(f"    violation: {v}")
+        lines.append(_eline("Sample seed:", sample["seed"]))
+        lines.append(_eline("Clamp at draw time:", sample["clamp"] or "none"))
+    elif sample.get("note"):
+        lines.append(f"    {sample['note']}")
 
     return "\n".join(lines) + "\n"

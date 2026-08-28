@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import Mapping
 
 import numpy as np
 
@@ -83,6 +84,46 @@ class Verification:
             "diversity_valid_samples": self.diversity_valid_samples,
             "diversity_reachable": f(self.diversity_reachable,
                                     self.diversity_reachable_note),
+        }
+
+
+@dataclass(frozen=True)
+class DecodedSample:
+    """G2: ONE concrete decoded sample from the compile's own verification
+    run -- the WORKLOAD's own variable names and values (`Encoded.decode`'s
+    output), never raw physical spins. Task validity (`Verification.
+    task_validity`) is measured over the whole run; an application that
+    renders a world needs a single concrete state, which is what this is.
+
+    Preferred: a sample that is BOTH a valid codeword and passes the task
+    contract, so the rendered example is a real solution
+    (`is_codeword=True, task_valid=True, violations=()`). When no such
+    sample was drawn in this run, this instead carries a FAILING sample --
+    a valid codeword that the task contract rejected, with its own specific
+    violations (`is_codeword=True, task_valid=False, violations=(...)`).
+    When not even one codeword was drawn, `decoded` is None and `note`
+    explains why -- never a fabricated stand-in for either case.
+
+    `seed`/`clamp` are its provenance: the sampling run's own fixed seed,
+    and the WORKLOAD-level clamp (if any) that was active while it was
+    drawn."""
+    decoded: Mapping[str, int] | None
+    is_codeword: bool
+    task_valid: bool
+    violations: tuple[str, ...]
+    seed: int
+    clamp: Mapping[str, int]
+    note: str = ""
+
+    def to_dict(self):
+        return {
+            "decoded": dict(self.decoded) if self.decoded is not None else None,
+            "is_codeword": self.is_codeword,
+            "task_valid": self.task_valid,
+            "violations": list(self.violations),
+            "seed": self.seed,
+            "clamp": dict(self.clamp),
+            "note": self.note,
         }
 
 

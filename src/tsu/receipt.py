@@ -204,6 +204,16 @@ def write_receipt(c, out_dir) -> Path:
     (d / "verification.json").write_text(json.dumps(
         c.verification.to_dict() if c.verification else {}, indent=2))
 
+    # G2 (final APPLICATION layer of `tsu explain`): ONE concrete decoded
+    # sample from this compile's own verification run -- the workload's own
+    # variable names/values, never raw physical spins -- so an application
+    # rendering a world has a real state to show, not just a validity
+    # fraction over the whole run. {} exactly when verification never ran
+    # (LOGICAL/HARDWARE verdict), same convention as regime.json/
+    # verification.json above.
+    (d / "sample.json").write_text(json.dumps(
+        c.sample.to_dict() if c.sample else {}, indent=2))
+
     # Deviation from the brief: the placement must reach the receipt too, not
     # just the sampling program -- coords/realized/unrealized carry the
     # geometric evidence behind a COMPILED verdict (or None otherwise).

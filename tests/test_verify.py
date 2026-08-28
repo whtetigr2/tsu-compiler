@@ -1,6 +1,6 @@
 import pytest
 from tsu.spec import load_spec, TaskContract, WorkloadSpec
-from tsu.ir import Binary, Product, LinearForm, Var, VarRef
+from tsu.ir import Binary, Linear, Product, LinearForm, Var, VarRef
 from tsu.target import IDEAL, Z1
 from tsu.passes.search import compile_spec
 from tsu.backends.thrml_backend import EXACT_LIMIT
@@ -83,6 +83,84 @@ def test_codeword_violation_rate_is_measured_and_excluded_from_task_validity():
     # toy.yaml's MONOTONE_PENALTY genuinely dominates its term weights, so
     # violations should be rare, not absent by construction of the test
     assert v.codeword_violation_rate < 0.2
+
+
+def _always_violating_spec() -> WorkloadSpec:
+    """A single occupancy variable strongly biased toward 1 (a large-magnitude
+    preference), whose task contract forbids exactly that state -- built
+    directly (not via YAML/sampling) so the guarantee is EXACT, not merely
+    probable: no sampled codeword can ever pass this contract, exercising
+    G2's 'no valid-and-task-valid sample exists' path deterministically.
+    `vars: ["a", "a"]` makes `forbid_both` fire whenever a alone is
+    occupied."""
+    a = Var("a", Binary())
+    term = Linear(LinearForm({VarRef("a"): 1.0}), weight=-50.0)
+    contract = TaskContract(rules=(
+        {"rule": "forbid_both", "vars": ["a", "a"],
+         "message": "a must never be occupied"},))
+    return WorkloadSpec(name="always_violating", variables=(a,), terms=(term,),
+                        contract=contract, source_text="name: always_violating\n")
+
+
+# ---------------------------------------------------------------------------
+# G2: a concrete decoded sample must be persisted on every compile that
+# actually ran verification -- the workload's own variable names/values
+# (Encoded.decode's output), never raw physical spins, with enough
+# provenance (seed, clamp) and honesty (is_codeword/task_valid/violations)
+# to know what it actually demonstrates.
+# ---------------------------------------------------------------------------
+
+def test_compile_records_a_decoded_sample_in_the_workloads_own_vocabulary():
+    c = compile_spec(load_spec("specs/toy.yaml"), Z1)
+    s = c.sample
+    assert s is not None
+    assert isinstance(s.decoded, dict)
+    assert set(s.decoded) == {"a", "b", "c"}, \
+        "the decoded sample must be keyed by the WORKLOAD's own variable " \
+        "names, not raw physical spin names"
+    assert all(isinstance(v, int) for v in s.decoded.values())
+
+
+def test_decoded_sample_prefers_a_codeword_that_also_passes_the_task_contract():
+    c = compile_spec(load_spec("specs/toy.yaml"), Z1)
+    s = c.sample
+    assert s.is_codeword is True
+    assert s.task_valid is True
+    assert s.violations == ()
+    # it must actually BE a real solution, not merely labelled one
+    assert c.spec.contract.validate(s.decoded).ok is True
+
+
+def test_decoded_sample_carries_its_seed_and_an_empty_clamp_when_unclamped():
+    c = compile_spec(load_spec("specs/toy.yaml"), Z1)
+    s = c.sample
+    assert s.seed == 0     # _VERIFY_SAMPLE_PARAMS' fixed seed
+    assert s.clamp == {}
+
+
+def test_decoded_sample_records_the_active_clamp():
+    c = compile_spec(load_spec("specs/toy.yaml"), Z1, clamp={"a": 1})
+    s = c.sample
+    assert s.clamp == {"a": 1}
+    assert s.decoded["a"] == 1, \
+        "a clamped node's decoded value must reflect the clamp on every draw"
+
+
+def test_decoded_sample_persists_a_failing_one_when_no_sample_ever_passes_the_contract():
+    """G2's honesty requirement: when no drawn sample is both a valid
+    codeword AND task-valid, the compiler must say so and persist a FAILING
+    sample with its violations -- never fabricate a passing one, never leave
+    the field empty."""
+    c = compile_spec(_always_violating_spec(), IDEAL)
+    assert c.verdict == "COMPILED"
+    assert c.verification.task_validity == pytest.approx(0.0), \
+        "sanity: the contract must be genuinely unsatisfiable by this spec"
+    s = c.sample
+    assert s is not None
+    assert s.is_codeword is True    # no categorical chains -- always a codeword
+    assert s.task_valid is False
+    assert s.violations, "a failing sample must carry the SPECIFIC violation(s)"
+    assert "a must never be occupied" in s.violations
 
 
 def test_regime_report_has_cheap_fields_and_measures_mixing_when_the_chain_supports_it():

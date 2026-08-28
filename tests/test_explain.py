@@ -11,7 +11,7 @@ from tsu.passes.search import compile_spec
 from tsu.receipt import write_receipt
 from tsu.report import render_explain
 from tsu.spec import load_spec
-from tsu.target import Z1
+from tsu.target import IDEAL, Z1
 
 _LAYERS = ("APPLICATION", "FORMULATION", "REPRESENTATION", "ENERGY",
           "TOPOLOGY", "PHYSICAL MAPPING", "SAMPLER", "VERIFICATION")
@@ -151,13 +151,67 @@ def test_explain_verification_layer_reads_real_numbers_from_the_receipt(tmp_path
 
 
 def test_explain_final_application_layer_shows_task_validity_and_decoded_result(tmp_path):
+    """G2: toy.yaml's compiled chain does produce a valid, task-passing
+    codeword, so the final APPLICATION layer must show that REAL decoded
+    sample -- not the old permanent 'unavailable: not recorded' this test
+    used to lock in (that was the exact defect G2 closes)."""
     c = compile_spec(load_spec("specs/toy.yaml"), Z1)
     d = write_receipt(c, tmp_path / "r")
     text = render_explain(d)
     final_app = text.rsplit("APPLICATION", 1)[1]
     assert "Task validity:" in final_app or "task validity" in final_app.lower()
     assert "Decoded result:" in final_app
-    assert "unavailable" in final_app.lower()
+    assert "unavailable" not in final_app.lower()
+    # the actual decoded values from the receipt must appear verbatim
+    for name, value in c.sample.decoded.items():
+        assert f"{name} = {value}" in final_app
+    assert "task-valid" in final_app.lower()
+
+
+def test_explain_final_application_layer_shows_a_failing_sample_honestly(tmp_path):
+    """When no drawn sample is both a valid codeword and task-valid, the
+    layer must show the FAILING sample and its violations, not hide the
+    field or fabricate a passing one."""
+    from tsu.spec import TaskContract, WorkloadSpec
+    from tsu.ir import Binary, Linear, LinearForm, Var, VarRef
+
+    a = Var("a", Binary())
+    term = Linear(LinearForm({VarRef("a"): 1.0}), weight=-50.0)
+    contract = TaskContract(rules=(
+        {"rule": "forbid_both", "vars": ["a", "a"],
+         "message": "a must never be occupied"},))
+    spec = WorkloadSpec(name="always_violating", variables=(a,), terms=(term,),
+                        contract=contract, source_text="name: always_violating\n")
+
+    c = compile_spec(spec, IDEAL)
+    assert c.verdict == "COMPILED"
+    d = write_receipt(c, tmp_path / "r")
+    text = render_explain(d)
+    final_app = text.rsplit("APPLICATION", 1)[1]
+    assert "a = 1" in final_app
+    assert "a must never be occupied" in final_app
+    assert "TASK-INVALID" in final_app or "task-invalid" in final_app.lower()
+
+
+def test_explain_shows_no_codeword_honestly_when_none_was_ever_drawn(tmp_path):
+    """A fabricated receipt exercising the 'not even one codeword drawn'
+    path directly -- rare enough in a real compile that it is tested at the
+    rendering layer rather than by forcing a live sampler into it. The note
+    must be rendered honestly, never as a blank or the bare word None."""
+    c = compile_spec(load_spec("specs/toy.yaml"), Z1)
+    d = write_receipt(c, tmp_path / "r")
+    (d / "sample.json").write_text(json.dumps({
+        "decoded": None, "is_codeword": False, "task_valid": False,
+        "violations": [], "seed": 0, "clamp": {},
+        "note": "no codeword was drawn in this run (6400 draws, 0 valid chains)",
+    }))
+    text = render_explain(d)
+    final_app = text.rsplit("APPLICATION", 1)[1]
+    assert "no codeword was drawn" in final_app
+    assert "None" not in final_app
+    for line in final_app.splitlines():
+        if line.strip().endswith(":"):
+            raise AssertionError(f"a label with no value at all: {line!r}")
 
 
 def test_explain_on_a_logical_failure_reports_unavailable_layers(tmp_path):

@@ -35,7 +35,7 @@ from .lower import lower
 from .place import place
 from .program import build_program
 from .route import route
-from .verify import Verification, tv_noise_floor
+from .verify import DecodedSample, Verification, tv_noise_floor
 
 SLICE_ENCODINGS = ("domain_wall", "one_hot")
 
@@ -60,6 +60,9 @@ class Compilation:
     verification: Verification | None = None
     clamp: Any = None                # C1: the WORKLOAD-level clamp this compile
                                        # was run under, {} when none
+    sample: DecodedSample | None = None   # G2: one concrete decoded sample from
+                                            # this compile's own verification run,
+                                            # None when verification never ran
     # C4: compilation cost. `pass_durations` is per-pass wall time (seconds)
     # for whichever candidate's pipeline this compile's own verdict is
     # sourced from -- the selected candidate's on COMPILED, else the best-
@@ -286,7 +289,8 @@ def _compile_spec_impl(spec, target: TargetProfile, allow_assumed: bool = False,
     chosen = min(feasible, key=_selection_key)
     art = arts[chosen.encoding][1]
 
-    verification, ess_result, sample_cost = _verify(spec, art)
+    verification, ess_result, sample_cost, decoded_sample = _verify(
+        spec, art, clamp or {})
     durations = dict(art.get("durations", {}))
     durations["verify"] = sample_cost.pop("verify_wall_time_s", 0.0)
     # RegimeReport.mixing_indicator can only be populated AFTER `_verify` has
@@ -332,7 +336,8 @@ def _compile_spec_impl(spec, target: TargetProfile, allow_assumed: bool = False,
         allow_assumed=allow_assumed, gate_checks=art["gate_checks"],
         program=art["program"], encoded=art["encoded"], regime=regime,
         placement=art["placement"], verification=verification,
-        clamp=dict(clamp or {}), pass_durations=durations, sample_cost=sample_cost)
+        clamp=dict(clamp or {}), pass_durations=durations, sample_cost=sample_cost,
+        sample=decoded_sample)
 
 
 def _measure_mixing(ising, chains: np.ndarray) -> EssEstimate:
@@ -358,7 +363,7 @@ _VERIFY_SAMPLE_PARAMS = dict(n_chains=32, n_samples=200, n_warmup=400,
                              steps_per_sample=2, seed=0)
 
 
-def _verify(spec, art) -> tuple[Verification, EssEstimate, dict]:
+def _verify(spec, art, clamp) -> tuple[Verification, EssEstimate, dict, DecodedSample]:
     from ..backends.thrml_backend import EXACT_LIMIT, exact_distribution, sample_chains
     from ..backends.torx_backend import torx_cross_check
 
@@ -412,19 +417,54 @@ def _verify(spec, art) -> tuple[Verification, EssEstimate, dict]:
     # logical state space is enumerable), so the number can be read
     # correctly rather than mistaken for "how random" the sampler is.
     distinct_valid = set()
+    # G2: track the ONE decoded sample this receipt will persist, at the same
+    # point every other per-sample quantity above is computed -- never a
+    # second pass over `got`. Preferred: the first codeword that also passes
+    # the task contract (a real solution). If none ever does, the first
+    # codeword that FAILED it instead, violations attached -- a workload
+    # whose sampler never produces a valid state is exactly the case a
+    # developer needs to see, not an empty field.
+    best_valid_sample = None
+    best_failing_sample = None    # (decoded, violations) of the first
+                                    # codeword that failed the contract
     for row in got:
         bits = dict(zip(ising.nodes, row.tolist()))
         if not enc.is_codeword(bits):
             codeword_violations += 1
             continue
         decoded = enc.decode(bits)
-        if spec.contract.validate(decoded).ok:
+        result = spec.contract.validate(decoded)
+        if result.ok:
             ok += 1
             distinct_valid.add(tuple(sorted(decoded.items())))
+            if best_valid_sample is None:
+                best_valid_sample = decoded
+        elif best_failing_sample is None:
+            best_failing_sample = (decoded, result.violations)
     task_validity = ok / len(got)
     codeword_violation_rate = codeword_violations / len(got)
     diversity_distinct = len(distinct_valid)
     diversity_valid_samples = ok
+
+    seed = _VERIFY_SAMPLE_PARAMS["seed"]
+    if best_valid_sample is not None:
+        decoded_sample = DecodedSample(
+            decoded=best_valid_sample, is_codeword=True, task_valid=True,
+            violations=(), seed=seed, clamp=dict(clamp))
+    elif best_failing_sample is not None:
+        f_decoded, f_violations = best_failing_sample
+        decoded_sample = DecodedSample(
+            decoded=f_decoded, is_codeword=True, task_valid=False,
+            violations=tuple(f_violations), seed=seed, clamp=dict(clamp))
+    else:
+        # not even one codeword was drawn in the whole run -- say so, rather
+        # than leaving the field empty or fabricating a decode of a pattern
+        # `Encoded.decode` itself would refuse to trust (see its docstring).
+        decoded_sample = DecodedSample(
+            decoded=None, is_codeword=False, task_valid=False, violations=(),
+            seed=seed, clamp=dict(clamp),
+            note=f"no codeword was drawn in this run ({len(got)} draws, "
+                 f"{codeword_violations} codeword violation(s))")
 
     # The reachable valid set's size is a WORKLOAD-level enumeration (over
     # spec.assignments(), not Ising states) and needs no encoding/backend at
@@ -468,7 +508,7 @@ def _verify(spec, art) -> tuple[Verification, EssEstimate, dict]:
             cross_check_tv=None, cross_check_note="unavailable: model too large",
             codeword_violation_rate=codeword_violation_rate,
             codeword_violation_note="", **ess_kwargs, **diversity_kwargs
-        ), ess_result, sample_cost
+        ), ess_result, sample_cost, decoded_sample
 
     # C4: CPU reference baseline -- a correctness-and-cost REFERENCE, never a
     # speed/hardware claim. Both wall times are recorded honestly; nothing
@@ -527,7 +567,7 @@ def _verify(spec, art) -> tuple[Verification, EssEstimate, dict]:
         cross_check_tv=cross, cross_check_note=cross_note,
         codeword_violation_rate=codeword_violation_rate, codeword_violation_note="",
         **ess_kwargs, **diversity_kwargs
-    ), ess_result, sample_cost
+    ), ess_result, sample_cost, decoded_sample
 
 
 def _from_ising(ising, row) -> float:

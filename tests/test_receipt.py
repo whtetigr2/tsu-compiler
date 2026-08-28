@@ -18,8 +18,35 @@ def test_receipt_contains_every_required_artifact(tmp_path):
     for name in ("spec.yaml", "spec.sha256", "target.json", "passes.json",
                  "gates.json", "metrics.json", "verification.json",
                  "program.json", "environment.json", "regime.json",
-                 "formulation.json"):
+                 "formulation.json", "sample.json"):
         assert (Path(d) / name).exists(), f"missing {name}"
+
+
+def test_sample_json_persists_a_real_decoded_sample_in_workload_vocabulary(tmp_path):
+    """G2: `sample.json` must carry a concrete decoded sample -- the
+    workload's own variable names/values, not raw physical spins -- plus
+    whether it is a valid codeword, whether it passes the task contract, and
+    its provenance (seed, clamp)."""
+    c = compile_spec(load_spec("specs/toy.yaml"), Z1)
+    d = write_receipt(c, tmp_path / "r")
+    sample = json.loads((Path(d) / "sample.json").read_text())
+    assert set(sample["decoded"]) == {"a", "b", "c"}
+    assert sample["is_codeword"] is True
+    assert sample["task_valid"] is True
+    assert sample["violations"] == []
+    assert sample["seed"] == 0
+    assert sample["clamp"] == {}
+
+
+def test_sample_json_is_empty_when_verification_never_ran(tmp_path):
+    """broken.yaml fails the ideal control (LOGICAL verdict) -- _verify never
+    runs, so there is no sample to persist. Empty, honestly, like every
+    other verification-derived artefact on a LOGICAL receipt."""
+    c = compile_spec(load_spec("specs/broken.yaml"), Z1)
+    assert c.verdict == "LOGICAL"
+    d = write_receipt(c, tmp_path / "r")
+    sample = json.loads((Path(d) / "sample.json").read_text())
+    assert sample == {}
 
 
 def test_target_json_preserves_provenance_including_assumed(tmp_path):
