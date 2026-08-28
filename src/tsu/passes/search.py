@@ -364,7 +364,8 @@ _VERIFY_SAMPLE_PARAMS = dict(n_chains=32, n_samples=200, n_warmup=400,
 
 
 def _verify(spec, art, clamp) -> tuple[Verification, EssEstimate, dict, DecodedSample]:
-    from ..backends.thrml_backend import EXACT_LIMIT, exact_distribution, sample_chains
+    from ..backends.thrml_backend import (EXACT_LIMIT, exact_conditional_distribution,
+                                          exact_distribution, sample_chains)
     from ..backends.torx_backend import torx_cross_check
 
     verify_t0 = time.perf_counter()
@@ -535,21 +536,39 @@ def _verify(spec, art, clamp) -> tuple[Verification, EssEstimate, dict, DecodedS
 
     # execution layer: sampler vs its own model, reusing the SAME samples `got`
     # already drawn above for the task layer (one sampling run serves both).
-    # The index into `probs` MUST be derived from `states` itself, never from
-    # an independently-assumed bit order -- `exact_distribution`'s enumeration
-    # order is an implementation
-    # detail of itertools.product, and a hand-rolled (1 << arange(n)) index
-    # silently assumes a specific one. A previous version assumed LSB-first
-    # and got MSB-first, which inflated execution_tv from ~0.01 to ~0.52 with
-    # no error raised anywhere -- a broken comparison that looked exactly like
-    # a broken sampler. Building the lookup from `states` means the two can
-    # never drift apart again, regardless of how either side is implemented.
-    state_index = {tuple(int(x) for x in row): i for i, row in enumerate(states)}
+    #
+    # Clamp-aware reference (the fix this comment used to warn was missing):
+    # every draw in `got` honours `prog`'s clamp (thrml_backend's own
+    # `state_clamp`/`clamped_blocks` mechanism -- see test_clamp.py), so `got`
+    # is drawn from the CONDITIONAL distribution whenever a clamp is active,
+    # never the unconditional one. Comparing it against the unconditional
+    # `probs` above made execution_tv spuriously large under a clamp --
+    # measured on specs/adjacency_2x2_k3.yaml with clamp={'g0_0': 0}:
+    # execution_tv=0.741946 against noise floor 0.032023 (23.2x), while the
+    # unclamped run on the same spec sits at 0.045659 against the same floor
+    # (1.4x) -- the sampler was never wrong, only the reference it was being
+    # checked against. `exact_conditional_distribution` is exactly
+    # `exact_distribution` restricted to the clamp-consistent states and
+    # renormalised over them (and IS `exact_distribution` when there is no
+    # clamp), so this works unconditionally without a clamped/unclamped
+    # branch here.
+    #
+    # The index into `cond_probs` MUST be derived from `cond_states` itself,
+    # never from an independently-assumed bit order -- `exact_distribution`'s
+    # enumeration order is an implementation detail of itertools.product, and
+    # a hand-rolled (1 << arange(n)) index silently assumes a specific one. A
+    # previous version assumed LSB-first and got MSB-first, which inflated
+    # execution_tv from ~0.01 to ~0.52 with no error raised anywhere -- a
+    # broken comparison that looked exactly like a broken sampler. Building
+    # the lookup from `cond_states` means the two can never drift apart
+    # again, regardless of how either side is implemented.
+    cond_states, cond_probs = exact_conditional_distribution(prog)
+    state_index = {tuple(int(x) for x in row): i for i, row in enumerate(cond_states)}
     idx = np.array([state_index[tuple(int(x) for x in row)] for row in got])
-    hist = np.bincount(idx, minlength=len(probs)).astype(float)
+    hist = np.bincount(idx, minlength=len(cond_probs)).astype(float)
     hist /= hist.sum()
-    execution_tv = float(0.5 * np.abs(hist - probs).sum())
-    floor = tv_noise_floor(probs, len(got))
+    execution_tv = float(0.5 * np.abs(hist - cond_probs).sum())
+    floor = tv_noise_floor(cond_probs, len(got))
 
     tx, tx_note = torx_cross_check(ising)
     if tx is None:

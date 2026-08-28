@@ -99,6 +99,85 @@ def exact_distribution(prog: SamplingProgram):
     return np.asarray(states).astype(int), probs
 
 
+def _clamp_consistent_rows(n: int, clamped: tuple[int, ...],
+                           clamp_values) -> list[list[bool]]:
+    """Every FULL n-length row consistent with the clamp: clamped columns
+    fixed to their clamped value, free columns ranging over every
+    combination. Shared by both the edged and edgeless conditional paths so
+    the two can never enumerate a different row order or disagree on which
+    rows are clamp-consistent."""
+    clamped_set = set(clamped)
+    free = [i for i in range(n) if i not in clamped_set]
+    combos = list(itertools.product([False, True], repeat=len(free)))
+    rows = []
+    for combo in combos:
+        row = [False] * n
+        for i in clamped:
+            row[i] = bool(clamp_values[i])
+        for fi, val in zip(free, combo):
+            row[fi] = val
+        rows.append(row)
+    return rows
+
+
+def _edgeless_conditional_distribution(im: IsingModel, clamped: tuple[int, ...],
+                                       clamp_values):
+    """Clamp-aware sibling of `_edgeless_distribution`: same closed-form
+    independent-Bernoulli factorisation, restricted to the clamp-consistent
+    rows and renormalised over THOSE alone -- clamping a factorised
+    distribution just fixes some of its independent coordinates, so the
+    conditional is still closed-form, no enumeration-and-discard needed for
+    correctness (though `_clamp_consistent_rows` is reused anyway so both
+    conditional paths share exactly one definition of "clamp-consistent
+    row")."""
+    n = len(im.nodes)
+    beta = float(im.beta)
+    biases = np.asarray(im.biases, dtype=float)
+    rows = _clamp_consistent_rows(n, clamped, clamp_values)
+    states = np.array(rows, dtype=bool).astype(int)
+    spins = 2.0 * states.astype(float) - 1.0
+    x = beta * (spins @ biases if n else np.zeros(states.shape[0]))
+    x = x - x.max()
+    ex = np.exp(x)
+    probs = ex / ex.sum()
+    return states, probs
+
+
+def exact_conditional_distribution(prog: SamplingProgram):
+    """Clamp-aware exact reference: `exact_distribution` restricted to the
+    states consistent with `prog`'s clamp and renormalised over just those --
+    the distribution a clamped sampler is actually drawing from, so a caller
+    comparing sampled draws against it (`_verify`'s execution_tv) is checking
+    the sampler against the reference it is actually running under, not an
+    unconditional one the clamp has already made irrelevant.
+
+    Equal to `exact_distribution(prog)` when the program carries no clamp --
+    conditioning on nothing is the unconditional distribution -- so callers
+    can call this unconditionally without a clamped/unclamped branch of
+    their own.
+
+    Same `IsingEBM.energy` route as `exact_distribution` (never a hand-
+    rolled Boltzmann loop): enumerates only the clamp-consistent full-node
+    rows (via `_clamp_consistent_rows`) and asks thrml for each one's energy,
+    exactly as the unconditional path does over every row.
+    """
+    n = len(prog.ising.nodes)
+    if n > EXACT_LIMIT:
+        raise ValueError(f"{n} nodes exceeds the exact-enumeration limit {EXACT_LIMIT}")
+    if not prog.clamped:
+        return exact_distribution(prog)
+    if not prog.ising.edges:
+        return _edgeless_conditional_distribution(
+            prog.ising, prog.clamped, prog.clamp_values)
+    nodes, ebm = _model(prog)
+    blk = Block(nodes)
+    rows = _clamp_consistent_rows(n, prog.clamped, prog.clamp_values)
+    states = jnp.asarray(rows, dtype=bool)
+    e = jax.jit(jax.vmap(lambda s: ebm.energy([s], [blk])))(states)
+    probs = np.asarray(jax.nn.softmax(-e))
+    return np.asarray(states).astype(int), probs
+
+
 def sample_chains(prog: SamplingProgram, n_chains: int, n_samples: int,
                   n_warmup: int, steps_per_sample: int, seed: int) -> np.ndarray:
     """Same draws as `sample`, but UNFLATTENED: shape (n_chains, n_samples,

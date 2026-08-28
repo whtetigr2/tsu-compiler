@@ -264,6 +264,34 @@ def test_receipt_records_which_variables_were_clamped_and_to_what(tmp_path):
     assert program["clamp"] == {"a": 1}
 
 
+# --------------------------------------------------------------------------
+# _verify: execution_tv under a clamp must compare against the CONDITIONAL
+# exact reference, not the unconditional one
+# --------------------------------------------------------------------------
+
+def test_execution_tv_is_measured_against_the_conditional_exact_reference():
+    """`_verify` used to compare the sampler's CONDITIONAL draws (every draw
+    honours the clamp -- see the clamped-sampling tests above) against the
+    UNCONDITIONAL exact reference, which makes execution_tv spuriously large
+    any time the clamp shifts the true conditional distribution away from the
+    marginal one. Measured on this exact spec/clamp pair before the fix:
+    unclamped execution_tv=0.045659 (1.4x its noise floor 0.032023),
+    clamped execution_tv=0.741946 (23.2x the SAME floor) -- the sampler was
+    never wrong, only the reference it was checked against. A clamp-aware
+    reference should put the clamped figure back at roughly the same
+    noise-floor multiple as the unclamped one, not more than an order of
+    magnitude worse."""
+    c = compile_spec(load_spec("specs/adjacency_2x2_k3.yaml"), Z1,
+                     clamp={"g0_0": 0})
+    v = c.verification
+    assert v.execution_tv is not None
+    assert v.execution_noise_floor is not None
+    assert v.execution_tv < max(5 * v.execution_noise_floor, 0.05), \
+        (f"execution_tv={v.execution_tv} noise_floor="
+        f"{v.execution_noise_floor} -- still being compared against an "
+        f"unconditional reference under a clamp")
+
+
 def test_receipt_of_an_unclamped_compile_records_an_empty_clamp(tmp_path):
     """A sample obtained under a clamp must never be mistakable for an
     unconditioned one -- the converse must hold too: an unclamped receipt must
