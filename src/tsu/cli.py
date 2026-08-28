@@ -11,6 +11,7 @@ from .passes.lower import lower
 from .passes.search import compile_spec
 from .receipt import replay, write_receipt
 from .report import render_explain, render_report
+from .simulate import simulate
 from .spec import load_spec
 from .target import PROFILES
 from .viz import render
@@ -47,6 +48,15 @@ def main(argv=None) -> int:
     r = sub.add_parser("replay"); r.add_argument("receipt")
     rp = sub.add_parser("report"); rp.add_argument("receipt")
     ex = sub.add_parser("explain"); ex.add_argument("receipt")
+
+    sm = sub.add_parser("simulate"); sm.add_argument("receipt")
+    sm.add_argument("--samples", type=int, default=200)
+    sm.add_argument("--chains", type=int, default=32)
+    sm.add_argument("--warmup", type=int, default=400)
+    sm.add_argument("--beta", type=float, default=None)
+    sm.add_argument("--seed", type=int, default=0)
+    sm.add_argument("--clamp", action="append", default=None,
+                    help="VAR=VAL; may be given multiple times")
 
     a = p.parse_args(argv)
 
@@ -89,6 +99,21 @@ def main(argv=None) -> int:
 
     if a.cmd == "explain":
         print(render_explain(a.receipt))
+        return 0
+
+    if a.cmd == "simulate":
+        clamp = None
+        if a.clamp:
+            clamp = {}
+            for item in a.clamp:
+                name, sep, val = item.partition("=")
+                if not sep:
+                    raise ValueError(f"--clamp expects VAR=VAL, got {item!r}")
+                clamp[name] = int(val)
+        path, _got, _im = simulate(
+            a.receipt, n_chains=a.chains, n_samples=a.samples,
+            n_warmup=a.warmup, beta=a.beta, seed=a.seed, clamp=clamp)
+        print(f"simulation: {path}")
         return 0
 
     return 1
