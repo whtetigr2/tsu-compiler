@@ -122,12 +122,28 @@ def test_pass_durations_are_recorded_even_for_a_hardware_rejected_compile(tmp_pa
 # compilation cost: peak memory
 # --------------------------------------------------------------------------
 
-def test_cost_json_records_peak_memory_of_the_compile(tmp_path):
-    c = compile_spec(load_spec("specs/toy.yaml"), Z1)
+def test_cost_json_records_peak_memory_when_it_is_asked_for(tmp_path):
+    """Peak memory is opt-in, and recorded faithfully when requested."""
+    c = compile_spec(load_spec("specs/toy.yaml"), Z1, measure_memory=True)
     assert c.peak_memory_bytes is not None and c.peak_memory_bytes > 0
     d = write_receipt(c, tmp_path / "r")
     cost = json.loads((d / "cost.json").read_text())
     assert cost["peak_memory_bytes"] == c.peak_memory_bytes
+
+
+def test_memory_measurement_is_off_by_default_and_reported_as_unmeasured(tmp_path):
+    """`tracemalloc` instruments every allocation and was measured at ~1.8x wall
+    time on this workload -- the suite went 278s -> 683s with it always on. An
+    application recompiling on each user action would pay that every time, for a
+    number most callers never read. So it is opt-in, and when it is off the
+    receipt must say the value is UNMEASURED rather than report it as zero."""
+    c = compile_spec(load_spec("specs/toy.yaml"), Z1)
+    assert c.peak_memory_bytes is None
+    d = write_receipt(c, tmp_path / "r")
+    cost = json.loads((d / "cost.json").read_text())
+    recorded = cost["peak_memory_bytes"]
+    assert recorded != 0, "an unmeasured quantity must never be published as zero"
+    assert recorded is None or "unavailable" in str(recorded).lower()
 
 
 # --------------------------------------------------------------------------

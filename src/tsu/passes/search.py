@@ -205,13 +205,31 @@ def compare(repset: "RepresentationSet") -> tuple[dict, ...]:
 
 
 def compile_spec(spec, target: TargetProfile, allow_assumed: bool = False,
-                 clamp=None) -> Compilation:
-    """The public entry point. Wraps `_compile_spec_impl` in `tracemalloc`
-    (C4: compilation cost) so peak memory of the WHOLE compile is measured
-    around every code path -- LOGICAL/HARDWARE/COMPILED alike -- without
-    threading a measurement through each of `_compile_spec_impl`'s several
-    return points. `Compilation` is a plain (non-frozen) dataclass
-    specifically so this can attach the measurement after the fact."""
+                 clamp=None, measure_memory: bool = False) -> Compilation:
+    """The public entry point.
+
+    `measure_memory` is OPT-IN and defaults to False. Peak-memory measurement
+    uses `tracemalloc`, which instruments every allocation in the interpreter
+    and was measured to cost roughly 1.8x wall time on this workload -- the
+    full test suite went from 278 s to 683 s with it always on. That is an
+    unacceptable default for a caller that compiles repeatedly (an interactive
+    application recompiling on each user action pays it every time) and it is
+    diagnostic data most callers never read. Pass `measure_memory=True` when
+    you actually want the number; `peak_memory_bytes` is then set, and is
+    None otherwise so a receipt can honestly report it as unmeasured rather
+    than as zero.
+
+    It wraps the whole implementation rather than threading a measurement
+    through `_compile_spec_impl`'s several return points, so LOGICAL,
+    HARDWARE and COMPILED paths are all covered identically. `Compilation`
+    is a plain (non-frozen) dataclass specifically so the measurement can be
+    attached after the fact.
+    """
+    if not measure_memory:
+        result = _compile_spec_impl(spec, target, allow_assumed, clamp)
+        result.peak_memory_bytes = None
+        return result
+
     tracemalloc.start()
     try:
         result = _compile_spec_impl(spec, target, allow_assumed, clamp)
