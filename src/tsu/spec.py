@@ -65,6 +65,33 @@ class TaskContract:
 
 
 @dataclass(frozen=True)
+class FormulationRationale:
+    """WHY a spec construct expanded into the IR shape it did -- recorded HERE,
+    at expansion time (inside spec.py's own term-generation code), not
+    reconstructed after the fact from the finished IR (spec section on
+    `tsu explain`'s FORMULATION layer: a reader needs the reasoning, not just
+    a glossary of shapes).
+
+    `reason` is the STRUCTURAL reason this shape is used -- e.g. a
+    conservation constraint is an equality, and squaring a linear form keeps
+    it pairwise regardless of how many variables the form contains. When a
+    construct genuinely has none to report (a hand-written `linear`/`product`
+    term IS its own shape by direct declaration, not a template's design
+    decision), `reason` is "" -- an absent rationale must print as absent,
+    never as invented prose standing in for one."""
+    construct: str    # the spec construct this is about: "linear", "product",
+                        # "product_over_edges", "conserve_over_edges", "clique", ...
+    ir_shape: str      # the IR shape it became: "Linear", "Product", "Product
+                        # per edge", "Product(L, L, weight) -- squared linear form"
+    count: int         # how many IR terms this expansion produced
+    scope: str         # what it produced them OVER, e.g. "the spec's 4-edge
+                        # generated set"; "" when there is no set to name (a
+                        # single hand-written term)
+    reason: str = ""   # the structural reason this shape is used; "" (never
+                        # fabricated) when the construct has none
+
+
+@dataclass(frozen=True)
 class WorkloadSpec:
     name: str
     variables: tuple[Var, ...]
@@ -77,6 +104,13 @@ class WorkloadSpec:
     # validation rules are built over (spec section 9 precedent: `clique`
     # describes a graph shape, not a domain).
     edges: tuple = ()
+    # G1: WHY each construct's terms took the IR shape they did, recorded at
+    # expansion time by the SAME code that built them (`_generated_terms`'s
+    # clique branch, `_product_over_edges`, `_conserve_over_edges_terms`,
+    # and `load_spec`'s own literal-term loop) -- empty for a spec whose
+    # generator produces no terms at all (e.g. a bare `grid`, which only
+    # declares shape).
+    formulation: tuple = ()
 
     def var(self, name: str) -> Var:
         for v in self.variables:
@@ -120,9 +154,13 @@ def _generated_terms(gen: Mapping[str, Any]):
     """Structural generators keep large synthetic specs out of YAML by hand.
 
     This is NOT a workload feature: `clique` and `grid` describe graph SHAPES,
-    not a domain. Every generator returns (variables, terms, edges) -- `edges`
-    is the generated pairwise structure itself, exposed so term templates and
-    validation rules (A2/A3) can be built over it generically, for any shape.
+    not a domain. Every generator returns (variables, terms, edges, rationale)
+    -- `edges` is the generated pairwise structure itself, exposed so term
+    templates and validation rules (A2/A3) can be built over it generically,
+    for any shape. `rationale` (G1) is a tuple of `FormulationRationale`
+    records, one per KIND of term this generator actually produced -- empty
+    for a generator (like a bare `grid`) that produces no terms, since there
+    is then nothing to explain.
     """
     kind = gen["kind"]
     if kind == "clique":
@@ -133,7 +171,18 @@ def _generated_terms(gen: Mapping[str, Any]):
             Product(LinearForm({VarRef(u): 1.0}), LinearForm({VarRef(v): 1.0}), w)
             for u, v in edges
         )
-        return variables, terms, edges
+        rationale = (FormulationRationale(
+            construct="clique",
+            ir_shape="Product per edge (direct product of the two endpoints' "
+                     "own occupancy indicators)",
+            count=len(terms),
+            scope=f"the generated {n}-node clique's {len(edges)}-edge set",
+            reason="a clique pairs every two nodes directly, so each edge "
+                   "becomes one Product between their two occupancy "
+                   "indicators -- a single pairwise interaction needs no "
+                   "chain or auxiliary variable"),
+        ) if terms else ()
+        return variables, terms, edges, rationale
 
     if kind == "grid":
         # A 2-D lattice SHAPE: variables at every (x, y) cell and the 4-neighbour
@@ -156,7 +205,7 @@ def _generated_terms(gen: Mapping[str, Any]):
                     edges.append((name(x, y), name(x + 1, y)))
                 if y + 1 < height:
                     edges.append((name(x, y), name(x, y + 1)))
-        return variables, (), tuple(edges)
+        return variables, (), tuple(edges), ()
 
     raise ValueError(f"unknown generator {kind!r}")
 
@@ -263,7 +312,17 @@ def _conserve_over_edges_terms(t: Mapping[str, Any], edges):
             coeffs[r] = coeffs.get(r, 0.0) - 1.0
         L = LinearForm(coeffs, const=-net)
         terms.append(Product(L, L, weight))
-    return terms
+    rationale = FormulationRationale(
+        construct="conserve_over_edges",
+        ir_shape="Product(L, L, weight) -- a squared linear form",
+        count=len(terms),
+        scope=f"one per node of the spec's {len(edges)}-edge generated set "
+              f"({len(nodes)} nodes)",
+        reason="a conservation constraint is an equality (inflow - outflow "
+               "== net); squaring a linear form keeps the penalty pairwise "
+               "(a Product of two identical linear forms) no matter how "
+               "many flow variables the form itself sums over")
+    return terms, (rationale,) if terms else ()
 
 
 def _product_over_edges(t: Mapping[str, Any], edges, var_by_name: Mapping[str, Var]):
@@ -280,7 +339,16 @@ def _product_over_edges(t: Mapping[str, Any], edges, var_by_name: Mapping[str, V
         if symmetric:
             terms.append(Product(_value_indicator(var_by_name[u], b_val),
                                  _value_indicator(var_by_name[v], a_val), weight))
-    return terms
+    rationale = FormulationRationale(
+        construct="product_over_edges",
+        ir_shape="Product per edge" + (" (both orientations)" if symmetric else ""),
+        count=len(terms),
+        scope=f"the spec's {len(edges)}-edge generated set",
+        reason="a pairwise value constraint between two connected variables "
+               "becomes a Product of their two value-indicator linear forms "
+               "-- one indicator per side of the edge, so the shape stays "
+               "pairwise regardless of either variable's own domain size")
+    return terms, (rationale,) if terms else ()
 
 
 def load_spec(path: str) -> WorkloadSpec:
@@ -288,10 +356,12 @@ def load_spec(path: str) -> WorkloadSpec:
     raw = yaml.safe_load(text)
 
     if "generate" in raw:
-        variables, generated_terms, edges = _generated_terms(raw["generate"])
+        variables, generated_terms, edges, gen_rationale = \
+            _generated_terms(raw["generate"])
     else:
         edges = ()
         generated_terms = ()
+        gen_rationale = ()
         variables = []
         for name, d in raw["variables"].items():
             # "const" is reserved: _parse_form treats the literal key "const" in
@@ -337,19 +407,38 @@ def load_spec(path: str) -> WorkloadSpec:
     # previously a `generate` block silently discarded any `terms:` key
     # entirely, which would have made A2 impossible to use alongside A1.
     extra_terms = []
+    # G1: literal `linear`/`product` terms are hand-authored -- each IS its
+    # own shape by direct declaration, not a template's design decision, so
+    # they are recorded as ONE aggregate FormulationRationale per kind (count
+    # of how many, reason left honestly absent) rather than one record per
+    # declared term, matching the aggregate-by-kind granularity `tsu explain`
+    # already used for its (now-removed) static glossary.
+    literal_counts = {"linear": 0, "product": 0}
+    formulation = list(gen_rationale)
     for t in raw.get("terms", []):
         kind = t["kind"]
         if kind == "linear":
             extra_terms.append(Linear(_parse_form(t["form"]), float(t["weight"])))
+            literal_counts["linear"] += 1
         elif kind == "product":
             extra_terms.append(Product(_parse_form(t["a"]), _parse_form(t["b"]),
                                        float(t["weight"])))
+            literal_counts["product"] += 1
         elif kind == "product_over_edges":
-            extra_terms.extend(_product_over_edges(t, edges, var_by_name))
+            poe_terms, poe_rationale = _product_over_edges(t, edges, var_by_name)
+            extra_terms.extend(poe_terms)
+            formulation.extend(poe_rationale)
         elif kind == "conserve_over_edges":
-            extra_terms.extend(_conserve_over_edges_terms(t, edges))
+            coe_terms, coe_rationale = _conserve_over_edges_terms(t, edges)
+            extra_terms.extend(coe_terms)
+            formulation.extend(coe_rationale)
         else:
             raise ValueError(f"unknown term kind {kind!r}")
+    for kind, ir_shape in (("linear", "Linear"), ("product", "Product")):
+        if literal_counts[kind]:
+            formulation.append(FormulationRationale(
+                construct=kind, ir_shape=ir_shape, count=literal_counts[kind],
+                scope="", reason=""))
     terms = tuple(generated_terms) + tuple(extra_terms)
 
     rules = tuple(raw.get("contract", {}).get("validate", []) or ())
@@ -361,4 +450,4 @@ def load_spec(path: str) -> WorkloadSpec:
 
     return WorkloadSpec(name=raw["name"], variables=variables, terms=terms,
                         contract=TaskContract(rules, edges), source_text=text,
-                        edges=edges)
+                        edges=edges, formulation=tuple(formulation))

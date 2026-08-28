@@ -395,21 +395,20 @@ def _failure_narrative(passes: dict, verification: dict, checks, verdict: str):
 # never hardcoded; any field the receipt does not contain prints
 # `unavailable: <reason>`. Where this can state WHY a choice was made, it is
 # sourced from recorded evidence already in the receipt (candidates.json's
-# rows, passes.json's `ordering_rationale`, gates.json's remediations) --
-# never freshly invented prose about a specific compile's numbers. The one
-# exception is a small, STATIC glossary of what each generic term/rule KIND
-# *is* mathematically (`_TERM_KIND_GLOSS` below) -- a fixed label for a
-# recorded kind string, exactly the role `_KERNEL_LABELS` already plays for
-# `schedule`, not a claim about any particular compile's evidence.
+# rows, passes.json's `ordering_rationale`, gates.json's remediations,
+# formulation.json's per-construct records) -- never freshly invented prose
+# about a specific compile's numbers.
+#
+# G1: the FORMULATION layer used to fall back on a small STATIC glossary of
+# what each term KIND *is* mathematically -- informative about the shape, but
+# silent on WHY that shape was chosen for THIS spec. It now renders
+# formulation.json instead: structured `FormulationRationale` records built
+# by spec.py itself at term-expansion time (never reconstructed here), each
+# carrying the construct, the IR shape it became, how many terms and over
+# what, and -- when the construct has one -- the structural reason. A
+# construct with no reason to report (a hand-written `linear`/`product` term)
+# renders that absence explicitly, never invented prose standing in for one.
 # ============================================================================
-
-_TERM_KIND_GLOSS = {
-    "linear": "a linear penalty/preference over one or more variables",
-    "product": "a pairwise penalty/preference between two linear forms",
-    "product_over_edges": "one pairwise term per edge of the spec's edge set",
-    "conserve_over_edges": "a squared linear form per node: "
-                          "weight*(inflow-outflow-net)**2",
-}
 
 
 def _yaml_safe_load(text: str) -> dict:
@@ -417,14 +416,6 @@ def _yaml_safe_load(text: str) -> dict:
         return yaml.safe_load(text) or {}
     except Exception:
         return {}
-
-
-def _term_kind_counts(spec_raw: dict) -> dict:
-    counts: dict[str, int] = {}
-    for t in spec_raw.get("terms", []) or []:
-        k = t.get("kind", "?")
-        counts[k] = counts.get(k, 0) + 1
-    return counts
 
 
 def _contract_rule_counts(spec_raw: dict) -> dict:
@@ -461,6 +452,9 @@ def render_explain(receipt_dir) -> str:
     program = _load(d, "program.json")
     energy = _load(d, "energy.json")
     cost = _load(d, "cost.json")
+    formulation = _load(d, "formulation.json")
+    if not isinstance(formulation, list):
+        formulation = []
     spec_yaml_path = d / "spec.yaml"
     spec_raw = _yaml_safe_load(spec_yaml_path.read_text(encoding="utf-8")) \
         if spec_yaml_path.exists() else {}
@@ -495,13 +489,25 @@ def render_explain(receipt_dir) -> str:
                            spec_raw["generate"].get("kind", "unavailable")))
     lines.append(_eline("Declared terms:",
                        workload.get("logical_interactions", "unavailable: not recorded")))
-    term_counts = _term_kind_counts(spec_raw)
-    if term_counts:
-        for kind in sorted(term_counts):
-            gloss = _TERM_KIND_GLOSS.get(kind, "a generic structural term template")
-            lines.append(f"    {kind} x{term_counts[kind]} -- {gloss}")
+    # G1: each record is spec.py's OWN account of why a construct's terms took
+    # the IR shape they did, sourced from formulation.json (built at term-
+    # expansion time), never reconstructed here. `scope` is only printed when
+    # the record actually has one (a single hand-written term has none).
+    if formulation:
+        for r in formulation:
+            scope = f" over {r['scope']}" if r.get("scope") else ""
+            lines.append(f"    {r['construct']} x{r['count']}{scope} "
+                        f"-- {r['ir_shape']}")
+            reason = r.get("reason") or ""
+            lines.append(f"        why: {reason}" if reason else
+                        "        why: (none recorded -- this shape is a "
+                        "direct hand-written declaration, not a template's "
+                        "design decision)")
+    elif workload.get("logical_interactions") == 0:
+        lines.append("    no terms declared in this spec")
     else:
-        lines.append("    unavailable: no hand-written terms in spec.yaml")
+        lines.append("    unavailable: no term-formulation rationale recorded "
+                    "in this receipt")
     rule_counts = _contract_rule_counts(spec_raw)
     for kind in sorted(rule_counts):
         lines.append(f"    contract rule {kind} x{rule_counts[kind]}")

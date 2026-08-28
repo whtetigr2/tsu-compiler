@@ -107,6 +107,17 @@ def write_receipt(c, out_dir) -> Path:
 
     (d / "target.json").write_text(json.dumps(_sourced(c.target), indent=2))
 
+    # G1 (FORMULATION layer of `tsu explain`): WHY each spec construct
+    # expanded into the IR shape it did -- recorded by spec.py's own term
+    # expansion (`c.spec.formulation`), not reconstructed here. Present
+    # regardless of verdict (it is a property of the SPEC, computed at parse
+    # time, before any compilation stage that could fail); empty for a spec
+    # whose constructs produced no terms to explain.
+    (d / "formulation.json").write_text(json.dumps(
+        [{"construct": r.construct, "ir_shape": r.ir_shape, "count": r.count,
+          "scope": r.scope, "reason": r.reason} for r in c.spec.formulation],
+        indent=2))
+
     # allow_assumed must be recorded so a result obtained under it can never be
     # mistaken for one obtained under sourced constraints (spec section 10), and
     # so `replay` can pass the SAME flag back to compile_spec -- without this a

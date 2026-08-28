@@ -17,7 +17,8 @@ def test_receipt_contains_every_required_artifact(tmp_path):
     d = write_receipt(c, tmp_path / "r")
     for name in ("spec.yaml", "spec.sha256", "target.json", "passes.json",
                  "gates.json", "metrics.json", "verification.json",
-                 "program.json", "environment.json", "regime.json"):
+                 "program.json", "environment.json", "regime.json",
+                 "formulation.json"):
         assert (Path(d) / name).exists(), f"missing {name}"
 
 

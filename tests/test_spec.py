@@ -85,3 +85,125 @@ def test_a_contract_without_messages_is_rejected_at_schema_level():
             load_spec(p)
     finally:
         os.unlink(p)
+
+
+# ---------------------------------------------------------------------------
+# G1: FormulationRationale -- WHY a spec construct expanded into the IR shape
+# it did, recorded at expansion time (spec.py's own term generation), not
+# reconstructed after the fact.
+# ---------------------------------------------------------------------------
+
+def test_literal_terms_carry_a_formulation_record_with_no_invented_reason():
+    """toy.yaml's terms are hand-written product/linear terms declared
+    directly -- there is no structural template choosing their shape, so the
+    honest rationale is an ABSENT reason, never invented prose standing in
+    for one."""
+    from tsu.spec import FormulationRationale
+    s = load_spec(f"{SPECS}/toy.yaml")
+    assert s.formulation, "toy.yaml's hand-written terms must still be recorded"
+    by_construct = {r.construct: r for r in s.formulation}
+    assert "product" in by_construct and "linear" in by_construct
+    product = by_construct["product"]
+    assert isinstance(product, FormulationRationale)
+    assert product.ir_shape == "Product"
+    assert product.count == 2          # toy.yaml declares 2 literal product terms
+    assert product.reason == "", \
+        "a hand-written term has no structural template reason to invent"
+    linear = by_construct["linear"]
+    assert linear.ir_shape == "Linear"
+    assert linear.count == 1
+    assert linear.reason == ""
+
+
+def test_product_over_edges_formulation_record_states_the_structural_reason():
+    """A2: the pairwise penalty over an edge set becomes one Product per edge
+    (per orientation) because a two-variable constraint IS a product of two
+    value-indicator linear forms -- that structural fact is the recorded
+    reason, sourced at the point spec.py actually builds the Product terms."""
+    from tsu.spec import FormulationRationale
+    s = load_spec(f"{SPECS}/adjacency_2x2_k3.yaml")
+    poe = next(r for r in s.formulation if r.construct == "product_over_edges")
+    assert isinstance(poe, FormulationRationale)
+    assert poe.count == len(s.terms)          # every term here comes from A2
+    assert str(len(s.edges)) in poe.scope      # "N-edge generated set"
+    assert poe.reason, "A2 has a genuine structural reason; it must not be absent"
+    assert "product" in poe.reason.lower() or "indicator" in poe.reason.lower()
+
+
+def test_conserve_over_edges_formulation_record_states_the_structural_reason():
+    """C2: a conservation constraint is an equality; squaring a linear form
+    keeps the penalty pairwise regardless of how many flow variables the
+    form itself sums over -- the recorded structural reason."""
+    import os, tempfile, textwrap
+    from tsu.spec import FormulationRationale
+    body = textwrap.dedent("""
+        name: flow_formulation
+        generate:
+          kind: grid
+          width: 3
+          height: 1
+          variable_domain: {domain: binary}
+        terms:
+          - {kind: conserve_over_edges, flow_prefix: f, weight: 8.0,
+             sources: {}, sinks: {}}
+        contract:
+          validate: []
+    """)
+    with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as f:
+        f.write(body); p = f.name
+    try:
+        s = load_spec(p)
+        coe = next(r for r in s.formulation if r.construct == "conserve_over_edges")
+        assert isinstance(coe, FormulationRationale)
+        assert coe.count == 3   # one term per node of the 3x1 strip
+        assert coe.reason, "C2 has a genuine structural reason; it must not be absent"
+        assert "equality" in coe.reason.lower() or "squar" in coe.reason.lower()
+    finally:
+        os.unlink(p)
+
+
+def test_clique_formulation_record_states_the_structural_reason():
+    import os, tempfile, textwrap
+    from tsu.spec import FormulationRationale
+    body = textwrap.dedent("""
+        name: clique_formulation
+        generate:
+          kind: clique
+          n: 4
+          weight: 1.0
+        contract:
+          validate: []
+    """)
+    with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as f:
+        f.write(body); p = f.name
+    try:
+        s = load_spec(p)
+        c = next(r for r in s.formulation if r.construct == "clique")
+        assert isinstance(c, FormulationRationale)
+        assert c.count == 6   # C(4, 2)
+        assert c.reason, "a clique's own shape is a genuine structural reason"
+    finally:
+        os.unlink(p)
+
+
+def test_a_grid_generator_with_no_hand_terms_has_no_fabricated_formulation():
+    """`grid` alone generates variables/edges but no terms -- there is
+    nothing to explain, so no formulation record is fabricated for it."""
+    import os, tempfile, textwrap
+    body = textwrap.dedent("""
+        name: bare_grid
+        generate:
+          kind: grid
+          width: 2
+          height: 2
+          variable_domain: {domain: binary}
+        contract:
+          validate: []
+    """)
+    with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as f:
+        f.write(body); p = f.name
+    try:
+        s = load_spec(p)
+        assert s.formulation == ()
+    finally:
+        os.unlink(p)

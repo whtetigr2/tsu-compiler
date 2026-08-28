@@ -53,6 +53,34 @@ def test_explain_formulation_layer_lists_term_kinds_from_the_spec(tmp_path):
     assert "product_over_edges" in formulation
 
 
+def test_explain_formulation_layer_states_the_structural_reason_not_a_glossary(
+        tmp_path):
+    """G1: the FORMULATION layer must print the SAME rationale text spec.py
+    itself recorded at expansion time (formulation.json), not a fresh static
+    glossary entry -- verbatim, so a reader can trust it traces back to a
+    real decision the compiler made about THIS spec."""
+    c = compile_spec(load_spec("specs/adjacency_2x2_k3.yaml"), Z1)
+    assert c.spec.formulation, "sanity: adjacency spec must carry a rationale"
+    d = write_receipt(c, tmp_path / "r")
+    text = render_explain(d)
+    formulation = text.split("FORMULATION", 1)[1].split("REPRESENTATION", 1)[0]
+    poe = next(r for r in c.spec.formulation if r.construct == "product_over_edges")
+    assert poe.reason in formulation, \
+        "the rendered reason must be the exact recorded text, not paraphrased"
+
+
+def test_explain_formulation_layer_shows_absent_reason_honestly_for_literal_terms(
+        tmp_path):
+    """toy.yaml's terms are hand-written; G1 requires an absent rationale to
+    print as absent, never as invented prose standing in for one."""
+    c = compile_spec(load_spec("specs/toy.yaml"), Z1)
+    d = write_receipt(c, tmp_path / "r")
+    text = render_explain(d)
+    formulation = text.split("FORMULATION", 1)[1].split("REPRESENTATION", 1)[0]
+    assert "product" in formulation and "linear" in formulation
+    assert "none recorded" in formulation.lower()
+
+
 def test_explain_representation_layer_shows_the_candidate_table_and_rationale(tmp_path):
     c = compile_spec(load_spec("specs/toy.yaml"), Z1)
     d = write_receipt(c, tmp_path / "r")
