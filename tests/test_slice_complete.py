@@ -76,15 +76,22 @@ def test_6d_regime_report_populated_and_honest_about_what_it_did_not_measure(tmp
     """toy.yaml's chain mixes fast enough (see tsu.ess/test_ess.py and
     test_verify.py) that mixing_indicator is now a REAL number, not the old
     permanent "unmeasured" -- tsu.ess wiring means this compiler can actually
-    measure it here. `energy_scale` is this vertical slice's remaining
-    honestly-unmeasured cheap field (regime.py's own docstring: "cheap fields
-    only"), so it is what now demonstrates the "honest about what it did not
-    measure" half of this test's name."""
+    measure it here. `energy_scale` (item 2) is likewise now a REAL number
+    for a model this small: the gap between the best physical state that
+    decodes to a=0,b=1,c=0 (task-valid, energy -0.5) and the best one that
+    decodes to a=1,b=0,c=0 (violates "c=0 forbidden while a is occupied",
+    energy 1.0) -- independently hand-verified by brute-force enumeration,
+    not just read back from the production path. The "honest about what it
+    did not measure" half of this test's name is now demonstrated by
+    `test_energy_scale_and_beta_recommendation_stay_none_beyond_the_
+    enumeration_limit` in test_verify.py instead, on a model too large to
+    enumerate exactly."""
     main(["compile", "specs/toy.yaml", "--target", "z1", "--out", str(tmp_path / "r")])
     r = json.loads((tmp_path / "r" / "regime.json").read_text())
     assert r["coupling_utilisation"] is not None
     assert isinstance(r["mixing_indicator"], float)
-    assert r["energy_scale"] is None
+    assert r["energy_scale"] == pytest.approx(1.5)
+    assert r["beta_recommendation"] == pytest.approx((1.0 / 1.5, 10.0 / 1.5))
 
 
 def test_8_a_zero_edge_model_compiles_end_to_end_instead_of_crashing(tmp_path):

@@ -169,14 +169,50 @@ def test_regime_report_has_cheap_fields_and_measures_mixing_when_the_chain_suppo
     decorrelate) that N/tau clears tsu.ess's reliability threshold, so
     mixing_indicator is now a REAL measurement, not the old permanent None --
     the whole point of wiring tsu.ess in was to stop reporting "unmeasured"
-    for a quantity the compiler can, in fact, measure here. `energy_scale`
-    stays an example of a field this vertical slice genuinely never
-    computes (see regime.py's own docstring: "cheap fields only")."""
+    for a quantity the compiler can, in fact, measure here.
+
+    `energy_scale` used to be a permanent None (regime.py's own docstring:
+    "cheap fields only"); toy.yaml's 4 physical spins are trivially within
+    EXACT_LIMIT, so it is now a real measured gap between the best
+    task-satisfying and best task-violating physical state -- positive,
+    because toy.yaml's contract is satisfiable and not vacuous (some legal
+    codeword violates it: e.g. a=1,c=0)."""
     r = compile_spec(load_spec("specs/toy.yaml"), Z1).regime
     assert r.coupling_utilisation is not None
     assert r.mixing_indicator is not None
     assert r.mixing_indicator == pytest.approx(1.0, abs=0.5), \
         "a well-mixing 4-spin chain's IAT should sit close to the i.i.d. floor of 1"
-    assert r.energy_scale is None, \
-        "energy_scale is still never computed in this vertical slice"
+    assert r.energy_scale is not None, \
+        "toy.yaml is well within EXACT_LIMIT; energy_scale must now be measured"
+    assert r.energy_scale > 0.0
     assert r.regime in ("feasible", "precision_limited", "unmeasured")
+
+
+def test_beta_recommendation_is_a_window_in_units_of_the_energy_scale():
+    """The project has measured an INTERIOR optimum for beta (regime.py's own
+    justification): too low is noise, too high freezes the chain before it
+    reaches the answer. So this must be a (lo, hi) window, not a point
+    estimate, with lo < hi, both positive, and both expressed as an absolute
+    beta (i.e. already divided through by energy_scale -- 'in units of' the
+    gap, per the brief)."""
+    r = compile_spec(load_spec("specs/toy.yaml"), Z1).regime
+    assert r.energy_scale is not None
+    assert r.beta_recommendation is not None
+    lo, hi = r.beta_recommendation
+    assert 0.0 < lo < hi
+    # sanity: the window scales inversely with the gap -- a bigger gap needs
+    # a SMALLER beta to reach the same beta*energy_scale crossover ratio
+    assert lo == pytest.approx(1.0 / r.energy_scale)
+
+
+def test_energy_scale_and_beta_recommendation_stay_none_beyond_the_enumeration_limit():
+    """Never estimated: a model too large to enumerate exhaustively must
+    report energy_scale as None (not a guess), and beta_recommendation --
+    which is expressed in units of energy_scale -- must therefore also stay
+    None rather than being derived from a number that was never measured."""
+    n = EXACT_LIMIT + 2
+    r = compile_spec(_oversized_spec(n), IDEAL).regime
+    assert r is not None
+    assert r.energy_scale is None
+    assert r.beta_recommendation is None
+    assert r.regime == "unmeasured"

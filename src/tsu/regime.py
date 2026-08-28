@@ -38,10 +38,23 @@ class RegimeReport:
     # computed in `_try`, before any sampling has happened) still renders the
     # same bare "unmeasured" it always did.
     mixing_indicator_note: str = ""
+    # `energy_scale` is the energy gap between the best PHYSICAL state that
+    # decodes to a task-contract-satisfying answer and the best one that does
+    # not (search.py's `_energy_scale`, patched in once `_verify` has the
+    # encoded model and the spec's own contract in hand -- `analyse_regime`
+    # itself has neither). None whenever it was never measured (the model
+    # exceeds the exact-enumeration limit, or every state fell on the same
+    # side of the contract so there is no gap to report) -- `energy_scale_note`
+    # carries the reason, same convention as `precision_headroom_note` and
+    # `mixing_indicator_note` above. Defaults to "" so a RegimeReport built
+    # before energy_scale was ever attempted (every candidate's regime is
+    # computed in `_try`, before `_verify` has run) still renders honestly.
+    energy_scale_note: str = ""
 
     def to_dict(self):
         return {
-            "energy_scale": self.energy_scale,
+            "energy_scale": self.energy_scale
+                if self.energy_scale is not None else (self.energy_scale_note or "unmeasured"),
             "coupling_utilisation": self.coupling_utilisation,
             "precision_headroom": self.precision_headroom
                 if self.precision_headroom is not None else self.precision_headroom_note,
@@ -76,6 +89,49 @@ def _smallest_distinct_gap(weights) -> float | None:
     return min(b - a for a, b in zip(mags, mags[1:]))
 
 
+# I2: beta_recommendation is a WINDOW, not a point estimate, because this
+# project has measured beta to have an INTERIOR optimum (module docstring:
+# "the feasible region is an INTERIOR ISLAND") -- too low is noise, too high
+# freezes the chain before it reaches the answer. Both ends of the window
+# below are read off the SAME quantity -- the Boltzmann factor
+# exp(-beta * energy_scale), the relative weight the stationary distribution
+# puts on the best task-CONTRACT-VIOLATING state next to the best
+# task-satisfying one -- at its two qualitatively different crossover points:
+#
+#   beta * energy_scale ~= 1   -> exp(-1)  ~= 0.37   (LO)
+#   beta * energy_scale ~= 10  -> exp(-10) ~= 4.5e-5 (HI)
+#
+# Below LO the violating state is still a substantial fraction of the
+# stationary mass -- the chain has not yet separated the answer from the
+# noise. Above HI the violating state is suppressed by four orders of
+# magnitude, which is the point of running the sampler at all, but block-
+# Gibbs moves that must cross an energy barrier of ORDER energy_scale to
+# escape a false minimum see their own acceptance rate fall as the SAME
+# exp(-beta * barrier) factor -- so pushing beta further past HI starts
+# trading correctness-at-stationarity for the chain's ability to ever REACH
+# stationarity, exactly the freezing failure this project has measured.
+# [1, 10] is therefore not a fitted constant, and not a claim that this IS
+# the optimum -- it is the defensible span between "still exploring" and
+# "confidently decided but not yet frozen", stated as a decade on the one
+# quantity (beta * energy_scale) that both failure modes are read from.
+_BETA_WINDOW_LO_FACTOR = 1.0
+_BETA_WINDOW_HI_FACTOR = 10.0
+
+
+def beta_recommendation_from_energy_scale(energy_scale: float | None) -> tuple | None:
+    """(lo, hi) as ABSOLUTE beta values -- `_BETA_WINDOW_*_FACTOR / energy_scale`,
+    i.e. 'expressed in units of' energy_scale per RegimeReport's own field.
+    None whenever energy_scale itself is None (never measured, or unmeasurable
+    -- see search.py's `_energy_scale`) or non-positive (a zero or negative
+    gap has no crossover scale to read a window off of): a recommendation
+    derived from a number that was never honestly measured would itself be
+    fabricated, so this refuses to invent one rather than silently reporting
+    a plausible-looking window."""
+    if energy_scale is None or energy_scale <= 0:
+        return None
+    return (_BETA_WINDOW_LO_FACTOR / energy_scale, _BETA_WINDOW_HI_FACTOR / energy_scale)
+
+
 def analyse_regime(report, target, weights=None, energy_scale=None) -> RegimeReport:
     cap = target.max_abs_coupling.value
     # The cap applies to |J| AND |b| alike (spec section 7.1); reporting J alone
@@ -105,5 +161,6 @@ def analyse_regime(report, target, weights=None, energy_scale=None) -> RegimeRep
     else:
         regime, basis = "feasible", "within cap; mixing not measured"
 
-    return RegimeReport(energy_scale, util, headroom, None, None, regime, basis,
-                        precision_headroom_note=headroom_note)
+    return RegimeReport(energy_scale, util, headroom,
+                        beta_recommendation_from_energy_scale(energy_scale),
+                        None, regime, basis, precision_headroom_note=headroom_note)

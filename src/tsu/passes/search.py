@@ -16,6 +16,7 @@ the full measured table so that ordering is auditable, not just asserted.
 from __future__ import annotations
 
 import dataclasses
+import itertools
 import time
 import tracemalloc
 from dataclasses import dataclass, field
@@ -26,7 +27,7 @@ import numpy as np
 from ..ess import EssEstimate, effective_sample_size
 from ..failures import CompileError
 from ..gates import check_gates, gate_checks
-from ..regime import analyse_regime
+from ..regime import analyse_regime, beta_recommendation_from_energy_scale
 from ..states import Candidate, CandidateState, RepresentationSet
 from ..target import IDEAL, TargetProfile
 from .analyse import analyse
@@ -307,6 +308,16 @@ def _compile_spec_impl(spec, target: TargetProfile, allow_assumed: bool = False,
         else:
             regime = dataclasses.replace(
                 regime, mixing_indicator_note=ess_result.reason)
+        # Item 2: energy_scale/beta_recommendation, same lazy-patch pattern as
+        # mixing_indicator just above -- `_energy_scale` needs the ENCODED
+        # model and the spec's own task contract, neither of which
+        # `analyse_regime` (called from `_try`, before `encode`'s output was
+        # attached to anything the regime pass sees) has access to.
+        energy_scale, energy_scale_note = _energy_scale(
+            spec, art["encoded"], art["ising"])
+        regime = dataclasses.replace(
+            regime, energy_scale=energy_scale, energy_scale_note=energy_scale_note,
+            beta_recommendation=beta_recommendation_from_energy_scale(energy_scale))
 
     selected = Candidate(chosen.encoding, CandidateState.SELECTED,
                          report=chosen.report, regime=regime,
@@ -597,3 +608,63 @@ def _from_ising(ising, row) -> float:
     for k, (u, v) in enumerate(ising.edges):
         total += -ising.weights[k] * s[u] * s[v]
     return float(total)
+
+
+def _energy_scale(spec, enc, ising) -> tuple[float | None, str]:
+    """Item 2: the physical energy gap between the best (lowest-energy)
+    PHYSICAL state that decodes to a task-contract-satisfying answer and the
+    best physical state that does not -- "does not" covering both an invalid
+    codeword (`enc.is_codeword` false, e.g. a non-monotone domain-wall chain,
+    per C5) and a valid codeword whose decoded assignment fails
+    `spec.contract`. This is the gap the sampler must actually resolve to
+    prefer a correct answer over an incorrect one; `RegimeReport.
+    beta_recommendation` is derived from it (see regime.py's own docstring
+    for why that is a WINDOW, not a point value).
+
+    Exact by enumeration over every physical state (2**n) -- never
+    estimated: a model too large to enumerate exhaustively (`n > EXACT_LIMIT`,
+    the same bound thrml_backend's own exact reference uses -- imported
+    locally here, same lazy-import pattern `_verify` already uses to keep
+    thrml out of this module's top-level imports per the structural rule
+    that only `src/tsu/backends/` may import it) reports None with a reason,
+    and so does a model where every state landed on the same side of the
+    contract -- there is then no gap to measure, not a zero one.
+
+    Per-state energies are computed with the exact same formula `_from_ising`
+    already uses just above (and that `_verify`'s energy_tv layer already
+    cross-checks against thrml's own `IsingEBM.energy`), vectorised here over
+    every state at once for speed -- not a second, independently-written
+    formula that could quietly drift from the one already trusted.
+    """
+    from ..backends.thrml_backend import EXACT_LIMIT
+    n = len(ising.nodes)
+    if n > EXACT_LIMIT:
+        return None, f"unavailable: 2^{n} too large to enumerate"
+
+    states = np.array(list(itertools.product((0, 1), repeat=n)), dtype=np.int8)
+    spins = 2.0 * states.astype(float) - 1.0
+    energies = np.full(states.shape[0], ising.offset, dtype=float) - spins @ ising.biases
+    if ising.edges:
+        u_idx = np.array([u for u, _ in ising.edges])
+        v_idx = np.array([v for _, v in ising.edges])
+        energies -= (spins[:, u_idx] * spins[:, v_idx]) @ ising.weights
+
+    best_valid = None
+    best_invalid = None
+    for row, e in zip(states, energies):
+        bits = dict(zip(ising.nodes, (int(x) for x in row)))
+        ok = enc.is_codeword(bits) and spec.contract.validate(enc.decode(bits)).ok
+        e = float(e)
+        if ok:
+            if best_valid is None or e < best_valid:
+                best_valid = e
+        else:
+            if best_invalid is None or e < best_invalid:
+                best_invalid = e
+
+    if best_valid is None:
+        return None, ("unavailable: no physical state decodes to a "
+                      "task-contract-satisfying answer")
+    if best_invalid is None:
+        return None, "unavailable: no physical state violates the task contract"
+    return best_invalid - best_valid, ""
