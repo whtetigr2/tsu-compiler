@@ -42,6 +42,17 @@ def _placement(p):
     }
 
 
+def _mediation_dict(m):
+    """JSON-safe serialisation of a route.MediationReport (Task 6, spec
+    5.3.7). None when there is none to serialise -- never a fabricated
+    all-zero record."""
+    if m is None:
+        return None
+    return {"mediator_count": m.mediator_count,
+           "partition_method": m.partition_method,
+           "bipartite_after": m.bipartite_after, "beta_used": m.beta_used}
+
+
 def _failure_dict(f):
     """JSON-safe serialisation of a GateFailure or PlacementFailure -- the SAME
     object `search.py` used to reject a candidate, not a re-derived summary.
@@ -57,7 +68,14 @@ def _failure_dict(f):
     else:
         out.update(failure_class=f.failure_class,
                    offending=[{"kind": o.kind, "detail": o.detail}
-                             for o in f.offending])
+                             for o in f.offending],
+                   # Task 6: a PlacementFailure (e.g. placement_effort_exhausted)
+                   # reached AFTER mediation already made the graph bipartite
+                   # carries that MediationReport -- getattr, not f.mediation
+                   # directly, since GateFailure never reaches this branch but
+                   # an OLDER PlacementFailure object built before this field
+                   # existed still could on a receipt replay path.
+                   mediation=_mediation_dict(getattr(f, "mediation", None)))
     return out
 
 
@@ -155,7 +173,27 @@ def write_receipt(c, out_dir) -> Path:
               # read back later, e.g. by `tsu report`/`tsu explain` or by a
               # human diffing two receipts.
               "coefficient_scale": getattr(c, "coefficient_scale", 1.0),
-              "scaled_beta": getattr(c, "scaled_beta", None)}
+              "scaled_beta": getattr(c, "scaled_beta", None),
+              # Task 6 (spec 5.3.7): what `place` actually did about parity --
+              # mediator count, partition method, bipartiteness after, and the
+              # beta the mediator couplings were computed at (spec 5.3.5: a
+              # mediated program must never be resampled at a different
+              # beta). Sourced from the SELECTED candidate's own Placement
+              # when there is one; otherwise falls back to the first
+              # REJECTED candidate whose failure still carries a
+              # MediationReport (e.g. mediation succeeded but the geometric
+              # search that followed it then hit
+              # `placement_effort_exhausted` -- real, already-computed
+              # mediation evidence that must not be dropped just because
+              # placement ultimately failed for a different reason). `None`
+              # -- never a fabricated zero -- when nothing in this compile
+              # ever needed mediation at all.
+              "mediation": _mediation_dict(
+                  c.placement.mediation if c.placement is not None else
+                  next((x.failure.mediation for x in c.repset.candidates
+                       if x.failure is not None
+                       and getattr(x.failure, "mediation", None) is not None),
+                      None))}
     (d / "passes.json").write_text(json.dumps(passes, indent=2))
 
     # The A5 comparison table over EVERY candidate (encoding, state, reason,
@@ -237,6 +275,15 @@ def write_receipt(c, out_dir) -> Path:
                 "nodes": list(im.nodes), "edges": [list(e) for e in im.edges],
                 "weights": im.weights.tolist(), "biases": im.biases.tolist(),
                 "beta": im.beta, "offset": im.offset,
+                # Task 6: physical node indices that are hidden mediator
+                # spins (spec 5.3) -- persisted verbatim so `tsu simulate`'s
+                # `reconstruct_program` can rebuild an IsingModel that still
+                # knows it was mediated, and therefore still refuses a
+                # `--beta` override inconsistent with the beta these
+                # couplings were computed at (spec 5.3.5). Empty on a
+                # program that was never mediated, same convention as every
+                # other list field here.
+                "mediator_nodes": list(im.mediator_nodes),
                 "blocks": [list(b) for b in c.program.blocks],
                 "schedule": c.program.schedule,
                 "placement": _placement(c.placement),

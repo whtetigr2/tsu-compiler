@@ -170,6 +170,20 @@ def _try(spec, target, encoding, allow_assumed, clamp=None, coefficient_scale=1.
                                           "durations": durations}
     try:
         placement = _timed("place", place, ising, report, target)
+        # Task 6 (spec 5.3.6): `place` mediates a non-bipartite graph itself
+        # rather than raising `parity_conflict` outright -- when it did,
+        # `placement.mediation` is set and `placement.{mediated_ising,
+        # mediated_report}` are the LARGER, bipartite model that was
+        # actually embedded (placement.coords/realized are already indexed
+        # against it). Everything from here on -- `route` (now a no-op,
+        # since `mediated_report.bipartite` is True), `build_program`,
+        # `regime`, and this candidate's own `report` -- must use that
+        # model, not the pre-mediation one, so a receipt's numbers describe
+        # what is ACTUALLY deployed to the substrate. Gate checks above
+        # already ran against the pre-mediation model (spec 5.3.6 only asks
+        # `place` to mediate; it does not re-run the hardware gates).
+        if placement.mediation is not None:
+            ising, report = placement.mediated_ising, placement.mediated_report
         ising = _timed("route", route, ising, report, target)
     except CompileError as e:
         return Candidate(encoding, CandidateState.HARDWARE_INFEASIBLE,
@@ -192,15 +206,13 @@ ORDERING_RATIONALE = (
 
 
 def _physical_pbits(report) -> int:
-    """The count of spins actually deployed to the substrate. In this vertical
-    slice `route` never inserts a mediator spin (it is the identity for a graph
-    that already satisfies the target's parity requirement, and raises rather
-    than silently mediating one that does not -- see route.py), so physical
-    p-bit count equals the logical spin count (`report.n_nodes`) for every
-    candidate that reaches HARDWARE_FEASIBLE here. Kept as its own named
-    quantity (not just an alias read as `n_nodes`) because that equality is a
-    property of this slice's `route`, not a general truth the rest of the
-    compiler should assume."""
+    """The count of spins actually deployed to the substrate. Task 6:
+    `_try` swaps `report` to the MEDIATED graph's own report (`analyse` of
+    `placement.mediated_ising`) the moment `place` had to mediate, so
+    `report.n_nodes` here already includes every inserted mediator spin --
+    this stays a plain alias for `n_nodes` (not a separately-tracked
+    quantity) precisely because that swap is what keeps the equality true,
+    not an assumption this function makes on its own."""
     return report.n_nodes
 
 
@@ -214,10 +226,28 @@ def compare(repset: "RepresentationSet") -> tuple[dict, ...]:
     runner-up, and rejected alike -- so a selection can be audited against the
     numbers that produced it, not just the ordering_rationale prose. Any field
     a candidate never reached (e.g. `analyse` never ran because `encode` itself
-    failed) reads None here; callers must not treat that as zero."""
+    failed) reads None here; callers must not treat that as zero.
+
+    Task 6: for a candidate `place` had to mediate, `r`/`c.report` is already
+    the POST-mediation report (see `_try`'s own comment) -- "logical_spins"/
+    "logical_edges"/"bipartite"/"mediators" below describe the graph that was
+    actually placed and deployed, not the pre-mediation workload-derived one.
+    "mediators_inserted"/"mediation_method"/"mediation_beta" are the ACTUAL
+    mediation-pass record (`Placement.mediation`, spec 5.3), distinct from
+    "mediators" (analyse()'s theoretical max-cut FLOOR for whatever graph `r`
+    describes -- 0 once mediation has already made it bipartite): None for a
+    candidate that was never mediated at all, never a fabricated 0."""
     rows = []
     for c in repset.candidates:
         r, p = c.report, c.placement
+        # Task 6: prefer the SUCCEEDED placement's own MediationReport;
+        # fall back to a rejected candidate's failure (e.g. mediation made
+        # the graph bipartite but the geometric search that followed it
+        # then hit placement_effort_exhausted) so real, already-computed
+        # mediation evidence is never dropped just because placement
+        # ultimately failed for a different reason.
+        med = (p.mediation if p and p.mediation is not None else
+              getattr(c.failure, "mediation", None))
         rows.append({
             "encoding": c.encoding,
             "state": c.state.value,
@@ -230,6 +260,9 @@ def compare(repset: "RepresentationSet") -> tuple[dict, ...]:
             "colour_blocks": r.colour_blocks if r else None,
             "max_abs_J": r.max_abs_J if r else None,
             "max_abs_b": r.max_abs_b if r else None,
+            "mediators_inserted": med.mediator_count if med else None,
+            "mediation_method": med.partition_method if med else None,
+            "mediation_beta": med.beta_used if med else None,
         })
     return tuple(rows)
 

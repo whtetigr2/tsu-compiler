@@ -10,12 +10,15 @@
     "physical_pbits": null,
     "colour_blocks": 4,
     "max_abs_J": 0.875,
-    "max_abs_b": 2.125
+    "max_abs_b": 2.125,
+    "mediators_inserted": null,
+    "mediation_method": null,
+    "mediation_beta": null
   },
   {
     "encoding": "one_hot",
     "state": "HARDWARE_INFEASIBLE",
-    "reason": "placement failed: parity conflict",
+    "reason": "placement failed: placement effort exhausted",
     "logical_spins": 1280,
     "logical_edges": 8320,
     "bipartite": false,
@@ -23,6 +26,9 @@
     "physical_pbits": null,
     "colour_blocks": 5,
     "max_abs_J": 1.25,
-    "max_abs_b": 5.0
+    "max_abs_b": 5.0,
+    "mediators_inserted": 2498,
+    "mediation_method": "bfs_depth_parity_with_greedy_local_search",
+    "mediation_beta": 4.0
   }
 ]

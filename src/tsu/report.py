@@ -287,6 +287,16 @@ def render_report(receipt_dir) -> str:
     lines.append(_line("Coupling range:", coupling_range))
     lines.append(_line("Coupling precision:", coupling_precision))
     lines.append(_line("Field range:", field_range))
+    # Task 6 (spec 5.3.7): what the mediation PASS itself actually did --
+    # distinct from "Mediators required" above (analyse()'s theoretical
+    # max-cut floor for whatever graph ended up selected, 0 once mediation
+    # has already made it bipartite). `passes.json`'s "mediation" is None
+    # exactly when the selected candidate never needed mediation at all.
+    mediation = passes.get("mediation")
+    if mediation:
+        lines.append(_line("Mediation:", f"{mediation['mediator_count']:,} spin(s) "
+                           f"via {mediation['partition_method']}"))
+        lines.append(_line("Mediation beta:", mediation["beta_used"]))
     lines.append("")
 
     # -- SAMPLING ---------------------------------------------------------
@@ -633,6 +643,17 @@ def render_explain(receipt_dir) -> str:
     lines.append(_eline("Colour blocks:",
                        _rep_display(metrics, rep_row, verdict, "colour_blocks",
                                     "colour_blocks")))
+    # Task 6 (spec 5.3.7): the mediation PASS's own record -- how many
+    # mediator spins it actually inserted, by what method, and at what beta
+    # (spec 5.3.5: those couplings are only valid at this beta). None when
+    # the selected candidate never needed mediation.
+    mediation = passes.get("mediation")
+    lines.append(_eline("Mediation method:",
+                       mediation["partition_method"] if mediation else
+                       "unavailable: not mediated"))
+    lines.append(_eline("Mediation beta:",
+                       mediation["beta_used"] if mediation else
+                       "unavailable: not mediated"))
     if placement is None:
         placement_line = _as_unavailable(f"no placement recorded (verdict={verdict})")
         lines.append(_eline("Placement:", placement_line))

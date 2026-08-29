@@ -31,6 +31,14 @@ class IsingModel:
     biases: np.ndarray       # b, aligned with nodes
     beta: float
     offset: float            # constant energy, carried so E(x) is reproducible
+    # Task 6 (spec 5.3): physical node indices that are hidden MEDIATOR spins
+    # inserted by `route.insert_mediators`, empty for a model that was never
+    # mediated. Their couplings (A = arccosh(exp(2*beta*|J|))/(2*beta)) are
+    # temperature-dependent -- this is what lets a caller refuse to resample
+    # a mediated model at a different beta (spec 5.3.5) rather than silently
+    # reproducing the wrong physical couplings. Carried on the model itself
+    # (not a side table) so it survives a receipt round-trip verbatim.
+    mediator_nodes: tuple[int, ...] = ()
 
 
 def _term_expr(term, sym):

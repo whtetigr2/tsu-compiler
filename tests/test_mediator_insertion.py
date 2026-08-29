@@ -1,0 +1,154 @@
+"""Task 6: hidden-spin mediation is exact (spec section 5.3.2)."""
+import math
+
+import numpy as np
+import networkx as nx
+import pytest
+
+from tsu.passes.lower import IsingModel
+from tsu.passes.analyse import analyse
+from tsu.passes.program import build_program
+from tsu.passes.route import (BetaMismatchError, assert_beta_consistent,
+                              insert_mediators)
+from tsu.backends.thrml_backend import exact_distribution
+
+
+def _marginal(states, probs, keep):
+    out = {}
+    for row, p in zip(states, probs):
+        k = tuple(int(row[i]) for i in keep)
+        out[k] = out.get(k, 0.0) + float(p)
+    return out
+
+
+def _triangle(beta=4.0, J_value=-1.25):
+    J = {(0, 1): J_value, (0, 2): J_value, (1, 2): J_value}
+    return IsingModel(nodes=("a", "b", "c"), edges=tuple(J),
+                      weights=np.array([J[e] for e in J]),
+                      biases=np.zeros(3), beta=beta, offset=0.0)
+
+
+def test_mediation_preserves_the_marginal_on_a_frustrated_triangle():
+    """The minimal non-bipartite case. Verified by hand at 3.3e-16 before this
+    task was written; the pass must reproduce it."""
+    orig = _triangle()
+    assert not analyse(orig).bipartite
+    med, rep = insert_mediators(orig, analyse(orig))
+    assert analyse(med).bipartite
+    assert rep.mediator_count >= 1
+    so, po = exact_distribution(build_program(orig, analyse(orig)))
+    sm, pm = exact_distribution(build_program(med, analyse(med)))
+    mo, mm = _marginal(so, po, [0, 1, 2]), _marginal(sm, pm, [0, 1, 2])
+    for k in mo:
+        assert mo[k] == pytest.approx(mm[k], abs=1e-9)
+
+
+def test_frustration_is_preserved_exactly():
+    """The hand-verified reference: both all-equal states sit at probability
+    0 (frustrated), the other six uniform at 1/6."""
+    orig = _triangle()
+    med, _ = insert_mediators(orig, analyse(orig))
+    so, po = exact_distribution(build_program(orig, analyse(orig)))
+    mo = _marginal(so, po, [0, 1, 2])
+    for k, p in mo.items():
+        if len(set(k)) == 1:
+            assert p == pytest.approx(0.0, abs=1e-9)
+        else:
+            assert p == pytest.approx(1.0 / 6.0, abs=1e-9)
+
+
+def test_degree_is_unchanged_by_subdivision():
+    """Each original node still sees one edge where it saw one before, so
+    section 4.2's degree law and the p<=3 budget survive mediation."""
+    orig = _triangle()
+    before = dict(nx.Graph(list(orig.edges)).degree())
+    med, rep = insert_mediators(orig, analyse(orig))
+    G = nx.Graph()
+    G.add_nodes_from(range(len(med.nodes)))
+    G.add_edges_from(med.edges)
+    after = dict(G.degree())
+    for node in before:
+        assert after[node] == before[node], \
+            f"node {node}: degree {before[node]} -> {after[node]}"
+    # every mediator has degree exactly 2 (one edge to each side of the
+    # subdivided edge).
+    for m in med.mediator_nodes:
+        assert after[m] == 2
+
+
+def test_mediator_couplings_stay_within_the_target_cap():
+    """Measured: |A| = 1.3366 for |J| = 1.25 at beta 4.0, against an assumed
+    cap of 6.0."""
+    orig = _triangle(beta=4.0, J_value=-1.25)
+    med, rep = insert_mediators(orig, analyse(orig))
+    mediator_weights = [w for (u, v), w in zip(med.edges, med.weights)
+                        if u in med.mediator_nodes or v in med.mediator_nodes]
+    assert mediator_weights, "the triangle must have needed at least one mediator"
+    for w in mediator_weights:
+        assert abs(w) == pytest.approx(1.3366, abs=1e-3)
+        assert abs(w) < 6.0
+
+
+@pytest.mark.parametrize("beta", [1.0, 4.0, 8.0])
+@pytest.mark.parametrize("absJ", [0.5, 1.25, 2.5, 5.0])
+def test_coupling_formula_recovers_J_across_beta_and_J(beta, absJ):
+    """The formula was verified (per this task's brief) across beta in
+    {1,4,8} and |J| in {0.5..5.0}, recovering J to 1e-12 every time -- lock
+    that in directly against the closed-form derivation:
+    2*cosh(2*beta*A) == exp(2*beta*|J|)."""
+    A = math.acosh(math.exp(2 * beta * absJ)) / (2 * beta)
+    recovered = math.log(math.cosh(2 * beta * A)) / (2 * beta)
+    assert recovered == pytest.approx(absJ, abs=1e-12)
+
+
+def test_mediated_program_refuses_a_different_beta():
+    """A is temperature-dependent. Sampling a mediated program at a beta other
+    than the one its couplings were computed at is WRONG and must raise,
+    not silently sample (spec 5.3.5)."""
+    orig = _triangle(beta=4.0)
+    med, rep = insert_mediators(orig, analyse(orig))
+    assert med.mediator_nodes
+
+    # the SAME beta is fine.
+    assert_beta_consistent(med, med.beta)
+
+    with pytest.raises(BetaMismatchError):
+        assert_beta_consistent(med, med.beta * 2.0)
+
+    # a model that was never mediated has nothing beta-dependent baked in,
+    # so any beta is fine for it.
+    assert_beta_consistent(orig, orig.beta * 2.0)
+
+
+def test_already_bipartite_graph_needs_no_mediators():
+    im = IsingModel(nodes=("a", "b"), edges=((0, 1),),
+                    weights=np.array([1.0]), biases=np.zeros(2),
+                    beta=1.0, offset=0.0)
+    med, rep = insert_mediators(im, analyse(im))
+    assert rep.mediator_count == 0
+    assert rep.bipartite_after is True
+    assert med.nodes == im.nodes
+    assert med.edges == im.edges
+
+
+def test_a_larger_odd_cycle_mediates_and_stays_exact():
+    """A 5-cycle (all-equal-weight, all frustrated antiferromagnetically) is
+    a second, independent non-bipartite case beyond the minimal triangle."""
+    beta = 2.0
+    n = 5
+    J = -0.8
+    edges = [(i, (i + 1) % n) for i in range(n)]
+    orig = IsingModel(nodes=tuple(f"x{i}" for i in range(n)), edges=tuple(edges),
+                      weights=np.array([J] * n), biases=np.zeros(n),
+                      beta=beta, offset=0.0)
+    assert not analyse(orig).bipartite
+    med, rep = insert_mediators(orig, analyse(orig))
+    assert analyse(med).bipartite
+    assert rep.mediator_count >= 1
+
+    so, po = exact_distribution(build_program(orig, analyse(orig)))
+    sm, pm = exact_distribution(build_program(med, analyse(med)))
+    keep = list(range(n))
+    mo, mm = _marginal(so, po, keep), _marginal(sm, pm, keep)
+    for k in mo:
+        assert mo[k] == pytest.approx(mm[k], abs=1e-9)

@@ -10,7 +10,7 @@
   {
     "gate": "coupling_cap",
     "passed": true,
-    "measured": 0.625,
+    "measured": 0.5,
     "limit": 6.0,
     "assumed": true,
     "downgraded": false
@@ -18,7 +18,7 @@
   {
     "gate": "field_cap",
     "passed": true,
-    "measured": 1.0,
+    "measured": 0.8,
     "limit": 6.0,
     "assumed": true,
     "downgraded": false
