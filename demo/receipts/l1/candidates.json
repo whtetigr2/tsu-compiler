@@ -1,0 +1,28 @@
+[
+  {
+    "encoding": "domain_wall",
+    "state": "HARDWARE_INFEASIBLE",
+    "reason": "a node requires 18 ports; target z1 provides 16",
+    "logical_spins": 1024,
+    "logical_edges": 8448,
+    "bipartite": false,
+    "mediators": null,
+    "physical_pbits": null,
+    "colour_blocks": 4,
+    "max_abs_J": 0.875,
+    "max_abs_b": 2.125
+  },
+  {
+    "encoding": "one_hot",
+    "state": "HARDWARE_INFEASIBLE",
+    "reason": "placement failed: parity conflict",
+    "logical_spins": 1280,
+    "logical_edges": 8320,
+    "bipartite": false,
+    "mediators": null,
+    "physical_pbits": null,
+    "colour_blocks": 5,
+    "max_abs_J": 1.25,
+    "max_abs_b": 5.0
+  }
+]

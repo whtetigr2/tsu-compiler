@@ -1,0 +1,28 @@
+[
+  {
+    "encoding": "domain_wall",
+    "state": "HARDWARE_INFEASIBLE",
+    "reason": "placement failed: parity conflict",
+    "logical_spins": 1024,
+    "logical_edges": 5568,
+    "bipartite": false,
+    "mediators": null,
+    "physical_pbits": null,
+    "colour_blocks": 3,
+    "max_abs_J": 0.625,
+    "max_abs_b": 1.0
+  },
+  {
+    "encoding": "one_hot",
+    "state": "HARDWARE_INFEASIBLE",
+    "reason": "|b|max = 6.75 exceeds 6.0 (source=assumed)",
+    "logical_spins": 1280,
+    "logical_edges": 8320,
+    "bipartite": false,
+    "mediators": null,
+    "physical_pbits": null,
+    "colour_blocks": 5,
+    "max_abs_J": 1.25,
+    "max_abs_b": 6.75
+  }
+]

@@ -1,0 +1,49 @@
+name: lattice_l1_infeasible
+description: >
+  Deliberately-infeasible variant of lattice_l1_16x16.yaml: the SAME hard and
+  soft rules, PLUS two extra hard rules -- (0,4) and (2,3) -- that push value
+  0 ("plains") and value 2 ("forest") each to a fourth measured partner (p=4
+  instead of the L1 set's verified p<=3). Under the degree law
+  `degree(v) = (k-1) + g*|partners(v)|` (g=4 for an interior grid cell, k=5
+  so k-1=4), that raises the affected nodes' required ports to
+  4 + 4*4 = 20 -- past Z1's 16-port budget (target.py's F-14-sourced
+  `degree`, not an assumed field).
+
+  This instance exists ONLY to prove the failure path is real and legible:
+  it MUST compile IDEAL (logically sound on its own terms) and then fail Z1
+  with verdict HARDWARE, citing the specific over-budget node's port count.
+  It is not meant to compile on Z1 and must never be "fixed" by removing or
+  reweighting a rule -- see this task's report for the measured gate failure.
+generate:
+  kind: grid
+  width: 16
+  height: 16
+  variable_domain: {domain: categorical, k: 5}
+terms:
+  # HARD: the L1 set's original four rules...
+  - {kind: product_over_edges, a_value: 3, b_value: 0, weight: 4.0}
+  - {kind: product_over_edges, a_value: 1, b_value: 2, weight: 4.0}
+  - {kind: product_over_edges, a_value: 4, b_value: 3, weight: 4.0}
+  - {kind: product_over_edges, a_value: 4, b_value: 1, weight: 4.0}
+  # ...PLUS the two extra hard rules that push degree past budget.
+  - {kind: product_over_edges, a_value: 0, b_value: 4, weight: 4.0}
+  - {kind: product_over_edges, a_value: 2, b_value: 3, weight: 4.0}
+  # SOFT: unchanged from the L1 set (pre-scale weight -1.5).
+  - {kind: product_over_edges, a_value: 2, b_value: 2, weight: -1.5}
+  - {kind: product_over_edges, a_value: 1, b_value: 1, weight: -1.5}
+  - {kind: product_over_edges, a_value: 4, b_value: 4, weight: -1.5}
+  - {kind: product_over_edges, a_value: 3, b_value: 3, weight: -1.5}
+contract:
+  validate:
+    - {rule: forbid_value_pair_over_edges, a_value: 3, b_value: 0,
+       message: "value 3 (mountain) directly adjacent to value 0 (plains) with no buffer between"}
+    - {rule: forbid_value_pair_over_edges, a_value: 1, b_value: 2,
+       message: "value 1 (desert) directly adjacent to value 2 (forest) with no buffer between"}
+    - {rule: forbid_value_pair_over_edges, a_value: 4, b_value: 3,
+       message: "value 4 (water) directly adjacent to value 3 (mountain) with no buffer between"}
+    - {rule: forbid_value_pair_over_edges, a_value: 4, b_value: 1,
+       message: "value 4 (water) directly adjacent to value 1 (desert) with no buffer between"}
+    - {rule: forbid_value_pair_over_edges, a_value: 0, b_value: 4,
+       message: "value 0 (plains) directly adjacent to value 4 (water) with no buffer between"}
+    - {rule: forbid_value_pair_over_edges, a_value: 2, b_value: 3,
+       message: "value 2 (forest) directly adjacent to value 3 (mountain) with no buffer between"}

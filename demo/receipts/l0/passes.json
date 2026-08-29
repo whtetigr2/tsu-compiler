@@ -1,0 +1,82 @@
+{
+  "verdict": "HARDWARE",
+  "ideal_passed": true,
+  "hardware_evaluated": true,
+  "allow_assumed": false,
+  "candidates": [
+    {
+      "encoding": "domain_wall",
+      "state": "HARDWARE_INFEASIBLE",
+      "reason": "placement failed: parity conflict",
+      "failure": {
+        "measured": "odd cycle present",
+        "limit": "bipartite",
+        "assumed": false,
+        "remediations": [
+          {
+            "action": "route through mediator",
+            "detail": "hidden-spin mediation is exact and adds one spin per frustrated coupling"
+          }
+        ],
+        "failure_class": "parity_conflict",
+        "offending": [
+          {
+            "kind": "edge",
+            "detail": "g0_0__dw0-g0_0__dw1"
+          },
+          {
+            "kind": "edge",
+            "detail": "g0_0__dw1-g0_0__dw2"
+          },
+          {
+            "kind": "edge",
+            "detail": "g0_0__dw2-g0_0__dw3"
+          },
+          {
+            "kind": "edge",
+            "detail": "g0_0__dw3-g1_0__dw1"
+          },
+          {
+            "kind": "edge",
+            "detail": "g1_0__dw1-g0_0__dw0"
+          }
+        ]
+      }
+    },
+    {
+      "encoding": "one_hot",
+      "state": "HARDWARE_INFEASIBLE",
+      "reason": "|b|max = 6.75 exceeds 6.0 (source=assumed)",
+      "failure": {
+        "measured": 6.75,
+        "limit": 6.0,
+        "assumed": true,
+        "remediations": [
+          {
+            "action": "change encoding",
+            "detail": "a local encoding keeps |b| bounded independent of size"
+          },
+          {
+            "action": "relax target",
+            "detail": "target.max_abs_coupling >= 6.75"
+          },
+          {
+            "action": "override",
+            "detail": "pass --allow-assumed to downgrade this gate; max_abs_coupling is source=assumed"
+          }
+        ],
+        "gate": "field_cap",
+        "cause": "|b|max = 6.75 exceeds 6.0 (source=assumed)"
+      }
+    }
+  ],
+  "ordering_rationale": "no candidate was hardware-feasible",
+  "pass_durations": {
+    "encode": 0.01998390001244843,
+    "lower": 0.012225099839270115,
+    "analyse": 0.4173401000443846,
+    "gate_checks": 0.0005562000442296267
+  },
+  "coefficient_scale": 0.25,
+  "scaled_beta": 4.0
+}

@@ -1,0 +1,103 @@
+{
+  "name": "z1",
+  "degree": {
+    "value": 16,
+    "source": "F-14",
+    "quote": "All nodes in Z1 have connection rules (1,0),(2,1),(2,3),(4,1), giving degree 16"
+  },
+  "offsets": {
+    "value": [
+      [
+        -4,
+        -1
+      ],
+      [
+        -3,
+        2
+      ],
+      [
+        -2,
+        -3
+      ],
+      [
+        -2,
+        -1
+      ],
+      [
+        -1,
+        0
+      ],
+      [
+        -1,
+        2
+      ],
+      [
+        -1,
+        4
+      ],
+      [
+        0,
+        -1
+      ],
+      [
+        0,
+        1
+      ],
+      [
+        1,
+        -4
+      ],
+      [
+        1,
+        -2
+      ],
+      [
+        1,
+        0
+      ],
+      [
+        2,
+        1
+      ],
+      [
+        2,
+        3
+      ],
+      [
+        3,
+        -2
+      ],
+      [
+        4,
+        1
+      ]
+    ],
+    "source": "F-14/F-17",
+    "quote": ""
+  },
+  "bipartite": {
+    "value": true,
+    "source": "F-18",
+    "quote": "Since the graph is 2-colorable"
+  },
+  "schedule": {
+    "value": "chromatic_block_gibbs",
+    "source": "F-19",
+    "quote": "resampling every node v in V1 ... The same is then done for V2"
+  },
+  "max_abs_coupling": {
+    "value": 6.0,
+    "source": "assumed",
+    "quote": "project working value; NOT a sourced Extropic figure"
+  },
+  "coupling_bits": {
+    "value": 6,
+    "source": "assumed",
+    "quote": "project working value; NOT a sourced Extropic figure"
+  },
+  "node_budget": {
+    "value": 250000,
+    "source": "F-15",
+    "quote": "the entire chip has ~250,000 nodes"
+  }
+}

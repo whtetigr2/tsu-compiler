@@ -1,0 +1,70 @@
+{
+  "verdict": "HARDWARE",
+  "ideal_passed": true,
+  "hardware_evaluated": true,
+  "allow_assumed": false,
+  "candidates": [
+    {
+      "encoding": "domain_wall",
+      "state": "HARDWARE_INFEASIBLE",
+      "reason": "a node requires 18 ports; target z1 provides 16",
+      "failure": {
+        "measured": 18,
+        "limit": 16,
+        "assumed": false,
+        "remediations": [
+          {
+            "action": "change encoding",
+            "detail": "a denser encoding may lower per-node degree"
+          },
+          {
+            "action": "relax target",
+            "detail": "target.degree >= 18"
+          }
+        ],
+        "gate": "degree",
+        "cause": "a node requires 18 ports; target z1 provides 16"
+      }
+    },
+    {
+      "encoding": "one_hot",
+      "state": "HARDWARE_INFEASIBLE",
+      "reason": "placement failed: parity conflict",
+      "failure": {
+        "measured": "odd cycle present",
+        "limit": "bipartite",
+        "assumed": false,
+        "remediations": [
+          {
+            "action": "route through mediator",
+            "detail": "hidden-spin mediation is exact and adds one spin per frustrated coupling"
+          }
+        ],
+        "failure_class": "parity_conflict",
+        "offending": [
+          {
+            "kind": "edge",
+            "detail": "g0_0__oh0-g0_0__oh1"
+          },
+          {
+            "kind": "edge",
+            "detail": "g0_0__oh1-g0_0__oh2"
+          },
+          {
+            "kind": "edge",
+            "detail": "g0_0__oh2-g0_0__oh0"
+          }
+        ]
+      }
+    }
+  ],
+  "ordering_rationale": "no candidate was hardware-feasible",
+  "pass_durations": {
+    "encode": 0.03578769997693598,
+    "lower": 0.01638230006210506,
+    "analyse": 0.5038289001677185,
+    "gate_checks": 0.0008221000898629427
+  },
+  "coefficient_scale": 0.25,
+  "scaled_beta": 4.0
+}
