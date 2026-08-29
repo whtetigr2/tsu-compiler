@@ -21,6 +21,7 @@ structural cost of this representation, reported rather than avoided.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Mapping
 
@@ -363,6 +364,37 @@ def _encode_one_hot(spec: WorkloadSpec, coefficient_scale: float) -> Encoded:
 _ENCODERS = {"domain_wall": _encode_domain_wall, "one_hot": _encode_one_hot}
 
 
+def validate_coefficient_scale(coefficient_scale: float) -> None:
+    """The ONE place `coefficient_scale` is validated -- `encode()` below and
+    `passes/search.py`'s `compile_spec()` both call this rather than each
+    carrying their own copy of the check, so the two can never drift apart.
+
+    Must be a FINITE, strictly positive number. `coefficient_scale <= 0` is
+    NOT a sufficient guard on its own: `float('nan') <= 0` is `False` in
+    Python (NaN compares False to every ordering operator), so that form
+    let NaN through silently and produced a "COMPILED" receipt full of NaN
+    coefficients (found in review of this task). `not (coefficient_scale >
+    0)` closes that hole -- `nan > 0` is `False`, so `not False` is `True`,
+    and NaN is correctly rejected -- which is why the check below is written
+    in that form rather than the more obvious-looking `<= 0`.
+
+    +inf is rejected too, by the same `math.isfinite` call, and deliberately
+    so: multiplying every finite coefficient by +inf produces +inf/-inf
+    coefficients outright, or `0 * inf == nan` for any zero-weight term --
+    the exact same "looks compiled, is actually garbage" failure class as
+    zero, negative, or NaN. There is no legitimate reason to request an
+    infinite scale, so it is refused rather than silently propagated.
+    """
+    if not (math.isfinite(coefficient_scale) and coefficient_scale > 0):
+        raise ValueError(
+            f"coefficient_scale must be a finite number > 0, got "
+            f"{coefficient_scale!r}; zero or negative would flatten "
+            f"(coefficient_scale == 0) or invert (coefficient_scale < 0) "
+            f"every energy in the model, and NaN or infinite would produce "
+            f"NaN/infinite coefficients -- every one of these would still "
+            f"look like a successful compile while the result is garbage")
+
+
 def encode(spec: WorkloadSpec, encoding: str = "domain_wall",
           coefficient_scale: float = 1.0) -> Encoded:
     """`coefficient_scale` (Task 2, spec section 4.9/5.2): a uniform multiplier
@@ -376,17 +408,11 @@ def encode(spec: WorkloadSpec, encoding: str = "domain_wall",
     consumer downstream of that point (gates, regime, the sampling program,
     the receipt) sees the SAME already-compensated beta.
 
-    Must be strictly positive: `coefficient_scale <= 0` would flatten every
-    energy to a uniform distribution (s=0) or invert which states are
-    preferred (s<0) while still looking like a successful compile -- the
-    single most dangerous silent failure this capability could introduce, so
-    it is rejected here, loudly, rather than downstream."""
-    if coefficient_scale <= 0:
-        raise ValueError(
-            f"coefficient_scale must be > 0, got {coefficient_scale!r}; a "
-            f"zero or negative scale would flatten (coefficient_scale == 0) "
-            f"or invert (coefficient_scale < 0) every energy in the model "
-            f"while still looking like a successful compile")
+    Must be a finite, strictly positive number -- see
+    `validate_coefficient_scale`'s own docstring for why `<= 0` alone is not
+    a sufficient guard (it silently lets NaN through) and why +inf is
+    rejected too."""
+    validate_coefficient_scale(coefficient_scale)
     if encoding not in _ENCODERS:
         raise ValueError(
             f"unknown encoding {encoding!r}; available: {sorted(_ENCODERS)}")

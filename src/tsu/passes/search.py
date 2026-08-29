@@ -31,7 +31,7 @@ from ..regime import analyse_regime, beta_recommendation_from_energy_scale
 from ..states import Candidate, CandidateState, RepresentationSet
 from ..target import IDEAL, TargetProfile
 from .analyse import analyse
-from .encode import encode, spec_beta
+from .encode import encode, spec_beta, validate_coefficient_scale
 from .lower import lower
 from .place import place
 from .program import build_program
@@ -253,12 +253,18 @@ def compile_spec(spec, target: TargetProfile, allow_assumed: bool = False,
     `coefficient_scale` (Task 2, spec section 4.9/5.2): a uniform multiplier
     on every energy coefficient this compile produces, including the
     representation penalty -- see `encode()`'s own docstring for the full
-    rationale. Validated HERE, before anything else runs, so an invalid
-    scale (<= 0) raises immediately and visibly rather than being caught by
-    `_try`'s broad `except Exception` and buried inside an opaque
-    SEMANTICALLY_INVALID ideal-control rejection three layers down -- a zero
-    or negative scale is exactly the kind of silent failure this task's own
-    brief warns is the most dangerous one available here.
+    rationale. Validated HERE, before anything else runs, via the SAME
+    `validate_coefficient_scale` helper `encode()` itself calls (never a
+    second, independently-written check that could drift out of sync and
+    re-open the gap one of them closes) -- so an invalid scale raises
+    immediately and visibly rather than being caught by `_try`'s broad
+    `except Exception` and buried inside an opaque SEMANTICALLY_INVALID
+    ideal-control rejection three layers down. This closes a real gap found
+    in review: a bare `coefficient_scale <= 0` guard lets `float('nan')`
+    through silently (`nan <= 0` is `False` in Python), which previously
+    produced a "COMPILED" receipt full of NaN coefficients -- see
+    `validate_coefficient_scale`'s own docstring in encode.py for the full
+    reasoning, including why +inf is rejected too.
 
     It wraps the whole implementation rather than threading a measurement
     through `_compile_spec_impl`'s several return points, so LOGICAL,
@@ -266,12 +272,7 @@ def compile_spec(spec, target: TargetProfile, allow_assumed: bool = False,
     is a plain (non-frozen) dataclass specifically so the measurement can be
     attached after the fact.
     """
-    if coefficient_scale <= 0:
-        raise ValueError(
-            f"coefficient_scale must be > 0, got {coefficient_scale!r}; a "
-            f"zero or negative scale would flatten (coefficient_scale == 0) "
-            f"or invert (coefficient_scale < 0) every energy in the model "
-            f"while still looking like a successful compile")
+    validate_coefficient_scale(coefficient_scale)
 
     if not measure_memory:
         result = _compile_spec_impl(spec, target, allow_assumed, clamp,
