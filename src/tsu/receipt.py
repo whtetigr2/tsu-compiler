@@ -142,7 +142,20 @@ def write_receipt(c, out_dir) -> Path:
               # COMPILED, else the best-reached candidate's on LOGICAL/
               # HARDWARE, so a rejected compile still shows the cost of the
               # passes it actually ran, not an empty dict.
-              "pass_durations": dict(getattr(c, "pass_durations", None) or {})}
+              "pass_durations": dict(getattr(c, "pass_durations", None) or {}),
+              # Task 2: the uniform coefficient_scale this compile ran under
+              # (1.0 == unscaled) and the beta it was compensated to
+              # (spec_beta(spec) / coefficient_scale) so p(x) ~
+              # exp(-beta*E(x)) is unchanged by the scale -- both
+              # deterministic given the spec and the scale alone, so present
+              # on every verdict, never "unavailable". A scaled receipt must
+              # never be mistakable for an unscaled one (search.py's own
+              # `compile_spec` docstring); recording both here, verbatim
+              # from `Compilation`, is what makes that true for a receipt
+              # read back later, e.g. by `tsu report`/`tsu explain` or by a
+              # human diffing two receipts.
+              "coefficient_scale": getattr(c, "coefficient_scale", 1.0),
+              "scaled_beta": getattr(c, "scaled_beta", None)}
     (d / "passes.json").write_text(json.dumps(passes, indent=2))
 
     # The A5 comparison table over EVERY candidate (encoding, state, reason,

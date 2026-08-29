@@ -254,18 +254,27 @@ def _build_categorical(spec: WorkloadSpec, encoding: str):
     return categorical, tuple(variables)
 
 
-def _guard_penalty_dominates(spec: WorkloadSpec, categorical, penalty: float,
+def _guard_penalty_dominates(terms, categorical, penalty: float,
                              penalty_name: str) -> None:
     """The SAME dominance check both encodings need: their structural penalty
     (monotonicity for domain-wall, exactly-one for one-hot) must exceed
     MONOTONE_MARGIN_FACTOR times the workload's own largest term contribution,
     or an illegal chain state can become energetically favourable. Reuses
     `_max_energy_contribution` -- a second, weaker computation is exactly what
-    the brief (A4) forbids."""
+    the brief (A4) forbids.
+
+    `terms` is whatever set of terms `penalty` is actually being compared
+    against -- the CALLER's job is to pass terms already scaled by the same
+    `coefficient_scale` factor as `penalty` itself (Task 2), so this function
+    need not know about scaling at all: it only ever compares two quantities
+    that were prepared consistently. Multiplying both sides of an inequality
+    by the same positive factor never changes which side dominates, so a spec
+    that failed this guard unscaled must still fail it scaled, and one that
+    passed must still pass -- see tests/test_coefficient_scale.py."""
     if not categorical:
         return
     max_contribution = max(
-        (_max_energy_contribution(t) for t in spec.terms), default=0.0)
+        (_max_energy_contribution(t) for t in terms), default=0.0)
     if penalty <= MONOTONE_MARGIN_FACTOR * max_contribution:
         raise ValueError(
             f"{penalty_name} ({penalty}) does not exceed "
@@ -275,25 +284,48 @@ def _guard_penalty_dominates(spec: WorkloadSpec, categorical, penalty: float,
             f"state can become energetically favourable")
 
 
-def _rewrite_terms(spec: WorkloadSpec, categorical, encoding: str):
-    rewrite = _REWRITE[encoding]
-    terms = []
-    for t in spec.terms:
+def _scale_terms(terms, coefficient_scale: float):
+    """Uniform energy rescaling (Task 2, spec section 4.9/5.2): every workload
+    term's weight multiplied by `coefficient_scale`, preserving term kind and
+    the linear forms themselves untouched -- only the scalar `weight` each
+    term kind already carries changes. This is the SAME scale factor that
+    must also multiply MONOTONE_PENALTY/ONE_HOT_PENALTY below, or the
+    representation penalty is left out of the rescaling entirely and the
+    `|b|max` reduction this task exists to deliver does not happen (measured:
+    20.0 -> 15.3 rather than 20.0 -> 5.0 when only the workload's own weights
+    are scaled -- see this module's own callers' docstrings)."""
+    scaled = []
+    for t in terms:
         if isinstance(t, Linear):
-            terms.append(Linear(rewrite(t.form, categorical), t.weight))
+            scaled.append(Linear(t.form, t.weight * coefficient_scale))
         elif isinstance(t, Product):
-            terms.append(Product(rewrite(t.a, categorical),
-                                 rewrite(t.b, categorical), t.weight))
+            scaled.append(Product(t.a, t.b, t.weight * coefficient_scale))
         else:
             raise ValueError(f"unknown term type {type(t).__name__}")
-    return terms
+    return scaled
 
 
-def _encode_domain_wall(spec: WorkloadSpec) -> Encoded:
+def _rewrite_terms(terms, categorical, encoding: str):
+    rewrite = _REWRITE[encoding]
+    out = []
+    for t in terms:
+        if isinstance(t, Linear):
+            out.append(Linear(rewrite(t.form, categorical), t.weight))
+        elif isinstance(t, Product):
+            out.append(Product(rewrite(t.a, categorical),
+                               rewrite(t.b, categorical), t.weight))
+        else:
+            raise ValueError(f"unknown term type {type(t).__name__}")
+    return out
+
+
+def _encode_domain_wall(spec: WorkloadSpec, coefficient_scale: float) -> Encoded:
     categorical, variables = _build_categorical(spec, "domain_wall")
-    _guard_penalty_dominates(spec, categorical, MONOTONE_PENALTY, "MONOTONE_PENALTY")
+    scaled_terms = _scale_terms(spec.terms, coefficient_scale)
+    penalty = MONOTONE_PENALTY * coefficient_scale
+    _guard_penalty_dominates(scaled_terms, categorical, penalty, "MONOTONE_PENALTY")
 
-    terms = _rewrite_terms(spec, categorical, "domain_wall")
+    terms = _rewrite_terms(scaled_terms, categorical, "domain_wall")
 
     # monotonicity: penalise n_j = 0 while n_{j+1} = 1, i.e. (1 - n_j) * n_{j+1}
     for chain in categorical.values():
@@ -301,7 +333,7 @@ def _encode_domain_wall(spec: WorkloadSpec) -> Encoded:
             terms.append(Product(
                 LinearForm({VarRef(chain[j]): -1.0}, const=1.0),
                 LinearForm({VarRef(chain[j + 1]): 1.0}),
-                MONOTONE_PENALTY))
+                penalty))
 
     return Encoded(
         model=EnergyModel(variables, tuple(terms), spec_beta(spec)),
@@ -309,16 +341,18 @@ def _encode_domain_wall(spec: WorkloadSpec) -> Encoded:
         categorical=categorical, encoding="domain_wall")
 
 
-def _encode_one_hot(spec: WorkloadSpec) -> Encoded:
+def _encode_one_hot(spec: WorkloadSpec, coefficient_scale: float) -> Encoded:
     categorical, variables = _build_categorical(spec, "one_hot")
-    _guard_penalty_dominates(spec, categorical, ONE_HOT_PENALTY, "ONE_HOT_PENALTY")
+    scaled_terms = _scale_terms(spec.terms, coefficient_scale)
+    penalty = ONE_HOT_PENALTY * coefficient_scale
+    _guard_penalty_dominates(scaled_terms, categorical, penalty, "ONE_HOT_PENALTY")
 
-    terms = _rewrite_terms(spec, categorical, "one_hot")
+    terms = _rewrite_terms(scaled_terms, categorical, "one_hot")
 
     # exactly-one: P * (sum_v x_v - 1)**2 == Product(L, L, P)
     for chain in categorical.values():
         L = LinearForm({VarRef(s): 1.0 for s in chain}, const=-1.0)
-        terms.append(Product(L, L, ONE_HOT_PENALTY))
+        terms.append(Product(L, L, penalty))
 
     return Encoded(
         model=EnergyModel(variables, tuple(terms), spec_beta(spec)),
@@ -329,11 +363,34 @@ def _encode_one_hot(spec: WorkloadSpec) -> Encoded:
 _ENCODERS = {"domain_wall": _encode_domain_wall, "one_hot": _encode_one_hot}
 
 
-def encode(spec: WorkloadSpec, encoding: str = "domain_wall") -> Encoded:
+def encode(spec: WorkloadSpec, encoding: str = "domain_wall",
+          coefficient_scale: float = 1.0) -> Encoded:
+    """`coefficient_scale` (Task 2, spec section 4.9/5.2): a uniform multiplier
+    s applied to EVERY energy coefficient this encoder produces -- every
+    workload term's weight AND the encoding's own structural penalty
+    (MONOTONE_PENALTY or ONE_HOT_PENALTY). E(x) -> s*E(x) leaves the induced
+    distribution p(x) ~ exp(-beta*E(x)) unchanged only if beta is compensated
+    (beta -> beta/s) by the CALLER -- `encode`/`lower` never touch beta
+    themselves (`EnergyModel.beta` stays `spec_beta(spec)`); the compensation
+    happens once, in `passes/search.py`, right after `lower()` runs, so every
+    consumer downstream of that point (gates, regime, the sampling program,
+    the receipt) sees the SAME already-compensated beta.
+
+    Must be strictly positive: `coefficient_scale <= 0` would flatten every
+    energy to a uniform distribution (s=0) or invert which states are
+    preferred (s<0) while still looking like a successful compile -- the
+    single most dangerous silent failure this capability could introduce, so
+    it is rejected here, loudly, rather than downstream."""
+    if coefficient_scale <= 0:
+        raise ValueError(
+            f"coefficient_scale must be > 0, got {coefficient_scale!r}; a "
+            f"zero or negative scale would flatten (coefficient_scale == 0) "
+            f"or invert (coefficient_scale < 0) every energy in the model "
+            f"while still looking like a successful compile")
     if encoding not in _ENCODERS:
         raise ValueError(
             f"unknown encoding {encoding!r}; available: {sorted(_ENCODERS)}")
-    return _ENCODERS[encoding](spec)
+    return _ENCODERS[encoding](spec, coefficient_scale)
 
 
 def spec_beta(spec: WorkloadSpec) -> float:

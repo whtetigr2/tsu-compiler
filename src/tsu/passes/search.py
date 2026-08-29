@@ -31,7 +31,7 @@ from ..regime import analyse_regime, beta_recommendation_from_energy_scale
 from ..states import Candidate, CandidateState, RepresentationSet
 from ..target import IDEAL, TargetProfile
 from .analyse import analyse
-from .encode import encode
+from .encode import encode, spec_beta
 from .lower import lower
 from .place import place
 from .program import build_program
@@ -76,6 +76,14 @@ class Compilation:
                                                          # throughput/params and
                                                          # the CPU baseline, from
                                                          # _verify
+    # Task 2: the uniform coefficient_scale this compile was run under (1.0 ==
+    # unscaled, the pre-existing behaviour) and the beta it was COMPENSATED
+    # to (spec_beta(spec) / coefficient_scale) so p(x) ~ exp(-beta*E(x)) is
+    # unchanged by the scale. Always set, on every verdict (LOGICAL/HARDWARE/
+    # COMPILED) -- both are deterministic given `spec` and `coefficient_scale`
+    # alone, never a measurement that could be legitimately unavailable.
+    coefficient_scale: float = 1.0
+    scaled_beta: float = 1.0
 
 
 def _physical_clamp(enc, ising, clamp):
@@ -91,7 +99,7 @@ def _physical_clamp(enc, ising, clamp):
     return {idx[name]: value for name, value in spin_clamp.items()}
 
 
-def _try(spec, target, encoding, allow_assumed, clamp=None):
+def _try(spec, target, encoding, allow_assumed, clamp=None, coefficient_scale=1.0):
     """Run one candidate through the pipeline. Returns (Candidate, artefacts).
 
     `artefacts["gate_checks"]` is populated whenever the model reached gate
@@ -111,6 +119,17 @@ def _try(spec, target, encoding, allow_assumed, clamp=None):
     for artefacts (as it always has) and so carries no durations; every
     candidate that reaches `analyse` records at least that much, however it
     is ultimately rejected.
+
+    Task 2: `coefficient_scale` is threaded straight into `encode()` (which
+    scales every workload term weight AND the encoding's own structural
+    penalty by it -- see encode.py), then, once `lower()` has produced the
+    IsingModel, THIS is where beta gets compensated (beta -> spec_beta(spec)
+    / coefficient_scale) -- exactly once, before `ising` reaches anything
+    else (gates, `analyse_regime`, `build_program`'s SamplingProgram). Every
+    downstream consumer of `ising` from this point on therefore already sees
+    the physically-correct, scale-compensated beta: gate checks, the regime
+    report's precision headroom, the sampling program actually built, and
+    (via the receipt's program.json) a later `tsu simulate` replaying it.
     """
     durations: dict[str, float] = {}
 
@@ -121,7 +140,7 @@ def _try(spec, target, encoding, allow_assumed, clamp=None):
         return out
 
     try:
-        enc = _timed("encode", encode, spec, encoding)
+        enc = _timed("encode", encode, spec, encoding, coefficient_scale)
     except Exception as e:
         return Candidate(encoding, CandidateState.SEMANTICALLY_INVALID,
                          reason=f"encode failed: {e}"), None
@@ -131,6 +150,13 @@ def _try(spec, target, encoding, allow_assumed, clamp=None):
     except Exception as e:
         return Candidate(encoding, CandidateState.SEMANTICALLY_INVALID,
                          reason=f"lower failed: {e}"), None
+
+    # E -> s*E leaves p(x) ~ exp(-beta*E(x)) unchanged only if beta -> beta/s
+    # compensates it (spec section 4.9). `encode`/`lower` never touch beta
+    # themselves (by design -- see encode()'s own docstring); this is the
+    # ONE place that compensation happens, so it can never be applied twice
+    # or forgotten on some downstream path.
+    ising = dataclasses.replace(ising, beta=spec_beta(spec) / coefficient_scale)
 
     report = _timed("analyse", analyse, ising)
     t0 = time.perf_counter()
@@ -209,7 +235,8 @@ def compare(repset: "RepresentationSet") -> tuple[dict, ...]:
 
 
 def compile_spec(spec, target: TargetProfile, allow_assumed: bool = False,
-                 clamp=None, measure_memory: bool = False) -> Compilation:
+                 clamp=None, measure_memory: bool = False,
+                 coefficient_scale: float = 1.0) -> Compilation:
     """The public entry point.
 
     `measure_memory` is OPT-IN and defaults to False. Peak-memory measurement
@@ -223,20 +250,39 @@ def compile_spec(spec, target: TargetProfile, allow_assumed: bool = False,
     None otherwise so a receipt can honestly report it as unmeasured rather
     than as zero.
 
+    `coefficient_scale` (Task 2, spec section 4.9/5.2): a uniform multiplier
+    on every energy coefficient this compile produces, including the
+    representation penalty -- see `encode()`'s own docstring for the full
+    rationale. Validated HERE, before anything else runs, so an invalid
+    scale (<= 0) raises immediately and visibly rather than being caught by
+    `_try`'s broad `except Exception` and buried inside an opaque
+    SEMANTICALLY_INVALID ideal-control rejection three layers down -- a zero
+    or negative scale is exactly the kind of silent failure this task's own
+    brief warns is the most dangerous one available here.
+
     It wraps the whole implementation rather than threading a measurement
     through `_compile_spec_impl`'s several return points, so LOGICAL,
     HARDWARE and COMPILED paths are all covered identically. `Compilation`
     is a plain (non-frozen) dataclass specifically so the measurement can be
     attached after the fact.
     """
+    if coefficient_scale <= 0:
+        raise ValueError(
+            f"coefficient_scale must be > 0, got {coefficient_scale!r}; a "
+            f"zero or negative scale would flatten (coefficient_scale == 0) "
+            f"or invert (coefficient_scale < 0) every energy in the model "
+            f"while still looking like a successful compile")
+
     if not measure_memory:
-        result = _compile_spec_impl(spec, target, allow_assumed, clamp)
+        result = _compile_spec_impl(spec, target, allow_assumed, clamp,
+                                    coefficient_scale)
         result.peak_memory_bytes = None
         return result
 
     tracemalloc.start()
     try:
-        result = _compile_spec_impl(spec, target, allow_assumed, clamp)
+        result = _compile_spec_impl(spec, target, allow_assumed, clamp,
+                                    coefficient_scale)
     finally:
         _current, peak = tracemalloc.get_traced_memory()
         tracemalloc.stop()
@@ -245,7 +291,7 @@ def compile_spec(spec, target: TargetProfile, allow_assumed: bool = False,
 
 
 def _compile_spec_impl(spec, target: TargetProfile, allow_assumed: bool = False,
-                       clamp=None) -> Compilation:
+                       clamp=None, coefficient_scale: float = 1.0) -> Compilation:
     """`clamp` (C1): an optional {workload variable name: value} map, pinning
     those variables for the SAMPLING stage only. The preferred entry point
     for clamping (over a spec-file `clamp:` block) precisely so an
@@ -254,9 +300,23 @@ def _compile_spec_impl(spec, target: TargetProfile, allow_assumed: bool = False,
     deliberately run UNCLAMPED regardless: its only job is proving the spec
     is logically sound on its own terms, independent of any one run's clamp
     choice.
+
+    `coefficient_scale` (Task 2): run through the SAME `_try` call for the
+    ideal control as for every real candidate -- IDEAL's own thresholds are
+    all `inf` (target.py), so the scale changes nothing about whether the
+    control passes; keeping it consistent across every `_try` call (rather
+    than special-casing the control to always run unscaled) means there is
+    only one code path to reason about, not two that could silently drift.
+    `scaled_beta` is deterministic given `spec` and `coefficient_scale` alone
+    (spec_beta(spec) / coefficient_scale) and is therefore always set below,
+    on every verdict -- never a measurement that could be legitimately
+    unavailable.
     """
+    scaled_beta = spec_beta(spec) / coefficient_scale
+
     # --- the mandatory ideal control, first and always -----------------------
-    ideal_cand, ideal_art = _try(spec, IDEAL, SLICE_ENCODINGS[0], True)
+    ideal_cand, ideal_art = _try(spec, IDEAL, SLICE_ENCODINGS[0], True,
+                                 coefficient_scale=coefficient_scale)
     ideal_ok = ideal_cand.state == CandidateState.HARDWARE_FEASIBLE
     if not ideal_ok:
         return Compilation(
@@ -265,11 +325,12 @@ def _compile_spec_impl(spec, target: TargetProfile, allow_assumed: bool = False,
             repset=RepresentationSet((ideal_cand,), None,
                                      "ideal control failed; target not evaluated"),
             allow_assumed=allow_assumed, clamp=dict(clamp or {}),
-            pass_durations=(ideal_art or {}).get("durations", {}))
+            pass_durations=(ideal_art or {}).get("durations", {}),
+            coefficient_scale=coefficient_scale, scaled_beta=scaled_beta)
 
     cands, arts = [], {}
     for enc_name in SLICE_ENCODINGS:
-        c, a = _try(spec, target, enc_name, allow_assumed, clamp)
+        c, a = _try(spec, target, enc_name, allow_assumed, clamp, coefficient_scale)
         cands.append(c)
         if a:
             arts[enc_name] = (c, a)
@@ -285,7 +346,8 @@ def _compile_spec_impl(spec, target: TargetProfile, allow_assumed: bool = False,
             repset=RepresentationSet(tuple(cands), None,
                                      "no candidate was hardware-feasible"),
             allow_assumed=allow_assumed, gate_checks=checks, clamp=dict(clamp or {}),
-            pass_durations=durations)
+            pass_durations=durations,
+            coefficient_scale=coefficient_scale, scaled_beta=scaled_beta)
 
     chosen = min(feasible, key=_selection_key)
     art = arts[chosen.encoding][1]
@@ -348,7 +410,8 @@ def _compile_spec_impl(spec, target: TargetProfile, allow_assumed: bool = False,
         program=art["program"], encoded=art["encoded"], regime=regime,
         placement=art["placement"], verification=verification,
         clamp=dict(clamp or {}), pass_durations=durations, sample_cost=sample_cost,
-        sample=decoded_sample)
+        sample=decoded_sample,
+        coefficient_scale=coefficient_scale, scaled_beta=scaled_beta)
 
 
 def _measure_mixing(ising, chains: np.ndarray) -> EssEstimate:
