@@ -522,7 +522,7 @@ class LatticeApp(tk.Tk):
         # MIX to zero height, so weight them by actual content.
         for r, w in ((0, 5), (1, 5), (2, 2), (3, 5)):
             right.grid_rowconfigure(r, weight=w)
-        right.grid_rowconfigure(2, minsize=110)
+        right.grid_rowconfigure(2, minsize=150)
         right.grid_columnconfigure(0, weight=1)
 
         self.verif_panel = Panel(right, "VERIFICATION")
@@ -623,7 +623,7 @@ class LatticeApp(tk.Tk):
         self.world_canvas.bind("<Button-1>", self._on_world_click)
         self.world_status_label = tk.Label(wf, text="", bg=PANEL_BG, fg=DIM,
                                              font=("Consolas", 8), justify="left", anchor="w",
-                                             wraplength=WORLD_DISPLAY_PX + 60)
+                                             wraplength=WORLD_DISPLAY_PX - 8)
         self.world_status_label.pack(fill="x")
         self.infeasible_label = tk.Label(wf, text="", bg=PANEL_BG, fg=BAD,
                                            font=MONO_B, justify="left", anchor="w", wraplength=380)
@@ -738,11 +738,17 @@ class LatticeApp(tk.Tk):
         log_frame.pack(fill="both", expand=True)
         sb = tk.Scrollbar(log_frame)
         sb.pack(side="right", fill="y")
+        # A Listbox does not wrap, so a long violation message ran off the right
+        # edge unreachable. Horizontal scrollbar rather than truncation -- the
+        # violation text names the offending edge and is worth reading in full.
+        sbx = tk.Scrollbar(log_frame, orient="horizontal")
+        sbx.pack(side="bottom", fill="x")
         self.log_box = tk.Listbox(log_frame, bg="#111218", fg=FG, font=("Consolas", 8),
                                     highlightthickness=0, relief="flat",
-                                    yscrollcommand=sb.set)
+                                    yscrollcommand=sb.set, xscrollcommand=sbx.set)
         self.log_box.pack(side="left", fill="both", expand=True)
         sb.config(command=self.log_box.yview)
+        sbx.config(command=self.log_box.xview)
 
     def _swatch(self, master, color, text):
         row = tk.Frame(master, bg=PANEL_BG)
