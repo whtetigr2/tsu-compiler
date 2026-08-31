@@ -35,7 +35,7 @@ from .encode import encode, spec_beta, validate_coefficient_scale
 from .lower import lower
 from .place import place
 from .program import build_program
-from .route import route
+from .route import insert_mediators, route
 from .verify import DecodedSample, Verification, tv_noise_floor
 
 SLICE_ENCODINGS = ("domain_wall", "one_hot")
@@ -186,8 +186,34 @@ def _try(spec, target, encoding, allow_assumed, clamp=None, coefficient_scale=1.
             ising, report = placement.mediated_ising, placement.mediated_report
         ising = _timed("route", route, ising, report, target)
     except CompileError as e:
+        failure = e.failures[0]
+        # C2 fix: the SUCCESS path above swaps to the post-mediation
+        # report the moment `place()` had to mediate; this except branch is
+        # the placement-FAILURE path (e.g. a mediated graph that then hits
+        # `placement_effort_exhausted`) and used to leave `report` at its
+        # PRE-mediation value here, because `place()` raises before ever
+        # returning the `Placement` that carries `mediated_ising`/
+        # `mediated_report` -- this is exactly what produced `bipartite:
+        # False` in the committed L0/L1 receipts for a graph the mediation
+        # pass itself had already proven bipartite (review finding C2).
+        # `failure.mediation` (threaded through by `_embed_on_lattice`, see
+        # place.py) is the one signal available here that `place()` DID
+        # mediate before its separate geometric search then ran out of
+        # budget; `insert_mediators` is a pure, deterministic function of
+        # the pre-mediation ising's graph structure (route.py's own
+        # docstring), so recomputing it from the SAME `ising`/`report` this
+        # call already holds reproduces exactly the model `place` embedded
+        # against -- not a second, independently-derived model that could
+        # drift from it. A failure with no `mediation` (degree_exceeded,
+        # budget_exceeded on the pre-mediation graph, or a target that
+        # never needed mediation) leaves `ising`/`report` untouched, exactly
+        # as before.
+        med = getattr(failure, "mediation", None)
+        if med is not None:
+            ising, _ = insert_mediators(ising, report)
+            report = analyse(ising)
         return Candidate(encoding, CandidateState.HARDWARE_INFEASIBLE,
-                         reason=str(e), failure=e.failures[0], report=report), \
+                         reason=str(e), failure=failure, report=report), \
             {"report": report, "gate_checks": checks, "durations": durations}
 
     prog = _timed("build_program", build_program, ising, report,

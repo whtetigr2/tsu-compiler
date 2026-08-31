@@ -184,6 +184,15 @@ def test_l0_receipt_at_0_20_neither_encoding_places_within_budget():
     # 0.25 test above) -- its own measured |b|max is on record here too.
     assert rows["one_hot"]["max_abs_b"] == pytest.approx(5.4)
 
+    # C2: both candidates.json rows must describe the graph that was
+    # ACTUALLY placed (post-mediation, bipartite) -- not the pre-mediation
+    # one `place()` started from. domain_wall's exact post-mediation spin
+    # count is measured independently above (test_l0_domain_wall_mediation_
+    # matches_the_measured_prototype_numbers): 1024 -> 1792.
+    assert rows["domain_wall"]["bipartite"] is True
+    assert rows["domain_wall"]["logical_spins"] == 1792
+    assert rows["one_hot"]["bipartite"] is True
+
 
 def test_l1_receipt_at_0_25_domain_wall_fails_degree_one_hot_mediates_but_does_not_place():
     """`-m tsu compile specs/lattice_l1_16x16.yaml --coefficient-scale 0.25
@@ -203,13 +212,33 @@ def test_l1_receipt_at_0_25_domain_wall_fails_degree_one_hot_mediates_but_does_n
     assert "placement effort exhausted" in reasons["one_hot"]
 
     failures = {c["encoding"]: c["failure"] for c in r["passes"]["candidates"]}
-    assert failures["domain_wall"]["failure_class"] == "degree_exceeded"
-    assert failures["domain_wall"]["mediation"] is None    # never reached mediation
+    # domain_wall fails at the GATE layer -- `_try` rejects it (degree 18 >
+    # 16) BEFORE `place()` ever runs (search.py's own gate_failures check
+    # precedes the `place()` call), so its recorded failure is a serialised
+    # `GateFailure` (`gate`/`cause`), never a `PlacementFailure`. A
+    # `PlacementFailure`'s `failure_class`/`mediation` fields simply do not
+    # exist on this schema -- asserting them was a test-authoring bug
+    # (conflating the two failure schemas), not evidence of a code defect.
+    assert failures["domain_wall"]["gate"] == "degree"
+    assert "18" in failures["domain_wall"]["cause"]
+    assert "16" in failures["domain_wall"]["cause"]
+    assert "failure_class" not in failures["domain_wall"]
+    assert "mediation" not in failures["domain_wall"]
+
+    # one_hot reaches placement (clears every gate) and is the one that
+    # actually exercises the PlacementFailure/mediation schema.
     assert failures["one_hot"]["failure_class"] == "placement_effort_exhausted"
     assert failures["one_hot"]["mediation"] == {
         "mediator_count": 2498,
         "partition_method": "bfs_depth_parity_with_greedy_local_search",
         "bipartite_after": True, "beta_used": pytest.approx(4.0)}
+
+    # C2: one_hot's own candidates.json row must describe the graph that was
+    # ACTUALLY placed (post-mediation, bipartite, 3778 spins) -- not the
+    # pre-mediation one (1280 spins, non-bipartite) `place()` started from.
+    rows = {row["encoding"]: row for row in r["candidates"]}
+    assert rows["one_hot"]["bipartite"] is True
+    assert rows["one_hot"]["logical_spins"] == 3778
 
 
 def test_infeasible_instance_reports_hardware_not_a_crash():

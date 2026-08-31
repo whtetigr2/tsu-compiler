@@ -152,3 +152,45 @@ def test_a_larger_odd_cycle_mediates_and_stays_exact():
     mo, mm = _marginal(so, po, keep), _marginal(sm, pm, keep)
     for k in mo:
         assert mo[k] == pytest.approx(mm[k], abs=1e-9)
+
+
+def test_zero_weight_within_side_edge_is_harmless_despite_the_sign_branch():
+    """Review finding (lower priority): `insert_mediators` picks the
+    mediator's second coupling as `A if J > 0 else -A`, so a J == 0
+    within-side edge takes the `-A` branch -- untested, and not hit by
+    either real lattice spec (neither has a zero-weight coupling).
+
+    Decision (recorded in task-6-report.md): no code change. `A =
+    arccosh(exp(2*beta*|J|)) / (2*beta)` is EXACTLY 0 when J == 0
+    (arccosh(exp(0)) == arccosh(1) == 0) for every beta, so `A` and `-A` are
+    the same value here -- IEEE 0.0 vs -0.0, equal under `==` and identical
+    under any multiplication, so the sign branch is a distinction without a
+    difference for this edge specifically. Verified empirically below (not
+    just asserted from the formula): a triangle with one J == 0 edge still
+    mediates to a bipartite graph whose marginal over the original spins is
+    unchanged, to the same 1e-9 tolerance every other exactness test in this
+    file uses."""
+    beta = 4.0
+    J = {(0, 1): -1.25, (0, 2): -1.25, (1, 2): 0.0}
+    orig = IsingModel(nodes=("a", "b", "c"), edges=tuple(J),
+                      weights=np.array([J[e] for e in J]),
+                      biases=np.zeros(3), beta=beta, offset=0.0)
+    report = analyse(orig)
+    assert not report.bipartite
+    med, rep = insert_mediators(orig, report)
+    assert rep.mediator_count == 1   # only (1, 2) lands within-side
+
+    mediator_weights = [w for (u, v), w in zip(med.edges, med.weights)
+                        if u in med.mediator_nodes or v in med.mediator_nodes]
+    assert len(mediator_weights) == 2
+    for w in mediator_weights:
+        assert w == pytest.approx(0.0, abs=1e-12)
+
+    med_report = analyse(med)
+    assert med_report.bipartite is True
+
+    so, po = exact_distribution(build_program(orig, report))
+    sm, pm = exact_distribution(build_program(med, med_report))
+    mo, mm = _marginal(so, po, [0, 1, 2]), _marginal(sm, pm, [0, 1, 2])
+    for k in mo:
+        assert mo[k] == pytest.approx(mm[k], abs=1e-9)
