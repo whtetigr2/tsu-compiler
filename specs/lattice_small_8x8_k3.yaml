@@ -1,0 +1,45 @@
+name: lattice_small_8x8_k3
+description: >
+  The smallest world that is still a world. Adjacency-constrained value
+  assignment on an 8x8 grid, k=3.
+
+  Domain story, for intuition only and deliberately kept out of src/: value 0
+  is "water", value 1 is "rock", value 2 is "grass". Water never sits directly
+  against rock -- there is always grass between them, the way a shoreline
+  works. Each of the three prefers its own kind, so the world clumps into
+  regions rather than dissolving into noise.
+
+  Why k=3 rather than k=5: the one-hot exactly-one penalty puts a linear
+  coefficient of P*(k-2)/2 on every spin BEFORE any workload term. At k=5 that
+  is 15 against an assumed field cap of 6.0; at k=3 it is 5.0. Three values is
+  not a compromise for its own sake -- it is the difference between a model
+  that fits the field range and one that does not.
+
+  OPERATING REGIME -- why the weights are 1.0 / -0.4 and not 4.0 / -1.5.
+  Measured 2026-08-31: at 4.0 / -1.5 this model compiles to Z1 and is exactly
+  correct, and every one of its 128 world spins is FROZEN -- |b|max reaches 4.5
+  at beta=1, which pins each spin against any single-site flip, so the sampler
+  produces one constant world forever. The receipt says so plainly
+  ("Valid-state fraction: 0", "ESS unavailable: series is constant"). At
+  1.0 / -0.4, |b|max is 1.60 and no world spin freezes. Freezing tracks |b|,
+  which follows THESE weights -- not the representation penalty (|J| floors at
+  2.5 from MONOTONE_PENALTY regardless) and not mediation (measured: zero frozen
+  world spins in the mediated model too, at these weights).
+
+  Degree, by the measured law degree(v) = (k-1) + g*|partners(v)|, with g=4:
+  water {rock, water} -> 2 + 8 = 10; rock {water, rock} -> 10;
+  grass {grass} -> 2 + 4 = 6. All well inside Z1's 16.
+generate:
+  kind: grid
+  width: 8
+  height: 8
+  variable_domain: {domain: categorical, k: 3}
+terms:
+  - {kind: product_over_edges, a_value: 0, b_value: 1, weight: 1.0}
+  - {kind: product_over_edges, a_value: 0, b_value: 0, weight: -0.4}
+  - {kind: product_over_edges, a_value: 1, b_value: 1, weight: -0.4}
+  - {kind: product_over_edges, a_value: 2, b_value: 2, weight: -0.4}
+contract:
+  validate:
+    - {rule: forbid_value_pair_over_edges, a_value: 0, b_value: 1,
+       message: "water directly adjacent to rock with no grass between"}

@@ -16,6 +16,7 @@ the full measured table so that ordering is auditable, not just asserted.
 from __future__ import annotations
 
 import dataclasses
+import functools
 import itertools
 import time
 import tracemalloc
@@ -99,7 +100,8 @@ def _physical_clamp(enc, ising, clamp):
     return {idx[name]: value for name, value in spin_clamp.items()}
 
 
-def _try(spec, target, encoding, allow_assumed, clamp=None, coefficient_scale=1.0):
+def _try(spec, target, encoding, allow_assumed, clamp=None, coefficient_scale=1.0,
+         placement_effort=None):
     """Run one candidate through the pipeline. Returns (Candidate, artefacts).
 
     `artefacts["gate_checks"]` is populated whenever the model reached gate
@@ -169,7 +171,19 @@ def _try(spec, target, encoding, allow_assumed, clamp=None, coefficient_scale=1.
                          report=report), {"report": report, "gate_checks": checks,
                                           "durations": durations}
     try:
-        placement = _timed("place", place, ising, report, target)
+        # `placement_effort` tunes ONLY the annealer fallback's budget
+        # (restarts, iters). It changes how hard the geometric SEARCH tries,
+        # never what counts as a valid embedding: a placement is accepted
+        # only when every edge is realized, at any effort. Measured on
+        # specs/lattice_small_8x8_k3.yaml, domain_wall: the default (6,
+        # 40_000) leaves 98 edges unrealized, while (12, 200_000) places it
+        # with 0 unrealized -- the default budget was the binding limit, not
+        # the substrate.
+        _pe = placement_effort or {}
+        _place = functools.partial(
+            place, **{k: v for k, v in _pe.items()
+                      if k in ("restarts", "iters")})
+        placement = _timed("place", _place, ising, report, target)
         # Task 6 (spec 5.3.6): `place` mediates a non-bipartite graph itself
         # rather than raising `parity_conflict` outright -- when it did,
         # `placement.mediation` is set and `placement.{mediated_ising,
@@ -295,7 +309,8 @@ def compare(repset: "RepresentationSet") -> tuple[dict, ...]:
 
 def compile_spec(spec, target: TargetProfile, allow_assumed: bool = False,
                  clamp=None, measure_memory: bool = False,
-                 coefficient_scale: float = 1.0) -> Compilation:
+                 coefficient_scale: float = 1.0,
+                 placement_effort=None) -> Compilation:
     """The public entry point.
 
     `measure_memory` is OPT-IN and defaults to False. Peak-memory measurement
@@ -335,14 +350,14 @@ def compile_spec(spec, target: TargetProfile, allow_assumed: bool = False,
 
     if not measure_memory:
         result = _compile_spec_impl(spec, target, allow_assumed, clamp,
-                                    coefficient_scale)
+                                    coefficient_scale, placement_effort)
         result.peak_memory_bytes = None
         return result
 
     tracemalloc.start()
     try:
         result = _compile_spec_impl(spec, target, allow_assumed, clamp,
-                                    coefficient_scale)
+                                    coefficient_scale, placement_effort)
     finally:
         _current, peak = tracemalloc.get_traced_memory()
         tracemalloc.stop()
@@ -351,7 +366,8 @@ def compile_spec(spec, target: TargetProfile, allow_assumed: bool = False,
 
 
 def _compile_spec_impl(spec, target: TargetProfile, allow_assumed: bool = False,
-                       clamp=None, coefficient_scale: float = 1.0) -> Compilation:
+                       clamp=None, coefficient_scale: float = 1.0,
+                       placement_effort=None) -> Compilation:
     """`clamp` (C1): an optional {workload variable name: value} map, pinning
     those variables for the SAMPLING stage only. The preferred entry point
     for clamping (over a spec-file `clamp:` block) precisely so an
@@ -390,7 +406,8 @@ def _compile_spec_impl(spec, target: TargetProfile, allow_assumed: bool = False,
 
     cands, arts = [], {}
     for enc_name in SLICE_ENCODINGS:
-        c, a = _try(spec, target, enc_name, allow_assumed, clamp, coefficient_scale)
+        c, a = _try(spec, target, enc_name, allow_assumed, clamp,
+                    coefficient_scale, placement_effort)
         cands.append(c)
         if a:
             arts[enc_name] = (c, a)
