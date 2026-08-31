@@ -69,6 +69,8 @@ TERRAIN_NAMES = {WATER: "water", ROCK: "rock", GRASS: "grass"}
 TERRAIN_ORDER = (WATER, ROCK, GRASS)
 PAL = np.array([[46, 92, 132], [124, 116, 106], [126, 158, 84]], float)
 CELL_UP = 32                    # px per grid cell in the rendered world image (render_world.py uses 64; halved here so a redraw fits inside one animation tick)
+WORLD_DISPLAY_PX = 320          # DECODED WORLD canvas is square, this many px/side
+WORLD_CELL_PX = WORLD_DISPLAY_PX // W   # px per grid cell ON SCREEN (for clicks + pin markers)
 
 # Live sampling parameters used BY THIS APP (not receipt values -- disclosed
 # as such in the SAMPLER panel). Chosen from a measured timing check: a
@@ -86,6 +88,104 @@ PASS_ORDER = ("encode", "lower", "analyse", "gate_checks", "place",
 FOOTER_TEXT = ("Simulated on CPU via thrml. No TSU silicon. No hardware "
                "speed or energy claims. |J| and |b| caps are assumed "
                "project values, not sourced Extropic figures.")
+
+# Live sampling parameters used for a CLAMPED batch (after a pin changes).
+# Verified working: simulate("demo/receipts/small", n_chains=6, n_samples=30,
+# n_warmup=600, seed=3, clamp={...}) returns in ~1.4s with all pins honoured
+# in the decoded output. Bigger than the unclamped per-tick batch (below)
+# because a pin change is a deliberate, infrequent gesture -- the app can
+# afford one solid batch's worth of draws to answer "does this constraint
+# even have a valid world" honestly, rather than trickling in one at a time.
+CLAMP_N_CHAINS = 6
+CLAMP_N_SAMPLES = 30
+CLAMP_N_WARMUP = 600
+
+
+# --------------------------------------------------------------------------
+# pure logic: pin bookkeeping, canvas-click -> grid-cell mapping, and
+# infeasible-clamp detection. No Tk here -- these are the units the headless
+# test suite (tests/test_lattice_app_logic.py) exercises directly.
+# --------------------------------------------------------------------------
+class ClampState:
+    """Which grid cells are pinned, and to what value. Workload-level only
+    (g{x}_{y} -> 0/1/2) -- this is the object whose `as_dict()` is handed
+    straight to `simulate(..., clamp=...)`; nothing downstream of it
+    re-derives or hand-rolls clamping."""
+
+    _CYCLE = (WATER, ROCK, GRASS)  # unpinned -> water -> rock -> grass -> unpinned
+
+    def __init__(self):
+        self._pins: dict[tuple[int, int], int] = {}
+
+    def get(self, x: int, y: int) -> int | None:
+        return self._pins.get((x, y))
+
+    def add(self, x: int, y: int, value: int) -> None:
+        self._pins[(x, y)] = value
+
+    def remove(self, x: int, y: int) -> None:
+        self._pins.pop((x, y), None)
+
+    def clear(self) -> None:
+        self._pins.clear()
+
+    def cycle(self, x: int, y: int) -> int | None:
+        """Advance one cell's pin: unpinned -> water(0) -> rock(1) ->
+        grass(2) -> unpinned. Returns the new value (or None if now
+        unpinned)."""
+        cur = self._pins.get((x, y))
+        if cur is None:
+            nxt = self._CYCLE[0]
+        else:
+            i = self._CYCLE.index(cur)
+            nxt = self._CYCLE[i + 1] if i + 1 < len(self._CYCLE) else None
+        if nxt is None:
+            self._pins.pop((x, y), None)
+        else:
+            self._pins[(x, y)] = nxt
+        return nxt
+
+    def as_dict(self) -> dict[str, int]:
+        """{name: value} for `simulate(clamp=...)` -- unpinned cells are
+        simply absent, never emitted as null/None."""
+        return {f"g{x}_{y}": v for (x, y), v in self._pins.items()}
+
+    def items(self):
+        return dict(self._pins).items()
+
+    def __len__(self) -> int:
+        return len(self._pins)
+
+    def __bool__(self) -> bool:
+        return bool(self._pins)
+
+
+def cell_at(px: int, py: int, origin_x: int, origin_y: int, cell_px: int,
+            width: int, height: int) -> tuple[int, int] | None:
+    """Map a canvas click at (px, py) to a grid cell (x, y), given the
+    on-canvas top-left of the grid (origin_x, origin_y), one cell's pixel
+    size, and the grid's total pixel span (width, height). Half-open cell
+    bounds -- [origin + i*cell_px, origin + (i+1)*cell_px) -- so a pixel
+    exactly on a shared edge belongs to the cell that starts there, never
+    both neighbours. Returns None for a click outside the grid entirely."""
+    dx, dy = px - origin_x, py - origin_y
+    if dx < 0 or dy < 0 or dx >= width or dy >= height:
+        return None
+    return int(dx // cell_px), int(dy // cell_px)
+
+
+def batch_feasibility(draws: list[dict]) -> tuple[bool, str]:
+    """Given a batch of classify_draw() results, say whether the clamp that
+    produced them is infeasible (zero valid worlds among the draws) and why,
+    in a sentence the app can show verbatim. An empty batch is NOT asserted
+    infeasible -- there is no evidence yet either way."""
+    total = len(draws)
+    if total == 0:
+        return False, "no draws yet"
+    valid = sum(1 for d in draws if d["kind"] == "valid")
+    if valid == 0:
+        return True, f"no valid world satisfies these pins -- {total} draws, 0 valid"
+    return False, f"{valid}/{total} draws valid"
 
 
 def fmt_duration(seconds: float) -> str:
@@ -223,8 +323,27 @@ def classify_draw(receipt: Receipt, row: np.ndarray, seed: int) -> dict:
 # worker thread -- the ONLY thing that calls thrml_sample; never touches Tk
 # --------------------------------------------------------------------------
 class SampleWorker(threading.Thread):
+    """Two sampling modes, chosen by whether `clamp` is non-empty:
+
+    UNCLAMPED (clamp is None): the original continuous stream -- small,
+    fast per-tick calls straight into `thrml_sample` on the receipt's own
+    reconstructed program, unchanged from before this feature.
+
+    CLAMPED (clamp is a non-empty {name: value} dict): repeated calls to
+    `tsu.simulate.simulate(..., clamp=clamp)` -- clamping is a WORKLOAD-level
+    concept (spec 5.3 / tests/test_clamp.py) that `simulate` already knows
+    how to translate through `enc.encode_clamp` and repartition via
+    `analyse`/`build_program`; this worker never touches that machinery
+    itself, only calls `simulate` and classifies what comes back with the
+    same `classify_draw` the unclamped path uses. Larger batch (verified:
+    n_chains=6, n_samples=30, n_warmup=600 -> ~1.4s) because a pin change is
+    a deliberate, infrequent action, not a per-tick refresh -- the app can
+    afford to answer "does this clamp even have a valid world" from a solid
+    batch rather than trickling one draw at a time.
+    """
+
     def __init__(self, receipt: Receipt, out_q: "queue.Queue[dict]", seed_base: int,
-                 start_paused: bool = False):
+                 clamp: dict[str, int] | None = None, start_paused: bool = False):
         super().__init__(daemon=True)
         self.receipt = receipt
         self.q = out_q
@@ -233,7 +352,9 @@ class SampleWorker(threading.Thread):
         if start_paused:
             self.pause.set()
         self.seed_base = seed_base
+        self.clamp = dict(clamp) if clamp else None
         self.draw_counter = 0
+        self.batch_counter = 0
 
     def _put(self, msg: dict) -> None:
         while not self.stop_evt.is_set():
@@ -243,29 +364,70 @@ class SampleWorker(threading.Thread):
             except queue.Full:
                 continue
 
+    def _classify_and_push(self, row, seed) -> dict:
+        self.draw_counter += 1
+        d = classify_draw(self.receipt, row, seed)
+        d["draw_idx"] = self.draw_counter
+        self._put(d)
+        return d
+
     def run(self) -> None:
         while not self.stop_evt.is_set():
             if self.pause.is_set():
                 time.sleep(0.08)
                 continue
-            seed = self.seed_base + self.draw_counter
-            try:
-                rows = thrml_sample(self.receipt.sampling_program,
-                                     n_chains=BATCH_CHAINS,
-                                     n_samples=N_SAMPLES_PER_CALL,
-                                     n_warmup=N_WARMUP,
-                                     steps_per_sample=STEPS_PER_SAMPLE,
-                                     seed=seed)
-            except Exception as exc:  # surfaced in the UI, never swallowed
-                self._put({"kind": "error", "message": str(exc)})
+            if self.clamp:
+                self._run_clamped_batch()
+            else:
+                self._run_unclamped_tick()
+
+    def _run_unclamped_tick(self) -> None:
+        seed = self.seed_base + self.draw_counter
+        try:
+            rows = thrml_sample(self.receipt.sampling_program,
+                                 n_chains=BATCH_CHAINS,
+                                 n_samples=N_SAMPLES_PER_CALL,
+                                 n_warmup=N_WARMUP,
+                                 steps_per_sample=STEPS_PER_SAMPLE,
+                                 seed=seed)
+        except Exception as exc:  # surfaced in the UI, never swallowed
+            self._put({"kind": "error", "message": str(exc)})
+            self.stop_evt.set()
+            return
+        for row in rows:
+            if self.stop_evt.is_set():
                 return
-            for row in rows:
-                if self.stop_evt.is_set():
-                    return
-                self.draw_counter += 1
-                self._put(classify_draw(self.receipt, row, seed))
-                if self.pause.is_set() or self.stop_evt.is_set():
-                    break
+            self._classify_and_push(row, seed)
+            if self.pause.is_set() or self.stop_evt.is_set():
+                break
+
+    def _run_clamped_batch(self) -> None:
+        from tsu.simulate import simulate  # local: keeps this app's only
+        # entry point into clamping right here, next to the docstring above
+        self.batch_counter += 1
+        seed = self.seed_base + self.batch_counter
+        try:
+            _path, got, _im = simulate(str(self.receipt.path),
+                                        n_chains=CLAMP_N_CHAINS,
+                                        n_samples=CLAMP_N_SAMPLES,
+                                        n_warmup=CLAMP_N_WARMUP,
+                                        steps_per_sample=STEPS_PER_SAMPLE,
+                                        seed=seed, clamp=self.clamp)
+        except Exception as exc:  # surfaced in the UI, never swallowed
+            self._put({"kind": "error", "message": str(exc)})
+            self.stop_evt.set()
+            return
+        draws = []
+        for row in got:
+            if self.stop_evt.is_set():
+                return
+            draws.append(self._classify_and_push(row, seed))
+            if self.pause.is_set() or self.stop_evt.is_set():
+                break
+        infeasible, reason = batch_feasibility(draws)
+        valid = sum(1 for d in draws if d["kind"] == "valid")
+        self._put({"kind": "batch_summary", "infeasible": infeasible, "reason": reason,
+                    "valid": valid, "total": len(draws), "seed": seed})
 
 
 # --------------------------------------------------------------------------
@@ -318,11 +480,19 @@ class LatticeApp(tk.Tk):
         self.world_photo = None  # keep a reference; Tk drops PhotoImages with none
         self.log_lines: deque = deque(maxlen=400)
 
+        # click-to-pin state -- pure ClampState, no Tk in it (see the
+        # headless tests). world_stale is True whenever the world currently
+        # on screen was NOT drawn under the currently active clamp (e.g.
+        # right after a pin change, before a new valid draw has arrived).
+        self.clamp = ClampState()
+        self.world_stale = False
+        self.batch_infeasible = False
+        self.batch_reason = ""
+
         self._build_layout()
         self._populate_static_panels()
 
-        self.worker = SampleWorker(receipt, self.in_q, seed_base=random.randint(0, 2**31 - 1))
-        self.worker.start()
+        self._start_worker(random.randint(0, 2**31 - 1))
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.after(80, self._poll_queue)
@@ -406,11 +576,19 @@ class LatticeApp(tk.Tk):
                   ).pack(fill="x", pady=(4, 0))
 
         # LIVE LATTICE ----------------------------------------------------
+        # `inner` holds the canvas+legend+caption as one block, packed with
+        # expand=True (no fill) into the panel body -- that centres the
+        # whole block in whatever vertical space the panel grid cell gives
+        # it, instead of the block hugging the top and leaving dead PANEL_BG
+        # below it. `cw` (px/spin) is also bumped up from 18 so the grid
+        # itself reads less like a postage stamp.
         lf = self.lattice_panel.body
+        inner = tk.Frame(lf, bg=PANEL_BG)
+        inner.pack(expand=True)
         cols = 16
         rows = -(-r.n_spins // cols)
-        cw = 18
-        self.lattice_canvas = tk.Canvas(lf, width=cols * cw, height=rows * cw,
+        cw = 24
+        self.lattice_canvas = tk.Canvas(inner, width=cols * cw, height=rows * cw,
                                           bg=PANEL_BG, highlightthickness=0)
         self.lattice_canvas.pack(pady=(2, 6))
         self.lattice_rects = []
@@ -420,24 +598,50 @@ class LatticeApp(tk.Tk):
             rect = self.lattice_canvas.create_rectangle(
                 x0, y0, x0 + cw - 2, y0 + cw - 2, outline="", fill=WORLD_OFF)
             self.lattice_rects.append(rect)
-        legend = tk.Frame(lf, bg=PANEL_BG)
+        legend = tk.Frame(inner, bg=PANEL_BG)
         legend.pack(fill="x")
         self._swatch(legend, WORLD_ON, f"world spin (0-{len(r.world_idx) - 1}), lit = 1")
         self._swatch(legend, MEDIATOR_ON, f"mediator spin ({r.mediator_idx[0]}-{r.mediator_idx[-1]}), lit = 1")
-        tk.Label(lf, text="Raw physical spin state of the compiled program --\n"
+        tk.Label(inner, text="Raw physical spin state of the compiled program --\n"
                            "this is NOT the decoded world; a spin here has no\n"
                            "terrain meaning until enc.decode succeeds.",
                   bg=PANEL_BG, fg=DIM, font=("Consolas", 8), justify="left", anchor="w"
                   ).pack(fill="x", pady=(6, 0))
 
         # DECODED WORLD ---------------------------------------------------
+        # A Canvas (not a Label) so clicks can be mapped to a grid cell
+        # (cell_at) and pin markers can be drawn on top of the rendered
+        # world -- the click-to-pin gesture this whole feature is about.
         wf = self.world_panel.body
-        self.world_image_label = tk.Label(wf, bg=PANEL_BG, text="(no valid sample drawn yet this session)",
-                                            fg=DIM, font=MONO)
-        self.world_image_label.pack(pady=(4, 6))
+        self.world_canvas = tk.Canvas(wf, width=WORLD_DISPLAY_PX, height=WORLD_DISPLAY_PX,
+                                        bg=PANEL_BG, highlightthickness=0, cursor="hand2")
+        self.world_canvas.pack(pady=(4, 6))
+        self.world_placeholder_id = self.world_canvas.create_text(
+            WORLD_DISPLAY_PX / 2, WORLD_DISPLAY_PX / 2,
+            text="(no valid sample drawn yet this session)", fill=DIM, font=MONO)
+        self.world_image_item = self.world_canvas.create_image(0, 0, anchor="nw")
+        self.world_canvas.bind("<Button-1>", self._on_world_click)
         self.world_status_label = tk.Label(wf, text="", bg=PANEL_BG, fg=DIM,
-                                             font=("Consolas", 8), justify="left", anchor="w")
+                                             font=("Consolas", 8), justify="left", anchor="w",
+                                             wraplength=WORLD_DISPLAY_PX + 60)
         self.world_status_label.pack(fill="x")
+        self.infeasible_label = tk.Label(wf, text="", bg=PANEL_BG, fg=BAD,
+                                           font=MONO_B, justify="left", anchor="w", wraplength=380)
+        self.infeasible_label.pack(fill="x", pady=(2, 0))
+
+        # PINS ------------------------------------------------------------
+        pf = tk.Frame(wf, bg=PANEL_BG, highlightbackground=BORDER, highlightthickness=1)
+        pf.pack(fill="x", pady=(8, 0))
+        tk.Label(pf, text="PINS  (click a cell above to add/cycle/remove one)",
+                  bg=PANEL_BG, fg=ACCENT, font=("Consolas", 9, "bold"), anchor="w"
+                  ).pack(fill="x", padx=6, pady=(4, 2))
+        self.pins_list_label = tk.Label(pf, text="(none)", bg=PANEL_BG, fg=DIM,
+                                          font=MONO, justify="left", anchor="w")
+        self.pins_list_label.pack(fill="x", padx=6)
+        self.clear_pins_btn = tk.Button(pf, text="Clear pins", command=self._on_clear_pins,
+                                          bg=PANEL_BG, fg=FG, activebackground=BORDER,
+                                          activeforeground=FG, relief="flat", padx=10, pady=3)
+        self.clear_pins_btn.pack(anchor="w", padx=6, pady=(4, 6))
 
         # VERIFICATION ------------------------------------------------
         vf = self.verif_panel.body
@@ -499,12 +703,19 @@ class LatticeApp(tk.Tk):
                            f"not hidden.",
                   bg=PANEL_BG, fg=WARN, font=("Consolas", 8), anchor="w",
                   justify="left", wraplength=395).pack(fill="x", pady=(4, 0))
-        tk.Label(sf, text=f"live sampler settings (this app, not the receipt): "
-                           f"n_chains/call={BATCH_CHAINS}, n_warmup={N_WARMUP}, "
-                           f"steps_per_sample(thinning)={STEPS_PER_SAMPLE}, "
+        tk.Label(sf, text=f"live sampler settings (this app, not the receipt) -- "
+                           f"UNPINNED: n_chains/call={BATCH_CHAINS}, n_warmup={N_WARMUP}, "
                            f"n_samples/call={N_SAMPLES_PER_CALL}",
                   bg=PANEL_BG, fg=DIM, font=("Consolas", 8), anchor="w",
                   justify="left", wraplength=395).pack(fill="x", pady=(4, 0))
+        tk.Label(sf, text=f"PINNED (via simulate(clamp=...), one batch per pin "
+                           f"change): n_chains/call={CLAMP_N_CHAINS}, "
+                           f"n_warmup={CLAMP_N_WARMUP}, n_samples/call={CLAMP_N_SAMPLES}",
+                  bg=PANEL_BG, fg=DIM, font=("Consolas", 8), anchor="w",
+                  justify="left", wraplength=395).pack(fill="x", pady=(2, 0))
+        tk.Label(sf, text=f"both: steps_per_sample(thinning)={STEPS_PER_SAMPLE}",
+                  bg=PANEL_BG, fg=DIM, font=("Consolas", 8), anchor="w",
+                  justify="left", wraplength=395).pack(fill="x", pady=(2, 0))
 
         # DECODED MIX ---------------------------------------------------
         mf = self.mix_panel.body
@@ -559,30 +770,49 @@ class LatticeApp(tk.Tk):
             self.paused = True
             return
 
+        if kind == "batch_summary":
+            # One of these follows every CLAMPED batch (see SampleWorker.
+            # _run_clamped_batch) -- it is the ONLY source of the infeasible
+            # verdict; a batch with valid=0 is honoured verbatim, never
+            # second-guessed or smoothed over.
+            self.batch_infeasible = msg["infeasible"]
+            self.batch_reason = msg["reason"]
+            self._refresh_world_status()
+            return
+
         self.total_draws += 1
         raw = msg["raw"]
+        idx = msg["draw_idx"]
         self._update_lattice(raw)
 
         if kind == "valid":
             self.valid_count += 1
             self.last_valid_grid = msg["grid"]
             self.last_valid_mix = msg["mix"]
+            self.world_stale = False
+            # A fresh valid draw under the CURRENT clamp is direct proof
+            # that clamp is feasible -- don't let a stale "infeasible" verdict
+            # from a previous batch keep showing next to a world that just
+            # disproved it.
+            self.batch_infeasible = False
+            self.batch_reason = ""
             self._update_world(msg["image"])
             self._update_mix(msg["mix"])
-            self._log(f"seed={msg['seed']:<10} valid")
+            self._log(f"#{idx:<5} valid")
         elif kind == "contract-fail":
             self.contract_fail_count += 1
             viol = "; ".join(msg.get("violations", ())) or "contract violated"
-            self._log(f"seed={msg['seed']:<10} contract-fail  ({viol})")
+            self._log(f"#{idx:<5} contract-fail  ({viol})")
         else:  # non-codeword
             self.noncodeword_count += 1
-            self._log(f"seed={msg['seed']:<10} non-codeword")
+            self._log(f"#{idx:<5} non-codeword")
 
         frac = 100.0 * self.valid_count / self.total_draws if self.total_draws else 0.0
         self.valid_frac_label.config(
             text=f"valid fraction: {frac:.1f}%  "
                  f"(valid={self.valid_count} contract-fail={self.contract_fail_count} "
                  f"non-codeword={self.noncodeword_count} total={self.total_draws})")
+        self._refresh_world_status()
 
     def _update_lattice(self, raw):
         med = set(self.receipt.mediator_idx)
@@ -594,12 +824,11 @@ class LatticeApp(tk.Tk):
             self.lattice_canvas.itemconfig(rect, fill=color)
 
     def _update_world(self, image: Image.Image):
-        disp = image.resize((320, 320), Image.LANCZOS)
+        disp = image.resize((WORLD_DISPLAY_PX, WORLD_DISPLAY_PX), Image.LANCZOS)
         self.world_photo = ImageTk.PhotoImage(disp)
-        self.world_image_label.config(image=self.world_photo, text="")
-        self.world_status_label.config(
-            text=f"last valid sample -- draw #{self.total_draws} "
-                 f"(valid {self.valid_count}/{self.total_draws} draws so far this session)")
+        self.world_canvas.itemconfig(self.world_image_item, image=self.world_photo)
+        self.world_canvas.itemconfig(self.world_placeholder_id, state="hidden")
+        self.world_canvas.tag_raise("pin")
 
     def _update_mix(self, mix: dict):
         lines = [f"{TERRAIN_NAMES[k]:<6}: {mix[TERRAIN_NAMES[k]]:5.1f}%" for k in TERRAIN_ORDER]
@@ -607,6 +836,78 @@ class LatticeApp(tk.Tk):
                                "\n\n(computed live from the current last-valid\n"
                                "8x8 decoded grid; p(x | valid), see note below)",
                                fg=FG)
+
+    def _refresh_world_status(self):
+        """The single place that renders world-panel truthfulness: whether
+        there IS a valid world yet, whether the one on screen is STALE
+        (drawn under a different clamp than the one now active), and
+        whether the CURRENT clamp has been shown infeasible. These three
+        facts are independent and all shown plainly -- never collapsed into
+        a single ambiguous state."""
+        if self.last_valid_grid is None:
+            self.world_status_label.config(
+                text="no valid sample drawn yet this session", fg=DIM)
+        elif self.world_stale:
+            self.world_status_label.config(
+                text=f"STALE -- last valid world shown was drawn BEFORE the "
+                     f"current pins; {self.valid_count}/{self.total_draws} "
+                     f"draws valid so far under the current pins",
+                fg=WARN)
+        else:
+            self.world_status_label.config(
+                text=f"last valid sample -- draw #{self.total_draws} "
+                     f"(valid {self.valid_count}/{self.total_draws} draws so far "
+                     f"under the current pins)",
+                fg=DIM)
+
+        if self.batch_infeasible:
+            self.infeasible_label.config(text=f"INFEASIBLE: {self.batch_reason}")
+        else:
+            self.infeasible_label.config(text="")
+
+    # -- click-to-pin ----------------------------------------------------
+    def _pin_color(self, value: int) -> str:
+        r, g, b = (int(c) for c in PAL[value])
+        return f"#{r:02x}{g:02x}{b:02x}"
+
+    def _redraw_pin_markers(self):
+        self.world_canvas.delete("pin")
+        for (x, y), v in self.clamp.items():
+            x0, y0 = x * WORLD_CELL_PX, y * WORLD_CELL_PX
+            color = self._pin_color(v)
+            self.world_canvas.create_rectangle(
+                x0 + 2, y0 + 2, x0 + WORLD_CELL_PX - 2, y0 + WORLD_CELL_PX - 2,
+                outline=color, width=3, tags="pin")
+            self.world_canvas.create_oval(
+                x0 + 3, y0 + 3, x0 + 11, y0 + 11, fill=color, outline=FG, tags="pin")
+        self.world_canvas.tag_raise("pin")
+
+    def _refresh_pins_panel(self):
+        d = self.clamp.as_dict()
+        if not d:
+            self.pins_list_label.config(text="(none)", fg=DIM)
+        else:
+            lines = [f"{name} = {TERRAIN_NAMES[v]}" for name, v in sorted(d.items())]
+            self.pins_list_label.config(text="\n".join(lines), fg=FG)
+
+    def _on_world_click(self, event):
+        cell = cell_at(event.x, event.y, 0, 0, WORLD_CELL_PX,
+                        WORLD_DISPLAY_PX, WORLD_DISPLAY_PX)
+        if cell is None:
+            return
+        x, y = cell
+        self.clamp.cycle(x, y)
+        self._redraw_pin_markers()
+        self._refresh_pins_panel()
+        self._restart_sampling_for_clamp_change()
+
+    def _on_clear_pins(self):
+        if len(self.clamp) == 0:
+            return
+        self.clamp.clear()
+        self._redraw_pin_markers()
+        self._refresh_pins_panel()
+        self._restart_sampling_for_clamp_change()
 
     def _log(self, text: str):
         self.log_lines.append(text)
@@ -625,16 +926,27 @@ class LatticeApp(tk.Tk):
             self.worker.pause.clear()
             self.pause_btn.config(text="Pause")
 
-    def _new_seed(self):
+    def _stop_and_drain_worker(self):
         old = self.worker
         old.stop_evt.set()
         # drain whatever is left in the queue so stale draws from the old
-        # seed never get attributed to the new run
+        # worker never get attributed to the new run
         try:
             while True:
                 self.in_q.get_nowait()
         except queue.Empty:
             pass
+
+    def _start_worker(self, seed_base: int):
+        clamp = self.clamp.as_dict() or None
+        self.worker = SampleWorker(self.receipt, self.in_q, seed_base=seed_base,
+                                    clamp=clamp, start_paused=self.paused)
+        self.worker.start()
+
+    def _new_seed(self):
+        """Explicit 'start over' -- clears the displayed world too (unlike a
+        pin change, which keeps the old world on screen labelled STALE)."""
+        self._stop_and_drain_worker()
 
         self.total_draws = 0
         self.valid_count = 0
@@ -643,17 +955,45 @@ class LatticeApp(tk.Tk):
         self.last_valid_grid = None
         self.last_valid_mix = None
         self.world_photo = None
-        self.world_image_label.config(image="", text="(re-sampling from a new seed...)")
-        self.world_status_label.config(text="")
+        self.world_stale = False
+        self.batch_infeasible = False
+        self.batch_reason = ""
+        self.world_canvas.itemconfig(self.world_image_item, image="")
+        self.world_canvas.itemconfig(
+            self.world_placeholder_id, state="normal",
+            text="(re-sampling from a new seed...)")
         self.mix_label.config(text="unavailable: no valid sample drawn yet this session", fg=DIM)
         self.log_box.delete(0, "end")
         self.valid_frac_label.config(text="valid fraction: n/a (0 draws)")
+        self._refresh_world_status()
 
         new_seed_base = random.randint(0, 2**31 - 1)
-        self.worker = SampleWorker(self.receipt, self.in_q, seed_base=new_seed_base,
-                                    start_paused=self.paused)
-        self.worker.start()
-        self._log(f"--- new seed base={new_seed_base} ---")
+        self._start_worker(new_seed_base)
+        clamp = self.clamp.as_dict()
+        self._log(f"--- new seed base={new_seed_base}  clamp={clamp or '(none)'} ---")
+
+    def _restart_sampling_for_clamp_change(self):
+        """A pin was added, cycled, removed, or cleared -- restart sampling
+        under the new clamp. Unlike `_new_seed`, the world currently on
+        screen is KEPT (never blanked): it is real evidence from a moment
+        ago, just not evidence about the clamp that is active now, so it is
+        marked STALE (see `_refresh_world_status`) rather than hidden."""
+        self._stop_and_drain_worker()
+
+        self.total_draws = 0
+        self.valid_count = 0
+        self.contract_fail_count = 0
+        self.noncodeword_count = 0
+        self.world_stale = self.last_valid_grid is not None
+        self.batch_infeasible = False
+        self.batch_reason = ""
+        self.valid_frac_label.config(text="valid fraction: n/a (0 draws)")
+        self._refresh_world_status()
+
+        new_seed_base = random.randint(0, 2**31 - 1)
+        self._start_worker(new_seed_base)
+        clamp = self.clamp.as_dict()
+        self._log(f"--- pins changed: {clamp or '(none)'}  seed={new_seed_base} ---")
 
     def _on_close(self):
         self.worker.stop_evt.set()
