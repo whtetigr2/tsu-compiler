@@ -21688,7 +21688,13 @@
             "kind": "edge",
             "detail": "__mediator_767-g15_15__dw3"
           }
-        ]
+        ],
+        "mediation": {
+          "mediator_count": 768,
+          "partition_method": "bfs_depth_parity_with_greedy_local_search",
+          "bipartite_after": true,
+          "beta_used": 5.0
+        }
       }
     },
     {
@@ -62615,18 +62621,29 @@
             "kind": "edge",
             "detail": "__mediator_2557-g15_15__oh4"
           }
-        ]
+        ],
+        "mediation": {
+          "mediator_count": 2558,
+          "partition_method": "bfs_depth_parity_with_greedy_local_search",
+          "bipartite_after": true,
+          "beta_used": 5.0
+        }
       }
     }
   ],
   "ordering_rationale": "no candidate was hardware-feasible",
   "pass_durations": {
-    "encode": 0.02044190000742674,
-    "lower": 0.011713800020515919,
-    "analyse": 0.4140808000229299,
-    "gate_checks": 0.0005409999284893274
+    "encode": 0.02070380002260208,
+    "lower": 0.011815200094133615,
+    "analyse": 0.40226550004445016,
+    "gate_checks": 0.0005439999513328075
   },
   "coefficient_scale": 0.2,
   "scaled_beta": 5.0,
-  "mediation": null
+  "mediation": {
+    "mediator_count": 768,
+    "partition_method": "bfs_depth_parity_with_greedy_local_search",
+    "bipartite_after": true,
+    "beta_used": 5.0
+  }
 }

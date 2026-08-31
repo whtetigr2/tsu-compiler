@@ -40730,10 +40730,10 @@
   ],
   "ordering_rationale": "no candidate was hardware-feasible",
   "pass_durations": {
-    "encode": 0.03687889990396798,
-    "lower": 0.01638560020364821,
-    "analyse": 0.5264481999911368,
-    "gate_checks": 0.0008160998113453388
+    "encode": 0.03560990002006292,
+    "lower": 0.01624289993196726,
+    "analyse": 0.4725065000820905,
+    "gate_checks": 0.0008307998068630695
   },
   "coefficient_scale": 0.25,
   "scaled_beta": 4.0,
