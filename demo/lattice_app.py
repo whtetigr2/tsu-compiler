@@ -344,11 +344,15 @@ class LatticeApp(tk.Tk):
         self.world_panel = Panel(content, "DECODED WORLD  (last valid sample)")
         self.world_panel.grid(row=0, column=2, sticky="nsew", padx=6)
 
-        right = tk.Frame(content, bg=BG, width=340)
+        right = tk.Frame(content, bg=BG, width=430)
         right.grid(row=0, column=3, sticky="nsew", padx=(6, 0))
         right.grid_propagate(False)
-        for r in range(4):
-            right.grid_rowconfigure(r, weight=1)
+        # VERIFICATION (~15 rows) and SAMPLE LOG (scrolling) need room;
+        # DECODED MIX holds at most k lines. An even 4-way split collapsed
+        # MIX to zero height, so weight them by actual content.
+        for r, w in ((0, 5), (1, 5), (2, 2), (3, 5)):
+            right.grid_rowconfigure(r, weight=w)
+        right.grid_rowconfigure(2, minsize=110)
         right.grid_columnconfigure(0, weight=1)
 
         self.verif_panel = Panel(right, "VERIFICATION")
@@ -447,9 +451,16 @@ class LatticeApp(tk.Tk):
             if g.get("downgraded"):
                 extra.append("downgraded")
             extra_s = f" ({', '.join(extra)})" if extra else ""
-            tk.Label(vf, text=f"{status:<4} {g['gate']:<13} "
-                               f"measured={fmt_value(g.get('measured'))} "
-                               f"limit={fmt_value(g.get('limit'))}{extra_s}",
+            # A gate can PASS while its measurement was never stored (the
+            # colouring gate does this). Rendering that as
+            # "PASS ... measured=unavailable" reads as a contradiction, so
+            # say plainly that the VERDICT is recorded and the NUMBER is not.
+            if "measured" in g and "limit" in g:
+                detail = (f"measured={fmt_value(g.get('measured'))} "
+                          f"limit={fmt_value(g.get('limit'))}")
+            else:
+                detail = "verdict recorded; measurement not stored in receipt"
+            tk.Label(vf, text=f"{status:<4} {g['gate']:<13} {detail}{extra_s}",
                       bg=PANEL_BG, fg=color, font=("Consolas", 8), anchor="w"
                       ).pack(fill="x")
         tk.Label(vf, text="", bg=PANEL_BG).pack()
@@ -461,7 +472,7 @@ class LatticeApp(tk.Tk):
             text = fmt_value(val) if key in v else "unavailable: field absent from receipt"
             fg = DIM if isinstance(val, str) else FG
             tk.Label(vf, text=f"{key}: {text}", bg=PANEL_BG, fg=fg,
-                      font=("Consolas", 8), anchor="w", justify="left", wraplength=300
+                      font=("Consolas", 8), anchor="w", justify="left", wraplength=395
                       ).pack(fill="x")
 
         # SAMPLER -------------------------------------------------------
@@ -480,20 +491,20 @@ class LatticeApp(tk.Tk):
         ]
         for t in rows_txt:
             tk.Label(sf, text=t, bg=PANEL_BG, fg=FG, font=("Consolas", 8),
-                      anchor="w", justify="left", wraplength=300).pack(fill="x")
+                      anchor="w", justify="left", wraplength=395).pack(fill="x")
         tk.Label(sf, text=f"no beta slider: {r.mediator_count} mediator spin(s) were "
                            f"coupled at beta={r.beta_used!r}; tsu.passes.route."
                            f"assert_beta_consistent refuses any other beta for this "
                            f"model (BetaMismatchError, spec 5.3.5) -- shown fixed, "
                            f"not hidden.",
                   bg=PANEL_BG, fg=WARN, font=("Consolas", 8), anchor="w",
-                  justify="left", wraplength=300).pack(fill="x", pady=(4, 0))
+                  justify="left", wraplength=395).pack(fill="x", pady=(4, 0))
         tk.Label(sf, text=f"live sampler settings (this app, not the receipt): "
                            f"n_chains/call={BATCH_CHAINS}, n_warmup={N_WARMUP}, "
                            f"steps_per_sample(thinning)={STEPS_PER_SAMPLE}, "
                            f"n_samples/call={N_SAMPLES_PER_CALL}",
                   bg=PANEL_BG, fg=DIM, font=("Consolas", 8), anchor="w",
-                  justify="left", wraplength=300).pack(fill="x", pady=(4, 0))
+                  justify="left", wraplength=395).pack(fill="x", pady=(4, 0))
 
         # DECODED MIX ---------------------------------------------------
         mf = self.mix_panel.body
