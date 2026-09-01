@@ -57,7 +57,22 @@ SAMPLE_PARAMS = dict(n_chains=8, n_samples=60, n_warmup=1200, steps_per_sample=4
 # stable ROCK-frequency gradient (far-from-water cells more often ROCK than
 # near-water cells) without saturating every cell to ROCK the way alpha>=0.4
 # did in that sweep.
-ALPHA0 = 0.1
+# CALIBRATION NOTE (measured 2026-09-01, controller sweep on this receipt).
+# ALPHA0 is the conditioning STRENGTH and it is a real dose-response knob, not a
+# free parameter -- swept with the sign convention correct (patch weight > 0
+# ENCOURAGES), rock frequency moves monotonically:
+#     alpha  |b|max   water    rock   grass
+#     0.00   1.600   26.5%   15.3%   58.2%
+#     0.05   1.675   18.1%   23.6%   58.3%
+#     0.10   1.750   17.3%   33.1%   49.5%
+#     0.20   1.900    3.3%   52.8%   43.9%
+#     0.35   2.125    3.0%   66.6%   30.4%
+# Above ~0.2 the conditioning OVERWHELMS the base rules and the world degenerates
+# into near-total rock with almost no water -- the first version of this demo shipped
+# at that end and produced a 73-87% rock world, which is not a second layer so much
+# as an erased first one. Values are receipt- and seed-specific; re-sweep for any
+# other model rather than carrying this number across.
+ALPHA0 = 0.03
 
 
 def _decode_codewords(rows, im, enc):
