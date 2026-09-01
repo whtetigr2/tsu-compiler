@@ -36,6 +36,7 @@ zero, a dash, or a guess. Three honesty commitments this file holds to:
 from __future__ import annotations
 
 import json
+import math
 import queue
 import random
 import sys
@@ -43,6 +44,7 @@ import threading
 import time
 import tkinter as tk
 from collections import deque
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -64,6 +66,7 @@ from tsu.passes.encode import encode  # noqa: E402
 from tsu.simulate import reconstruct_program, _selected_encoding  # noqa: E402
 from tsu.backends.thrml_backend import sample as thrml_sample  # noqa: E402
 from worldfile import save_world  # noqa: E402 -- A2: save/load provenance-carrying worlds
+import frontier as frontier_mod  # noqa: E402 -- B1: capacity frontier panel
 
 # --------------------------------------------------------------------------
 # constants shared by the raw-lattice grid and the decode/render path
@@ -202,6 +205,97 @@ def fmt_duration(seconds: float) -> str:
     if seconds >= 1e-3:
         return f"{seconds * 1e3:.3f} ms"
     return f"{seconds * 1e6:.1f} us"
+
+
+def onsager_betac(j_max: float) -> float:
+    """Onsager's critical coupling for the UNIFORM 2-D square-lattice Ising
+    model: sinh(2*Kc) = 1, so Kc = arcsinh(1) = ln(1+sqrt(2)) and
+    betac = Kc / j_max. Computed from the formula every call, never a
+    hardcoded decimal -- a copy-pasted constant is exactly the kind of
+    unverified figure this project's whole ethos exists to refuse.
+
+    THIS IS AN ORIENTING ESTIMATE, NOT A DERIVED CRITICAL POINT FOR THIS
+    GRAPH (see `beta_regime` below, which is what the app actually
+    displays and where this caveat is shown on screen, not just in a
+    comment) -- Onsager's result is exact for uniform coupling on an
+    infinite 2-D square lattice with no field; this model has non-uniform
+    couplings (workload weights differ per rule), hidden mediator spins,
+    and a different graph entirely."""
+    if j_max <= 0:
+        raise ValueError(
+            f"onsager_betac requires a positive |J|max, got {j_max!r}; a "
+            f"model with no couplings at all has no coupling scale to site "
+            f"a critical beta against")
+    return math.log(1.0 + math.sqrt(2.0)) / 2.0 / j_max
+
+
+ONSAGER_ASSUMPTION_NOTE = (
+    "Onsager's beta_c is EXACT for the UNIFORM 2-D square-lattice Ising "
+    "model with no field. This model is NOT that: couplings vary by rule, "
+    "mediator spins are hidden nodes, and the graph is not a plain square "
+    "lattice. beta_c below is an ORIENTING estimate only -- not a derived "
+    "critical point for this graph.")
+
+
+@dataclass(frozen=True)
+class BetaRegime:
+    """beta vs an ORIENTING Onsager beta_c -- see ONSAGER_ASSUMPTION_NOTE,
+    which every renderer of this dataclass must show verbatim, not just
+    reference. `ratio` > 1 sits past where the orienting estimate would put
+    the ordered phase; < 1 sits before it. Neither implies anything exact
+    about non-uniform couplings on a mediated, non-square graph."""
+    beta: float
+    betac: float
+    ratio: float
+    assumption_note: str = ONSAGER_ASSUMPTION_NOTE
+
+
+def beta_regime(beta: float, j_max: float) -> BetaRegime:
+    betac = onsager_betac(j_max)
+    return BetaRegime(beta=beta, betac=betac, ratio=beta / betac)
+
+
+class Trace:
+    """A bounded ring buffer of (x, y) points for a live line plot -- pure
+    data, no Tk here (see tests/test_frontier.py). `bounds()` is what a
+    renderer MUST use to label its axes: the brief is explicit that an
+    unlabelled sparkline is decoration, not instrumentation, so no canvas
+    drawing code in this file is allowed to skip calling it."""
+
+    def __init__(self, maxlen: int = 300):
+        self.xs: deque = deque(maxlen=maxlen)
+        self.ys: deque = deque(maxlen=maxlen)
+
+    def append(self, x: float, y: float) -> None:
+        self.xs.append(x)
+        self.ys.append(y)
+
+    def __len__(self) -> int:
+        return len(self.xs)
+
+    def bounds(self) -> tuple[float, float, float, float] | None:
+        """(xmin, xmax, ymin, ymax), or None when empty -- never a
+        fabricated (0, 0, 0, 0) range for an empty trace."""
+        if not self.xs:
+            return None
+        return (min(self.xs), max(self.xs), min(self.ys), max(self.ys))
+
+
+def energy_of_draw(im, row) -> float:
+    """The physical energy E(x) of one raw {0,1} draw under IsingModel `im`,
+    from ITS OWN documented sign convention (lower.py module docstring:
+    "sum b s + sum J s s == -E(x)", spins s = 2*occupancy - 1). The same
+    formula `tsu.passes.search._from_ising` uses for the compiler's own
+    mixing diagnostic (Task B3 reuses it too) -- reimplemented here, in
+    pure Python/numpy, as a small local function rather than importing a
+    leading-underscore name from another module."""
+    s = 2.0 * np.asarray(row, dtype=float) - 1.0
+    total = im.offset
+    for i in range(len(im.nodes)):
+        total -= im.biases[i] * s[i]
+    for k, (u, v) in enumerate(im.edges):
+        total -= im.weights[k] * s[u] * s[v]
+    return float(total)
 
 
 def fmt_value(v: Any) -> str:
@@ -471,7 +565,7 @@ class LatticeApp(tk.Tk):
         super().__init__()
         self.receipt = receipt
         self.title("tsu lattice demo -- live sampling of a compiled receipt")
-        self.geometry("1400x900")
+        self.geometry("1760x900")
         self.configure(bg=BG)
 
         self.in_q: "queue.Queue[dict]" = queue.Queue(maxsize=64)
@@ -495,6 +589,14 @@ class LatticeApp(tk.Tk):
         self.batch_infeasible = False
         self.batch_reason = ""
 
+        # B2: live traces -- energy over sweeps (every draw, valid or not:
+        # mixing is a property of the raw chain, not the conditional-valid
+        # subset) and valid fraction over the session (recomputed at the
+        # SAME cadence, from self.valid_count/self.total_draws already
+        # tracked above). Bounded ring buffers, see Trace's own docstring.
+        self.energy_trace = Trace(maxlen=400)
+        self.valid_frac_trace = Trace(maxlen=400)
+
         self._build_layout()
         self._populate_static_panels()
 
@@ -507,12 +609,27 @@ class LatticeApp(tk.Tk):
     def _build_layout(self):
         content = tk.Frame(self, bg=BG)
         content.pack(fill="both", expand=True, padx=8, pady=8)
-        for c, weight in enumerate((0, 1, 1, 0)):
+        # 0: PIPELINE+FRONTIER stack, 1: LIVE LATTICE, 2: DECODED WORLD,
+        # 3: REGIME & TRACES (B2, fixed width), 4: the VERIFICATION/.../
+        # SAMPLE LOG stack (also fixed width).
+        for c, weight in enumerate((0, 1, 1, 0, 0)):
             content.grid_columnconfigure(c, weight=weight)
         content.grid_rowconfigure(0, weight=1)
 
-        self.pipeline_panel = Panel(content, "PIPELINE  (compiled once, at load)")
-        self.pipeline_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        left = tk.Frame(content, bg=BG, width=340)
+        left.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        left.grid_propagate(False)
+        left.grid_rowconfigure(0, weight=3)
+        left.grid_rowconfigure(1, weight=2)
+        left.grid_columnconfigure(0, weight=1)
+        self.pipeline_panel = Panel(left, "PIPELINE  (compiled once, at load)")
+        self.pipeline_panel.grid(row=0, column=0, sticky="nsew", pady=(0, 4))
+        # B1: the capacity frontier -- headroom + next-increment cost, read
+        # from demo/frontier.py's own build_frontier_report/render_text so
+        # this panel can never drift from what `python demo/frontier.py`
+        # prints on the command line.
+        self.frontier_panel = Panel(left, "FRONTIER  (headroom + next increment)")
+        self.frontier_panel.grid(row=1, column=0, sticky="nsew", pady=(4, 0))
 
         self.lattice_panel = Panel(content, "LIVE LATTICE  (raw physical spin state)")
         self.lattice_panel.grid(row=0, column=1, sticky="nsew", padx=6)
@@ -520,8 +637,18 @@ class LatticeApp(tk.Tk):
         self.world_panel = Panel(content, "DECODED WORLD  (last valid sample)")
         self.world_panel.grid(row=0, column=2, sticky="nsew", padx=6)
 
+        # B2: beta/beta_c siting (Onsager, labelled as an orienting estimate
+        # only) plus the energy and valid-fraction traces.
+        regime_frame = tk.Frame(content, bg=BG, width=300)
+        regime_frame.grid(row=0, column=3, sticky="nsew", padx=6)
+        regime_frame.grid_propagate(False)
+        regime_frame.grid_rowconfigure(0, weight=1)
+        regime_frame.grid_columnconfigure(0, weight=1)
+        self.regime_panel = Panel(regime_frame, "REGIME & TRACES")
+        self.regime_panel.grid(row=0, column=0, sticky="nsew")
+
         right = tk.Frame(content, bg=BG, width=430)
-        right.grid(row=0, column=3, sticky="nsew", padx=(6, 0))
+        right.grid(row=0, column=4, sticky="nsew", padx=(6, 0))
         right.grid_propagate(False)
         # VERIFICATION (~15 rows) and SAMPLE LOG (scrolling) need room;
         # DECODED MIX holds at most k lines. An even 4-way split collapsed
@@ -768,6 +895,106 @@ class LatticeApp(tk.Tk):
         sb.config(command=self.log_box.yview)
         sbx.config(command=self.log_box.xview)
 
+        # FRONTIER --------------------------------------------------------
+        # B1: read straight from demo/frontier.py's OWN report/renderer --
+        # this panel can never show a number `python demo/frontier.py`
+        # itself would not print, because it is the same function call.
+        # Computed ONCE at load (same "compiled once" framing as PIPELINE
+        # above): the frontier is a property of the compiled receipt, not
+        # of anything sampled live.
+        ff = self.frontier_panel.body
+        try:
+            report = frontier_mod.build_frontier_report(r.path)
+            frontier_text = frontier_mod.render_text(report)
+        except Exception as exc:  # never crash the app over a display panel
+            frontier_text = f"unavailable: frontier report failed: {exc}"
+        frontier_frame = tk.Frame(ff, bg=PANEL_BG)
+        frontier_frame.pack(fill="both", expand=True)
+        fsb = tk.Scrollbar(frontier_frame)
+        fsb.pack(side="right", fill="y")
+        frontier_box = tk.Text(frontier_frame, bg="#111218", fg=FG, width=38,
+                                font=("Consolas", 8), wrap="word", relief="flat",
+                                highlightthickness=0, yscrollcommand=fsb.set)
+        frontier_box.insert("1.0", frontier_text)
+        frontier_box.config(state="disabled")
+        frontier_box.pack(side="left", fill="both", expand=True)
+        fsb.config(command=frontier_box.yview)
+
+        # REGIME & TRACES ---------------------------------------------------
+        # B2: beta/beta_c siting (Onsager, ORIENTING estimate only -- the
+        # assumption is stated on screen, not just in a comment) plus the
+        # two live line plots.
+        gf = self.regime_panel.body
+        j_max = float(np.abs(r.im.weights).max()) if len(r.im.weights) else 0.0
+        try:
+            regime = beta_regime(r.im.beta, j_max)
+            regime_line = (f"beta={regime.beta:.4g}  beta_c(Onsager)={regime.betac:.4g}"
+                           f"  beta/beta_c={regime.ratio:.3g}")
+        except ValueError as exc:
+            regime = None
+            regime_line = f"unavailable: {exc}"
+        tk.Label(gf, text=f"|J|max (this program) = {j_max:.4g}", bg=PANEL_BG,
+                  fg=FG, font=("Consolas", 8), anchor="w").pack(fill="x")
+        tk.Label(gf, text=regime_line, bg=PANEL_BG, fg=FG, font=MONO_B,
+                  anchor="w", wraplength=260, justify="left").pack(fill="x", pady=(2, 4))
+        tk.Label(gf, text=ONSAGER_ASSUMPTION_NOTE, bg=PANEL_BG, fg=WARN,
+                  font=("Consolas", 8), anchor="w", justify="left",
+                  wraplength=260).pack(fill="x", pady=(0, 8))
+
+        tk.Label(gf, text="ENERGY TRACE (over sweeps)", bg=PANEL_BG, fg=ACCENT,
+                  font=("Consolas", 8, "bold"), anchor="w").pack(fill="x")
+        self.energy_canvas = tk.Canvas(gf, width=260, height=110, bg="#111218",
+                                         highlightthickness=0)
+        self.energy_canvas.pack(fill="x", pady=(2, 8))
+
+        tk.Label(gf, text="VALID FRACTION TRACE (over the session)", bg=PANEL_BG,
+                  fg=ACCENT, font=("Consolas", 8, "bold"), anchor="w").pack(fill="x")
+        self.valid_frac_canvas = tk.Canvas(gf, width=260, height=110, bg="#111218",
+                                             highlightthickness=0)
+        self.valid_frac_canvas.pack(fill="x", pady=(2, 4))
+        tk.Label(gf, text="Both axes are labelled with their live min/max --\n"
+                            "an unlabelled sparkline is decoration, not\n"
+                            "instrumentation.",
+                  bg=PANEL_BG, fg=DIM, font=("Consolas", 8), anchor="w",
+                  justify="left").pack(fill="x")
+        self._draw_trace(self.energy_canvas, self.energy_trace, "sweep", "energy")
+        self._draw_trace(self.valid_frac_canvas, self.valid_frac_trace,
+                         "draw", "valid %")
+
+    def _draw_trace(self, canvas: tk.Canvas, trace: "Trace", xlabel: str,
+                    ylabel: str) -> None:
+        """Redraw one line plot from `trace`'s current contents. Axis
+        min/max are read from `trace.bounds()` and drawn as text -- never
+        skipped, per the brief's own instrumentation-not-decoration rule."""
+        canvas.delete("all")
+        w = int(canvas["width"]) or 260
+        h = int(canvas["height"]) or 110
+        pad_l, pad_r, pad_t, pad_b = 44, 8, 8, 16
+        bounds = trace.bounds()
+        if bounds is None or len(trace) < 2:
+            canvas.create_text(w / 2, h / 2, text="(no data yet)", fill=DIM,
+                                font=("Consolas", 8))
+            return
+        xmin, xmax, ymin, ymax = bounds
+        xspan = (xmax - xmin) or 1.0
+        yspan = (ymax - ymin) or (abs(ymax) or 1.0)
+        px = lambda x: pad_l + (x - xmin) / xspan * (w - pad_l - pad_r)
+        py = lambda y: h - pad_b - (y - ymin) / yspan * (h - pad_t - pad_b)
+        pts = []
+        for x, y in zip(trace.xs, trace.ys):
+            pts.extend((px(x), py(y)))
+        canvas.create_line(*pts, fill=ACCENT, width=1)
+        canvas.create_text(pad_l, pad_t, text=f"{ymax:.4g}", fill=DIM,
+                            font=("Consolas", 7), anchor="nw")
+        canvas.create_text(pad_l, h - pad_b, text=f"{ymin:.4g}", fill=DIM,
+                            font=("Consolas", 7), anchor="sw")
+        canvas.create_text(pad_l, h - 4, text=f"{xlabel}={xmin:.0f}", fill=DIM,
+                            font=("Consolas", 7), anchor="sw")
+        canvas.create_text(w - pad_r, h - 4, text=f"{xmax:.0f}", fill=DIM,
+                            font=("Consolas", 7), anchor="se")
+        canvas.create_text(w - pad_r, pad_t, text=ylabel, fill=DIM,
+                            font=("Consolas", 7), anchor="ne")
+
     def _swatch(self, master, color, text):
         row = tk.Frame(master, bg=PANEL_BG)
         row.pack(fill="x", pady=1)
@@ -809,6 +1036,12 @@ class LatticeApp(tk.Tk):
         idx = msg["draw_idx"]
         self._update_lattice(raw)
 
+        # B2: energy trace over EVERY draw (valid or not -- mixing is a
+        # property of the raw chain, the same convention the compiler's own
+        # verify pass uses, see energy_of_draw's own docstring), plotted
+        # against this app's own running draw counter as "sweep".
+        self.energy_trace.append(self.total_draws, energy_of_draw(self.receipt.im, raw))
+
         if kind == "valid":
             self.valid_count += 1
             self.last_valid_grid = msg["grid"]
@@ -837,6 +1070,10 @@ class LatticeApp(tk.Tk):
             text=f"valid fraction: {frac:.1f}%  "
                  f"(valid={self.valid_count} contract-fail={self.contract_fail_count} "
                  f"non-codeword={self.noncodeword_count} total={self.total_draws})")
+        self.valid_frac_trace.append(self.total_draws, frac)
+        self._draw_trace(self.energy_canvas, self.energy_trace, "sweep", "energy")
+        self._draw_trace(self.valid_frac_canvas, self.valid_frac_trace,
+                         "draw", "valid %")
         self._refresh_world_status()
 
     def _update_lattice(self, raw):
@@ -1043,6 +1280,11 @@ class LatticeApp(tk.Tk):
         self.mix_label.config(text="unavailable: no valid sample drawn yet this session", fg=DIM)
         self.log_box.delete(0, "end")
         self.valid_frac_label.config(text="valid fraction: n/a (0 draws)")
+        self.energy_trace = Trace(maxlen=self.energy_trace.xs.maxlen)
+        self.valid_frac_trace = Trace(maxlen=self.valid_frac_trace.xs.maxlen)
+        self._draw_trace(self.energy_canvas, self.energy_trace, "sweep", "energy")
+        self._draw_trace(self.valid_frac_canvas, self.valid_frac_trace,
+                         "draw", "valid %")
         self._refresh_world_status()
 
         new_seed_base = random.randint(0, 2**31 - 1)
@@ -1066,6 +1308,15 @@ class LatticeApp(tk.Tk):
         self.batch_infeasible = False
         self.batch_reason = ""
         self.valid_frac_label.config(text="valid fraction: n/a (0 draws)")
+        # total_draws resets to 0 above, and the traces are plotted against
+        # it (see _handle_msg) -- reset them too, or a post-clamp-change
+        # point would be appended at a SMALLER x than points already in the
+        # ring buffer, drawing a plot whose x-axis runs backwards.
+        self.energy_trace = Trace(maxlen=self.energy_trace.xs.maxlen)
+        self.valid_frac_trace = Trace(maxlen=self.valid_frac_trace.xs.maxlen)
+        self._draw_trace(self.energy_canvas, self.energy_trace, "sweep", "energy")
+        self._draw_trace(self.valid_frac_canvas, self.valid_frac_trace,
+                         "draw", "valid %")
         self._refresh_world_status()
 
         new_seed_base = random.randint(0, 2**31 - 1)
