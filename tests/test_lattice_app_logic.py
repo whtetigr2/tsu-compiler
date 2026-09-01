@@ -1,10 +1,13 @@
 """Headless tests for demo/lattice_app.py's pure logic units: ClampState
-(pin bookkeeping), cell_at (canvas click -> grid cell), and the infeasible-
-clamp detector. NONE of these construct a Tk window -- importing
+(pin bookkeeping), cell_at (canvas click -> grid cell), the infeasible-
+clamp detector, and (UI2) the speed-control bookkeeping / responsive-pause
+decision (SPEED_LEVELS, speed_level, should_abort_batch, SampleWorker's
+speed/step attributes). NONE of these construct a Tk window -- importing
 demo/lattice_app.py at module scope is safe (it only creates a Tk() instance
 inside LatticeApp.__init__ / main(), never at import time), and every test
 here calls only pure functions/classes, never LatticeApp itself.
 """
+import queue
 import sys
 from pathlib import Path
 
@@ -186,3 +189,116 @@ def test_batch_feasibility_some_valid_is_not_infeasible():
 def test_batch_feasibility_empty_batch_is_not_asserted_infeasible():
     infeasible, reason = la.batch_feasibility([])
     assert infeasible is False
+
+
+# ---------------------------------------------------------------------------
+# UI2: SPEED_LEVELS / speed_level -- the speed control's data, and the
+# structural guarantee that it cannot smuggle in an n_warmup or
+# steps_per_sample override (which would change what is sampled, not just
+# how fast it displays).
+# ---------------------------------------------------------------------------
+
+def test_speed_levels_nonempty_and_well_formed():
+    assert len(la.SPEED_LEVELS) >= 2
+    for lvl in la.SPEED_LEVELS:
+        assert set(lvl.keys()) == {"label", "chains", "clamp_samples", "delay_s"}
+        assert isinstance(lvl["label"], str) and lvl["label"]
+        assert lvl["chains"] >= 1
+        assert lvl["clamp_samples"] >= 1
+        assert lvl["delay_s"] >= 0
+
+
+def test_speed_levels_never_names_warmup_or_steps():
+    # The structural guarantee: no speed level can touch n_warmup or
+    # steps_per_sample, because the key isn't even there to read.
+    for lvl in la.SPEED_LEVELS:
+        assert "n_warmup" not in lvl
+        assert "steps_per_sample" not in lvl
+
+
+def test_speed_levels_last_entry_is_full_speed_default():
+    assert la.speed_level(la.DEFAULT_SPEED_IDX)["label"] == "Full speed"
+    assert la.DEFAULT_SPEED_IDX == len(la.SPEED_LEVELS) - 1
+
+
+def test_speed_level_clamps_negative_index():
+    assert la.speed_level(-5) == la.SPEED_LEVELS[0]
+
+
+def test_speed_level_clamps_too_large_index():
+    assert la.speed_level(999) == la.SPEED_LEVELS[-1]
+
+
+def test_speed_level_in_range_returns_that_entry():
+    for i, lvl in enumerate(la.SPEED_LEVELS):
+        assert la.speed_level(i) == lvl
+
+
+def test_slow_end_has_more_delay_and_smaller_batches_than_full_speed():
+    slow = la.SPEED_LEVELS[0]
+    full = la.speed_level(la.DEFAULT_SPEED_IDX)
+    assert slow["delay_s"] > full["delay_s"]
+    assert slow["chains"] <= full["chains"]
+    assert slow["clamp_samples"] <= full["clamp_samples"]
+
+
+# ---------------------------------------------------------------------------
+# UI2: should_abort_batch -- the responsive-pause decision. Pure, no
+# threads, no worker construction needed.
+# ---------------------------------------------------------------------------
+
+def test_should_abort_batch_when_stopping_regardless_of_anything_else():
+    assert la.should_abort_batch(stopping=True, paused=False, is_step=False) is True
+    assert la.should_abort_batch(stopping=True, paused=True, is_step=True) is True
+
+
+def test_should_abort_batch_when_paused_and_not_a_step():
+    assert la.should_abort_batch(stopping=False, paused=True, is_step=False) is True
+
+
+def test_should_not_abort_batch_when_paused_but_this_call_is_a_step():
+    # Step's entire point: push its one batch even though the worker is
+    # sitting paused when the step is requested.
+    assert la.should_abort_batch(stopping=False, paused=True, is_step=True) is False
+
+
+def test_should_not_abort_batch_when_running_normally():
+    assert la.should_abort_batch(stopping=False, paused=False, is_step=False) is False
+    assert la.should_abort_batch(stopping=False, paused=False, is_step=True) is False
+
+
+# ---------------------------------------------------------------------------
+# UI2: SampleWorker's speed/step bookkeeping -- constructible without a real
+# Receipt (its __init__ only stores references; nothing in this section
+# starts the thread or touches thrml).
+# ---------------------------------------------------------------------------
+
+def _worker(**kw):
+    return la.SampleWorker(receipt=None, out_q=queue.Queue(), seed_base=0, **kw)
+
+
+def test_worker_defaults_to_full_speed():
+    w = _worker()
+    assert w.speed_idx == la.DEFAULT_SPEED_IDX
+
+
+def test_worker_accepts_explicit_speed_idx():
+    w = _worker(speed_idx=0)
+    assert w.speed_idx == 0
+
+
+def test_worker_set_speed_updates_live():
+    w = _worker()
+    w.set_speed(1)
+    assert w.speed_idx == 1
+
+
+def test_worker_step_evt_starts_clear():
+    w = _worker()
+    assert not w.step_evt.is_set()
+
+
+def test_worker_request_step_sets_the_event():
+    w = _worker()
+    w.request_step()
+    assert w.step_evt.is_set()

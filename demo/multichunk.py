@@ -143,6 +143,153 @@ def neighbour_clamp(i: int, j: int, chunks: Mapping[tuple[int, int], Mapping[str
 
 
 # ---------------------------------------------------------------------------
+# Step 1b: FREE WANDERING (this task) -- corner-omitting partial clamps.
+#
+# This overturns the "free/on-demand generation is not viable" line in this
+# module's own docstring above (and A1's own report). A1 measured that
+# clamping a FULL edge -- both corner cells included -- makes two diagonal
+# neighbours' independently-generated corner cells disagree 52% of the
+# time, because each corner cell is the LAST cell of one clamped span and
+# the FIRST cell of the other: two different neighbours both claim to name
+# it. The fix here is structural, not statistical: if a clamped span
+# OMITS both of its own ends (the "partial_edge" mode below), no cell is
+# EVER named by two different neighbours' clamps, because the two ends --
+# the only positions a perpendicular neighbour's own span could reach --
+# are exactly the positions this span leaves unclamped. There is nothing
+# left to disagree about, by construction, not by measurement.
+#
+# The measured cost (this receipt, reported by the user just before this
+# task): shrinking the clamped span from 8/8 (full edge, 0.0% illegal
+# seams) to 6/8 (omit both corners, 1.2%) to 4/8 (1.9%) to 2/8 (3.8%) buys
+# free direction at a small, DETECTABLE seam-violation rate -- not zero,
+# unlike full_edge's structural 0%. "partial_edge" below uses the 6/8
+# span (omit both corners exactly, nothing more) as its one default: the
+# smallest omission that removes the corner-sharing hazard, not the
+# smallest clamp that could theoretically be built.  Detecting that
+# non-zero rate (rather than assuming it away) is exactly why the
+# generation path below (generate_chunk_free) validates every seam after
+# sampling and re-samples on failure instead of trusting the clamp alone.
+# ---------------------------------------------------------------------------
+CLAMP_MODES = ("full_edge", "partial_edge")
+
+
+def edge_span(mode: str, length: int) -> tuple[int, ...]:
+    """Which along-edge indices 0..length-1 participate in a clamp, for
+    the given mode.
+
+    'full_edge': every index, INCLUDING both ends (index 0 and
+    length-1) -- those two ends are exactly the corner cells shared with
+    a PERPENDICULAR neighbour's own span, which is what forces raster
+    order (see neighbour_clamp's docstring and the module docstring's A1
+    citation).
+
+    'partial_edge': every index EXCEPT the two ends -- omitting both
+    corners. A perpendicular neighbour's own span (also missing its own
+    two ends) can therefore never land on the same cell this one does.
+    """
+    if mode == "full_edge":
+        return tuple(range(length))
+    if mode == "partial_edge":
+        return tuple(range(1, length - 1))
+    raise ValueError(f"unknown clamp mode {mode!r} (expected one of {CLAMP_MODES})")
+
+
+NEIGHBOUR_DIRS = {"north": (0, -1), "south": (0, 1), "west": (-1, 0), "east": (1, 0)}
+
+
+def _set_or_check(clamp: dict[str, int], key: str, value: int, *, i: int, j: int) -> None:
+    """Write clamp[key] = value, unless a DIFFERENT value is already
+    there -- in which case two neighbours are naming the same cell with
+    disagreeing values, which is exactly A1's corner-disagreement hazard
+    generalised to any pair of perpendicular neighbours. Raised, not
+    silently overwritten (a plain `clamp[key] = value` here would let the
+    second neighbour's opinion quietly win, hiding the disagreement)."""
+    if key in clamp and clamp[key] != value:
+        raise ValueError(
+            f"clamp disagreement for chunk ({i},{j}) at cell {key}: "
+            f"{clamp[key]!r} vs {value!r} -- two neighbours name the same "
+            f"cell with different values")
+    clamp[key] = value
+
+
+def neighbour_clamp_free(i: int, j: int, chunks: Mapping[tuple[int, int], Mapping[str, int]],
+                          width: int, height: int, mode: str = "partial_edge") -> dict[str, int]:
+    """General, ANY-DIRECTION clamp for chunk (i, j): unlike
+    neighbour_clamp above (which only ever looks north/west, because
+    raster order guarantees those are the only neighbours that CAN exist
+    yet), this consults all FOUR possible neighbours -- north (i,j-1),
+    south (i,j+1), west (i-1,j), east (i+1,j) -- whichever are already
+    present in `chunks`. This is what makes free-order generation
+    possible at all: once generation order is arbitrary, a chunk can
+    equally well already have a south or east neighbour instead of (or as
+    well as) a north or west one.
+
+    Under mode='partial_edge' (the free-wandering default), no cell is
+    EVER named by two different neighbours (see edge_span's docstring) --
+    _set_or_check's disagreement branch is provably dead code for that
+    mode, but left active rather than removed, because "provably" here
+    rests on this function's own correctness, not something to take on
+    faith without a runtime check. Under mode='full_edge' the same corner
+    sharing A1 measured (52% disagreement between independent diagonal
+    neighbours) is very much still possible, and IS caught by
+    _set_or_check if it happens -- full_edge here is for
+    completeness/testing, not for free-order generation itself, which is
+    always called with partial_edge (see generate_chunk_free).
+    """
+    span_w = edge_span(mode, width)
+    span_h = edge_span(mode, height)
+    clamp: dict[str, int] = {}
+
+    north = chunks.get((i, j - 1))
+    if north is not None:
+        for x in span_w:
+            _set_or_check(clamp, f"g{x}_0", north[f"g{x}_{height - 1}"], i=i, j=j)
+
+    south = chunks.get((i, j + 1))
+    if south is not None:
+        for x in span_w:
+            _set_or_check(clamp, f"g{x}_{height - 1}", south[f"g{x}_0"], i=i, j=j)
+
+    west = chunks.get((i - 1, j))
+    if west is not None:
+        for y in span_h:
+            _set_or_check(clamp, f"g0_{y}", west[f"g{width - 1}_{y}"], i=i, j=j)
+
+    east = chunks.get((i + 1, j))
+    if east is not None:
+        for y in span_h:
+            _set_or_check(clamp, f"g{width - 1}_{y}", east[f"g0_{y}"], i=i, j=j)
+
+    return clamp
+
+
+def center_out_order(cols: int, rows: int):
+    """Chunk coordinates in EXPANDING RINGS outward from the grid's
+    centre -- a concrete NON-RASTER order (raster always starts at a
+    corner and sweeps row by row; this starts in the middle and grows
+    outward in every direction at once), used to demonstrate free
+    wandering. Visits every (i, j) in 0..cols-1 x 0..rows-1 exactly once.
+    For even cols/rows there is no single centre cell; ties resolve to
+    the lower/left candidate, deterministically but arbitrarily."""
+    cx, cy = (cols - 1) // 2, (rows - 1) // 2
+    max_r = max(cx, cols - 1 - cx, cy, rows - 1 - cy)
+    seen: set[tuple[int, int]] = set()
+    order: list[tuple[int, int]] = []
+    for r in range(max_r + 1):
+        for j in range(cy - r, cy + r + 1):
+            for i in range(cx - r, cx + r + 1):
+                if max(abs(i - cx), abs(j - cy)) != r:
+                    continue
+                if 0 <= i < cols and 0 <= j < rows and (i, j) not in seen:
+                    seen.add((i, j))
+                    order.append((i, j))
+    assert len(order) == cols * rows, (
+        f"center_out_order produced {len(order)} coords for a {cols}x{rows} "
+        f"grid -- must be exactly {cols * rows}")
+    return order
+
+
+# ---------------------------------------------------------------------------
 # Step 2: generate a chunk (sampling) -- reuses the verified simulate() +
 # is_codeword/decode/contract.validate path, nothing hand-rolled.
 # ---------------------------------------------------------------------------
@@ -267,6 +414,152 @@ def check_seams(chunks: Mapping[tuple[int, int], Mapping[str, int]], cols: int,
 
 
 # ---------------------------------------------------------------------------
+# Step 2b/3b: FREE WANDERING generation + seam validation (this task).
+#
+# check_seams above splits each boundary into a TRIVIAL half (the clamped
+# span, expected legal by construction) and an HONEST half (the first free
+# cell). That split assumed the OLD clamp shape: a FULL edge, so exactly
+# one boundary cell (the second column/row in) is ever free. Once the
+# clamped span can be PARTIAL (omit both corners), there are TWO free
+# cells per boundary, not one, and they sit at the two ENDS of the edge
+# (indices 0 and width/height-1) rather than just past one end -- so
+# _boundary_pairs below checks the WHOLE boundary, every cell, clamped or
+# not: the clamped middle cells are trivially legal (both sides were set
+# equal by the clamp) and cost nothing extra to include, and the free end
+# cells are exactly where a real violation could occur.
+# ---------------------------------------------------------------------------
+
+def _boundary_pairs(a: Mapping[str, int], b: Mapping[str, int], direction: str,
+                     width: int, height: int):
+    """The along-edge (value_a, value_b) pairs directly across the shared
+    boundary between chunk `a` and its neighbour `b` in `direction` (as
+    seen FROM a -- e.g. direction='east' means b is a's east neighbour).
+    Every cell along that edge, clamped or not."""
+    if direction == "north":
+        return [(a[f"g{x}_0"], b[f"g{x}_{height - 1}"]) for x in range(width)]
+    if direction == "south":
+        return [(a[f"g{x}_{height - 1}"], b[f"g{x}_0"]) for x in range(width)]
+    if direction == "west":
+        return [(a[f"g0_{y}"], b[f"g{width - 1}_{y}"]) for y in range(height)]
+    if direction == "east":
+        return [(a[f"g{width - 1}_{y}"], b[f"g0_{y}"]) for y in range(height)]
+    raise ValueError(f"unknown direction {direction!r} (expected one of {tuple(NEIGHBOUR_DIRS)})")
+
+
+def chunk_seam_illegal_pairs(a: Mapping[str, int], b: Mapping[str, int], direction: str,
+                              width: int, height: int):
+    """Illegal ({water, rock}) pairs across one chunk-pair boundary."""
+    return _pairs_illegal(_boundary_pairs(a, b, direction, width, height))
+
+
+def generate_chunk_free(receipt_dir, i, j, chunks, enc, spec, *, width=CHUNK_W,
+                         height=CHUNK_H, mode="partial_edge", seed_base=0,
+                         n_chains=6, n_samples=30, n_warmup=600,
+                         max_tries=4, max_resample=5):
+    """Generate chunk (i, j) against WHICHEVER of its up to four neighbours
+    already exist (neighbour_clamp_free, `mode`), then VALIDATE every
+    seam against those same existing neighbours and RE-SAMPLE (new seed,
+    same clamp -- the clamp itself never changes, only which draw is
+    accepted) up to `max_resample` times if any seam comes back illegal.
+    This is the mechanism the module docstring above promised: partial_edge
+    buys free direction at a small measured seam-violation rate rather
+    than raster order's structural 0%, so illegal seams are EXPECTED
+    occasionally and must be caught and retried, not assumed away.
+
+    Returns (decoded, n_resample, wall_time_s, seam_ok). seam_ok=False
+    means every attempt up to and including max_resample still had an
+    illegal seam against at least one existing neighbour -- reported to
+    the caller as a measured failure, never silently accepted or hidden.
+    Raises RuntimeError only for the (separate, rarer) case that NO valid
+    draw at all -- codeword and contract-passing -- turned up in
+    `max_tries` attempts on EVERY resample round; that is generate_chunk's
+    own pre-existing failure mode (infeasible clamp), not this task's.
+    """
+    clamp = neighbour_clamp_free(i, j, chunks, width, height, mode=mode)
+    existing_neighbours = [(d, (i + di, j + dj)) for d, (di, dj) in NEIGHBOUR_DIRS.items()
+                            if (i + di, j + dj) in chunks]
+
+    t0 = time.perf_counter()
+    decoded = None
+    for resample in range(max_resample + 1):
+        base_seed = seed_base + (j * 10_000 + i * 137) + resample * 991
+        decoded = None
+        for attempt in range(max_tries):
+            seed = base_seed + attempt * 97
+            _path, got, im = simulate(receipt_dir, n_chains=n_chains,
+                                      n_samples=n_samples, n_warmup=n_warmup,
+                                      seed=seed, clamp=clamp)
+            valid, _, _ = _classify(got, im, enc, spec)
+            if valid:
+                decoded = valid[0]
+                break
+        if decoded is None:
+            continue  # no valid (codeword+contract) draw at all this round; try again
+        illegal = []
+        for d, coord in existing_neighbours:
+            illegal += chunk_seam_illegal_pairs(decoded, chunks[coord], d, width, height)
+        if not illegal:
+            wall = time.perf_counter() - t0
+            return decoded, resample, wall, True
+
+    wall = time.perf_counter() - t0
+    if decoded is None:
+        raise RuntimeError(
+            f"chunk ({i},{j}): no valid draw in {max_resample + 1} resample "
+            f"rounds x {max_tries} attempts each (clamp={clamp}) -- an "
+            f"infeasible-clamp failure, not a seam failure")
+    return decoded, max_resample, wall, False
+
+
+def generate_world_free(receipt_dir, order, enc, spec, *, width=CHUNK_W,
+                         height=CHUNK_H, mode="partial_edge", seed_base=0,
+                         **gen_kwargs):
+    """Generate every chunk named in `order` (an explicit, caller-supplied
+    sequence of (i,j) coordinates -- e.g. center_out_order's non-raster
+    traversal), each against whichever of its neighbours are ALREADY in
+    `order` earlier than it. Returns (chunks dict, per-chunk log list of
+    dicts with coord/n_resample/wall_s/seam_ok)."""
+    chunks: dict[tuple[int, int], dict[str, int]] = {}
+    log = []
+    for (i, j) in order:
+        decoded, n_resample, wall, seam_ok = generate_chunk_free(
+            receipt_dir, i, j, chunks, enc, spec, width=width, height=height,
+            mode=mode, seed_base=seed_base, **gen_kwargs)
+        chunks[(i, j)] = decoded
+        log.append({"coord": (i, j), "n_resample": n_resample, "wall_s": wall,
+                     "seam_ok": seam_ok})
+    return chunks, log
+
+
+def check_seams_free(chunks: Mapping[tuple[int, int], Mapping[str, int]], cols: int,
+                      rows: int, width=CHUNK_W, height=CHUNK_H):
+    """Post-hoc validation of EVERY actually-adjacent chunk pair's FULL
+    boundary (see this section's own docstring for why the trivial/honest
+    split above doesn't apply once the clamped span can be partial), over
+    the FINAL assembled grid -- independent of generation order, so this
+    catches anything generate_chunk_free's own per-chunk checks might have
+    missed. Each physical seam is counted exactly once (checked from the
+    west/north side only)."""
+    bad = []
+    pairs_checked = 0
+    for j in range(rows):
+        for i in range(cols):
+            if (i, j) not in chunks:
+                continue
+            if (i + 1, j) in chunks:
+                pairs = _boundary_pairs(chunks[(i, j)], chunks[(i + 1, j)], "east", width, height)
+                pairs_checked += len(pairs)
+                for p in _pairs_illegal(pairs):
+                    bad.append({"seam": "h", "left": (i, j), "right": (i + 1, j), "pair": p})
+            if (i, j + 1) in chunks:
+                pairs = _boundary_pairs(chunks[(i, j)], chunks[(i, j + 1)], "south", width, height)
+                pairs_checked += len(pairs)
+                for p in _pairs_illegal(pairs):
+                    bad.append({"seam": "v", "top": (i, j), "bottom": (i, j + 1), "pair": p})
+    return {"pairs_checked": pairs_checked, "violations": bad}
+
+
+# ---------------------------------------------------------------------------
 # Step 4: render the stitched world with the EXISTING renderer
 # (lattice_app.render_world_image), called once per chunk and pasted.
 # ---------------------------------------------------------------------------
@@ -360,10 +653,97 @@ def main():
     }
 
 
+# ---------------------------------------------------------------------------
+# Script entry point -- FREE WANDERING demonstration (this task): a 3x3
+# world generated in a NON-RASTER order (centre-out), validating every
+# seam and re-sampling on failure, which the OLD full_edge/raster-only
+# path could never attempt at all.
+# ---------------------------------------------------------------------------
+
+def main_free():
+    spec = load_spec(str(Path(R) / "spec.yaml"))
+    enc = encode(spec, _selected_encoding(R))
+
+    cols = rows = 3
+    order = center_out_order(cols, rows)
+    print("=" * 70)
+    print(f"FREE WANDERING -- {cols}x{rows} chunk world ({cols*CHUNK_W}x{rows*CHUNK_H} "
+          f"cells), CENTRE-OUT order (non-raster; partial_edge clamps)")
+    print("=" * 70)
+    print(f"generation order: {order}")
+
+    t_total0 = time.perf_counter()
+    chunks, log = generate_world_free(R, order, enc, spec, seed_base=3_000_000,
+                                       mode="partial_edge")
+    total_wall = time.perf_counter() - t_total0
+
+    total_resamples = 0
+    chunks_needing_resample = 0
+    chunks_never_legal = 0
+    for entry in log:
+        i, j = entry["coord"]
+        tag = ""
+        if entry["n_resample"] > 0:
+            tag = f"  <-- {entry['n_resample']} RESAMPLE(S)"
+            chunks_needing_resample += 1
+            total_resamples += entry["n_resample"]
+        if not entry["seam_ok"]:
+            tag += "  <-- NEVER PRODUCED A LEGAL SEAM (reported, not hidden)"
+            chunks_never_legal += 1
+        print(f"  chunk ({i},{j}): {entry['wall_s']:.3f}s{tag}")
+
+    print()
+    print(f"total wall time ({cols*rows} chunks): {total_wall:.3f}s")
+    print(f"chunks needing >=1 resample: {chunks_needing_resample}/{len(log)}")
+    print(f"total resample attempts across all chunks: {total_resamples}")
+    print(f"chunks that never produced a legal seam within the cap: "
+          f"{chunks_never_legal}/{len(log)}")
+
+    print()
+    print("-" * 70)
+    print("post-hoc seam validation (every adjacent pair, full boundary)")
+    print("-" * 70)
+    seams = check_seams_free(chunks, cols, rows)
+    print(f"{len(seams['violations'])} violations across "
+          f"{seams['pairs_checked']} boundary cell-pairs checked")
+    if seams["violations"]:
+        print("  VIOLATIONS (reported, not hidden):")
+        for v in seams["violations"]:
+            print(f"    {v}")
+    else:
+        print("  no seam violations found in this world (post-hoc, whole-grid check)")
+
+    out_path = "demo/world_free.png"
+    render_multichunk(chunks, cols, rows, out_path)
+    print()
+    print(f"rendered -> {out_path}")
+
+    return {
+        "cols": cols, "rows": rows, "order": order,
+        "total_wall_s": total_wall,
+        "n_chunks": len(log),
+        "chunks_needing_resample": chunks_needing_resample,
+        "total_resamples": total_resamples,
+        "chunks_never_legal": chunks_never_legal,
+        "seams": {
+            "pairs_checked": seams["pairs_checked"],
+            "violations": len(seams["violations"]),
+        },
+    }
+
+
 if __name__ == "__main__":
     result = main()
     print()
     print("=" * 70)
-    print("SUMMARY")
+    print("SUMMARY (raster / full_edge)")
     print("=" * 70)
     print(json.dumps(result, indent=2, default=str))
+
+    print()
+    result_free = main_free()
+    print()
+    print("=" * 70)
+    print("SUMMARY (free wandering / partial_edge)")
+    print("=" * 70)
+    print(json.dumps(result_free, indent=2, default=str))

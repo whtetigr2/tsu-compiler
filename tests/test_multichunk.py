@@ -118,3 +118,158 @@ def test_neighbour_clamp_ignores_diagonal_and_far_chunks():
     far = _uniform(3)
     clamp = mc.neighbour_clamp(1, 1, {(0, 0): diagonal, (2, 2): far}, W, H)
     assert clamp == {}
+
+
+# ---------------------------------------------------------------------------
+# This task: edge_span -- which along-edge indices a clamp mode covers.
+# ---------------------------------------------------------------------------
+
+def test_edge_span_full_edge_includes_both_ends():
+    assert mc.edge_span("full_edge", 8) == tuple(range(8))
+    assert 0 in mc.edge_span("full_edge", 8)
+    assert 7 in mc.edge_span("full_edge", 8)
+
+
+def test_edge_span_partial_edge_excludes_both_ends():
+    span = mc.edge_span("partial_edge", 8)
+    assert span == (1, 2, 3, 4, 5, 6)
+    assert 0 not in span
+    assert 7 not in span
+    assert len(span) == 6
+
+
+def test_edge_span_unknown_mode_raises():
+    with pytest.raises(ValueError, match="unknown clamp mode"):
+        mc.edge_span("diagonal_edge", 8)
+
+
+# ---------------------------------------------------------------------------
+# This task: neighbour_clamp_free -- the general 4-direction clamp,
+# tested per direction and per mode. This is the bookkeeping the free-
+# wandering demo below runs on.
+# ---------------------------------------------------------------------------
+
+def test_neighbour_clamp_free_no_neighbours_is_empty():
+    assert mc.neighbour_clamp_free(1, 1, {}, W, H) == {}
+
+
+def test_neighbour_clamp_free_north_only_partial_edge_excludes_row_ends():
+    north_nb = _uniform(1)
+    clamp = mc.neighbour_clamp_free(1, 1, {(1, 0): north_nb}, W, H, mode="partial_edge")
+    assert set(clamp) == {f"g{x}_0" for x in range(1, 7)}
+    assert "g0_0" not in clamp
+    assert "g7_0" not in clamp
+
+
+def test_neighbour_clamp_free_south_only_partial_edge_excludes_row_ends():
+    south_nb = _uniform(2)
+    clamp = mc.neighbour_clamp_free(1, 1, {(1, 2): south_nb}, W, H, mode="partial_edge")
+    assert set(clamp) == {f"g{x}_{H-1}" for x in range(1, 7)}
+    assert f"g0_{H-1}" not in clamp
+    assert f"g7_{H-1}" not in clamp
+
+
+def test_neighbour_clamp_free_west_only_partial_edge_excludes_column_ends():
+    west_nb = _uniform(0)
+    clamp = mc.neighbour_clamp_free(1, 1, {(0, 1): west_nb}, W, H, mode="partial_edge")
+    assert set(clamp) == {f"g0_{y}" for y in range(1, 7)}
+    assert "g0_0" not in clamp
+    assert "g0_7" not in clamp
+
+
+def test_neighbour_clamp_free_east_only_partial_edge_excludes_column_ends():
+    east_nb = _uniform(1)
+    clamp = mc.neighbour_clamp_free(1, 1, {(2, 1): east_nb}, W, H, mode="partial_edge")
+    assert set(clamp) == {f"g{W-1}_{y}" for y in range(1, 7)}
+    assert f"g{W-1}_0" not in clamp
+    assert f"g{W-1}_7" not in clamp
+
+
+def test_neighbour_clamp_free_north_and_west_partial_edge_share_no_cell():
+    # The exact bookkeeping property this task asks for: a chunk with
+    # north AND west neighbours, under partial_edge, has NO cell named by
+    # both clamps -- deliberately built with DISAGREEING corner-adjacent
+    # data (uniform 0 vs uniform 1) to prove it's a structural absence of
+    # overlap, not an accidental agreement.
+    north_nb = _uniform(0)
+    west_nb = _uniform(1)
+    clamp = mc.neighbour_clamp_free(1, 1, {(1, 0): north_nb, (0, 1): west_nb},
+                                     W, H, mode="partial_edge")
+    north_keys = {f"g{x}_0" for x in range(1, 7)}
+    west_keys = {f"g0_{y}" for y in range(1, 7)}
+    assert north_keys & west_keys == set()
+    assert set(clamp) == north_keys | west_keys
+    assert "g0_0" not in clamp  # the corner cell itself: named by neither
+
+
+def test_neighbour_clamp_free_full_edge_north_west_disagreement_raises():
+    # Same disagreeing neighbours as above, but under full_edge -- where
+    # the corner IS shared, so the disagreement must be caught (this is
+    # A1's 52%-disagreement hazard, reproduced deliberately).
+    north_nb = _uniform(0)
+    west_nb = _uniform(1)
+    with pytest.raises(ValueError, match="disagreement"):
+        mc.neighbour_clamp_free(1, 1, {(1, 0): north_nb, (0, 1): west_nb},
+                                 W, H, mode="full_edge")
+
+
+def test_neighbour_clamp_free_full_edge_north_west_agreement_is_fine():
+    # Consistent corner -> no error, corner IS in the clamp (unlike
+    # partial_edge), and its value is the one both neighbours name.
+    grid = {f"g{x}_{y}": (x + y) % 3 for x in range(W) for y in range(H)}
+    corner_value = grid[f"g{W-1}_{H-1}"]
+    north_nb = dict(grid)
+    west_nb = dict(grid)
+    clamp = mc.neighbour_clamp_free(1, 1, {(1, 0): north_nb, (0, 1): west_nb},
+                                     W, H, mode="full_edge")
+    assert clamp["g0_0"] == north_nb[f"g0_{H-1}"] == west_nb[f"g{W-1}_0"]
+
+
+def test_neighbour_clamp_free_all_four_neighbours_partial_edge_no_collision():
+    # All four directions present at once (only possible under free
+    # generation order, never under raster) -- opposite pairs write
+    # different rows/columns so can never collide either way; this just
+    # confirms the combined call doesn't raise and covers every expected
+    # cell.
+    n = _uniform(0)
+    s = _uniform(1)
+    w = _uniform(2)
+    e = _uniform(0)  # deliberately == north's value; must not matter,
+    # n and e never touch the same key regardless
+    clamp = mc.neighbour_clamp_free(
+        1, 1, {(1, 0): n, (1, 2): s, (0, 1): w, (2, 1): e}, W, H, mode="partial_edge")
+    expected = ({f"g{x}_0" for x in range(1, 7)} | {f"g{x}_{H-1}" for x in range(1, 7)}
+                | {f"g0_{y}" for y in range(1, 7)} | {f"g{W-1}_{y}" for y in range(1, 7)})
+    assert set(clamp) == expected
+
+
+# ---------------------------------------------------------------------------
+# This task: center_out_order -- a concrete non-raster traversal.
+# ---------------------------------------------------------------------------
+
+def test_center_out_order_3x3_starts_at_centre():
+    order = mc.center_out_order(3, 3)
+    assert order[0] == (1, 1)
+
+
+def test_center_out_order_3x3_visits_every_cell_exactly_once():
+    order = mc.center_out_order(3, 3)
+    assert len(order) == 9
+    assert set(order) == {(i, j) for i in range(3) for j in range(3)}
+
+
+def test_center_out_order_is_not_raster_order():
+    order = mc.center_out_order(3, 3)
+    assert order != list(mc.raster_order(3, 3))
+    # raster order's first coordinate is always the top-left corner (0,0);
+    # center_out's is the centre -- the concrete, checkable difference
+    # that makes this order actually "non-raster", not just differently
+    # shuffled.
+    assert list(mc.raster_order(3, 3))[0] == (0, 0)
+    assert order[0] == (1, 1)
+
+
+def test_center_out_order_non_square_grid():
+    order = mc.center_out_order(4, 2)
+    assert len(order) == 8
+    assert set(order) == {(i, j) for i in range(4) for j in range(2)}

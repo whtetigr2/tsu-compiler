@@ -108,6 +108,49 @@ CLAMP_N_CHAINS = 6
 CLAMP_N_SAMPLES = 30
 CLAMP_N_WARMUP = 600
 
+# --------------------------------------------------------------------------
+# UI2: speed control. This is a DISPLAY-RATE knob only. It varies n_chains
+# and n_samples per worker call (how much of a batch gets pulled and pushed
+# to the UI before the worker looks at pause/stop again) plus an explicit
+# inter-batch delay -- never n_warmup or steps_per_sample. Those two are
+# what determine the equilibrium distribution being sampled from (spec
+# 5.3); n_chains/n_samples are just how many i.i.d.-ish draws are taken per
+# call, a pure batching knob. Measured directly on this receipt
+# (PYTHONIOENCODING=utf-8 ... -- see ui2-report.md): with n_warmup=600
+# fixed, a clamped call's wall time is ~0.4s steady-state (after JAX's
+# one-time JIT compile per distinct (n_chains, n_samples) shape, itself
+# ~1.4-1.7s the FIRST time that shape is used) REGARDLESS of n_samples
+# from 2 to 30 -- warmup dominates, not sample count. So shrinking
+# n_samples here does not, by itself, shrink worst-case Pause latency; it
+# controls how many rows land in the queue per completed call (display
+# density) and, combined with delay_s, how fast the world visibly fills
+# in. The actual Pause-latency fix is structural (see should_abort_batch
+# below): each row is pushed only after re-checking pause, so a completed
+# batch stops contributing to the display within, at most, the single row
+# that was already mid-push when Pause was clicked -- not the rest of the
+# batch trailing out afterward.
+SPEED_LEVELS = (
+    {"label": "Slow (~1 batch/s, for watching)",
+     "chains": 1, "clamp_samples": 3, "delay_s": 1.00},
+    {"label": "Medium",
+     "chains": 2, "clamp_samples": 8, "delay_s": 0.35},
+    {"label": "Fast",
+     "chains": 4, "clamp_samples": 16, "delay_s": 0.05},
+    {"label": "Full speed",
+     "chains": BATCH_CHAINS, "clamp_samples": CLAMP_N_SAMPLES, "delay_s": 0.0},
+)
+DEFAULT_SPEED_IDX = len(SPEED_LEVELS) - 1  # Full speed -- matches pre-UI2 behaviour
+
+
+def speed_level(idx: int) -> dict:
+    """SPEED_LEVELS[idx], clamping idx into range -- pure, headlessly
+    tested (tests/test_lattice_app_logic.py). Every entry's keys are
+    exactly {"label", "chains", "clamp_samples", "delay_s"}: no entry can
+    smuggle in an n_warmup or steps_per_sample override, which is the
+    structural guarantee that this control cannot touch the statistics."""
+    idx = max(0, min(idx, len(SPEED_LEVELS) - 1))
+    return SPEED_LEVELS[idx]
+
 
 # --------------------------------------------------------------------------
 # pure logic: pin bookkeeping, canvas-click -> grid-cell mapping, and
@@ -418,6 +461,24 @@ def classify_draw(receipt: Receipt, row: np.ndarray, seed: int) -> dict:
             "image": image, "mix": mix}
 
 
+def should_abort_batch(*, stopping: bool, paused: bool, is_step: bool) -> bool:
+    """UI2: the pure decision inside a batch's row-by-row push loop --
+    True means "stop pushing further rows from the batch that is ALREADY
+    computed and in hand, right now." Checked BEFORE each row is pushed
+    (not after, which is what let a few already-computed rows keep
+    appearing after Pause was clicked -- see the responsive-pause note in
+    ui2-report.md). `stopping` (worker tear-down) always wins. `paused`
+    aborts too, UNLESS this call is an explicit Step: Step's entire point
+    is to push its one batch even though the worker is sitting paused, so
+    a Step-triggered batch is never cut short by the pause flag it was
+    called under."""
+    if stopping:
+        return True
+    if paused and not is_step:
+        return True
+    return False
+
+
 # --------------------------------------------------------------------------
 # worker thread -- the ONLY thing that calls thrml_sample; never touches Tk
 # --------------------------------------------------------------------------
@@ -434,26 +495,62 @@ class SampleWorker(threading.Thread):
     how to translate through `enc.encode_clamp` and repartition via
     `analyse`/`build_program`; this worker never touches that machinery
     itself, only calls `simulate` and classifies what comes back with the
-    same `classify_draw` the unclamped path uses. Larger batch (verified:
-    n_chains=6, n_samples=30, n_warmup=600 -> ~1.4s) because a pin change is
-    a deliberate, infrequent action, not a per-tick refresh -- the app can
-    afford to answer "does this clamp even have a valid world" from a solid
-    batch rather than trickling one draw at a time.
+    same `classify_draw` the unclamped path uses. Larger batch than the
+    unclamped per-tick call (below) because a pin change is a deliberate,
+    infrequent action, not a per-tick refresh -- the app can afford to
+    answer "does this clamp even have a valid world" from a solid batch
+    rather than trickling one draw at a time. EXACTLY how large is now the
+    active SPEED_LEVELS entry's `clamp_samples`, not a fixed constant --
+    see the UI2 note above SPEED_LEVELS.
+
+    UI2 (responsive pause + speed control): `speed_idx` selects a
+    SPEED_LEVELS entry read fresh at the start of every batch (a live
+    slider change takes effect on the NEXT batch, not the one already in
+    flight -- see `set_speed`). `step_evt`, when set while `pause` is also
+    set, runs exactly one more batch at the current speed and re-pauses --
+    this is the Step button. Neither of those, nor anything else in this
+    class, ever changes n_warmup or steps_per_sample: those two alone
+    determine what is being sampled (spec 5.3), so they are read from the
+    fixed N_WARMUP/CLAMP_N_WARMUP/STEPS_PER_SAMPLE constants everywhere,
+    never from a speed level.
     """
 
     def __init__(self, receipt: Receipt, out_q: "queue.Queue[dict]", seed_base: int,
-                 clamp: dict[str, int] | None = None, start_paused: bool = False):
+                 clamp: dict[str, int] | None = None, start_paused: bool = False,
+                 speed_idx: int = DEFAULT_SPEED_IDX):
         super().__init__(daemon=True)
         self.receipt = receipt
         self.q = out_q
         self.pause = threading.Event()
         self.stop_evt = threading.Event()
+        self.step_evt = threading.Event()  # UI2: Step button, see run()
         if start_paused:
             self.pause.set()
         self.seed_base = seed_base
         self.clamp = dict(clamp) if clamp else None
         self.draw_counter = 0
         self.batch_counter = 0
+        # UI2: plain int attribute, mutated live from the UI thread via
+        # set_speed(). CPython's GIL makes a single attribute write/read
+        # atomic -- the same reasoning this class already relies on for
+        # `clamp` being safe to read from the worker thread after
+        # construction; `pause`/`stop_evt`/`step_evt` use threading.Event
+        # instead because they need blocking-wait semantics, which a plain
+        # attribute doesn't give you -- speed_idx only ever needs the
+        # latest value, so a plain attribute is the right tool.
+        self.speed_idx = speed_idx
+
+    def set_speed(self, idx: int) -> None:
+        """UI2: live speed change from the UI thread. Takes effect at the
+        start of the next batch (see run()/_pace_delay) -- never
+        interrupts a batch already in flight."""
+        self.speed_idx = idx
+
+    def request_step(self) -> None:
+        """UI2: Step button. Only has an effect while paused (see run());
+        harmless no-op otherwise beyond leaving the flag set, which the
+        next pause-and-check cycle will consume."""
+        self.step_evt.set()
 
     def _put(self, msg: dict) -> None:
         while not self.stop_evt.is_set():
@@ -463,28 +560,58 @@ class SampleWorker(threading.Thread):
             except queue.Full:
                 continue
 
-    def _classify_and_push(self, row, seed) -> dict:
+    def _classify_and_push(self, row, seed, sampler_params: dict) -> dict:
         self.draw_counter += 1
         d = classify_draw(self.receipt, row, seed)
         d["draw_idx"] = self.draw_counter
+        # UI2: the ACTUAL n_chains/n_samples this particular draw came
+        # from, not a fixed constant -- speed control makes those vary
+        # batch to batch, and Save World (below) must record what really
+        # produced the saved grid, not what Full speed would have used.
+        d["sampler_params"] = sampler_params
         self._put(d)
         return d
 
     def run(self) -> None:
         while not self.stop_evt.is_set():
             if self.pause.is_set():
-                time.sleep(0.08)
+                if self.step_evt.is_set():
+                    self.step_evt.clear()
+                    self._run_one_batch(is_step=True)
+                else:
+                    time.sleep(0.05)
                 continue
-            if self.clamp:
-                self._run_clamped_batch()
-            else:
-                self._run_unclamped_tick()
+            self._run_one_batch(is_step=False)
+            self._pace_delay()
 
-    def _run_unclamped_tick(self) -> None:
+    def _run_one_batch(self, is_step: bool) -> None:
+        if self.clamp:
+            self._run_clamped_batch(is_step)
+        else:
+            self._run_unclamped_tick(is_step)
+
+    def _pace_delay(self) -> None:
+        """UI2 speed control: sleep out the CURRENT speed level's
+        inter-batch delay in short slices, checking pause/stop between each
+        slice, so a Pause click (or a mid-delay speed change) lands within
+        ~50ms rather than blocking through a bare time.sleep(delay_s) --
+        never a busy-wait, never a blind sleep either. Runs strictly
+        BETWEEN batches, after a batch's own draws are already pushed, so
+        it paces the DISPLAY only -- it cannot alter what gets sampled."""
+        remaining = speed_level(self.speed_idx)["delay_s"]
+        while remaining > 0 and not self.stop_evt.is_set() and not self.pause.is_set():
+            chunk = min(0.05, remaining)
+            time.sleep(chunk)
+            remaining -= chunk
+
+    def _run_unclamped_tick(self, is_step: bool = False) -> None:
+        n_chains = speed_level(self.speed_idx)["chains"]
+        sampler_params = {"n_chains": n_chains, "n_samples_per_call": N_SAMPLES_PER_CALL,
+                           "n_warmup": N_WARMUP, "steps_per_sample": STEPS_PER_SAMPLE}
         seed = self.seed_base + self.draw_counter
         try:
             rows = thrml_sample(self.receipt.sampling_program,
-                                 n_chains=BATCH_CHAINS,
+                                 n_chains=n_chains,
                                  n_samples=N_SAMPLES_PER_CALL,
                                  n_warmup=N_WARMUP,
                                  steps_per_sample=STEPS_PER_SAMPLE,
@@ -494,21 +621,26 @@ class SampleWorker(threading.Thread):
             self.stop_evt.set()
             return
         for row in rows:
-            if self.stop_evt.is_set():
+            # UI2: checked BEFORE pushing, not after -- see
+            # should_abort_batch's docstring for why this is the actual
+            # responsive-pause fix, not just the speed control.
+            if should_abort_batch(stopping=self.stop_evt.is_set(),
+                                   paused=self.pause.is_set(), is_step=is_step):
                 return
-            self._classify_and_push(row, seed)
-            if self.pause.is_set() or self.stop_evt.is_set():
-                break
+            self._classify_and_push(row, seed, sampler_params)
 
-    def _run_clamped_batch(self) -> None:
+    def _run_clamped_batch(self, is_step: bool = False) -> None:
         from tsu.simulate import simulate  # local: keeps this app's only
         # entry point into clamping right here, next to the docstring above
+        n_samples = speed_level(self.speed_idx)["clamp_samples"]
+        sampler_params = {"n_chains": CLAMP_N_CHAINS, "n_samples": n_samples,
+                           "n_warmup": CLAMP_N_WARMUP, "steps_per_sample": STEPS_PER_SAMPLE}
         self.batch_counter += 1
         seed = self.seed_base + self.batch_counter
         try:
             _path, got, _im = simulate(str(self.receipt.path),
                                         n_chains=CLAMP_N_CHAINS,
-                                        n_samples=CLAMP_N_SAMPLES,
+                                        n_samples=n_samples,
                                         n_warmup=CLAMP_N_WARMUP,
                                         steps_per_sample=STEPS_PER_SAMPLE,
                                         seed=seed, clamp=self.clamp)
@@ -518,11 +650,10 @@ class SampleWorker(threading.Thread):
             return
         draws = []
         for row in got:
-            if self.stop_evt.is_set():
-                return
-            draws.append(self._classify_and_push(row, seed))
-            if self.pause.is_set() or self.stop_evt.is_set():
+            if should_abort_batch(stopping=self.stop_evt.is_set(),
+                                   paused=self.pause.is_set(), is_step=is_step):
                 break
+            draws.append(self._classify_and_push(row, seed, sampler_params))
         infeasible, reason = batch_feasibility(draws)
         valid = sum(1 for d in draws if d["kind"] == "valid")
         self._put({"kind": "batch_summary", "infeasible": infeasible, "reason": reason,
@@ -570,6 +701,8 @@ class LatticeApp(tk.Tk):
 
         self.in_q: "queue.Queue[dict]" = queue.Queue(maxsize=64)
         self.paused = False
+        self.speed_idx = DEFAULT_SPEED_IDX  # UI2: survives worker restarts
+        # (pin change / new seed) -- threaded through _start_worker below.
         self.total_draws = 0
         self.valid_count = 0
         self.contract_fail_count = 0
@@ -577,6 +710,7 @@ class LatticeApp(tk.Tk):
         self.last_valid_grid = None
         self.last_valid_mix = None
         self.last_valid_seed = None  # seed of the draw last_valid_grid came from
+        self.last_valid_sampler_params = None  # UI2: what actually drew it
         self.world_photo = None  # keep a reference; Tk drops PhotoImages with none
         self.log_lines: deque = deque(maxlen=400)
 
@@ -689,8 +823,42 @@ class LatticeApp(tk.Tk):
                                    activeforeground=FG, relief="flat", padx=12, pady=4,
                                    state="disabled")
         self.save_btn.pack(side="left", padx=(6, 0))
+        # UI2: Step -- runs exactly one batch and re-pauses, for
+        # frame-by-frame inspection. Pauses first if currently playing,
+        # since "step" only means something from a stopped state.
+        self.step_btn = tk.Button(bottom, text="Step", command=self._on_step,
+                                   bg=PANEL_BG, fg=FG, activebackground=BORDER,
+                                   activeforeground=FG, relief="flat", padx=12, pady=4)
+        self.step_btn.pack(side="left", padx=(6, 0))
+
+        # UI2: speed control -- a stepped selector (Scale in integer,
+        # snap-to-level mode) over SPEED_LEVELS, DISPLAY RATE ONLY. Says so
+        # right in the UI, not just in a code comment: this control changes
+        # n_chains/n_samples per call and the pause between calls, never
+        # n_warmup or steps_per_sample -- so it cannot change what is being
+        # sampled, only how fast the same distribution scrolls by.
+        speed_frame = tk.Frame(bottom, bg=BG)
+        speed_frame.pack(side="left", padx=(16, 0))
+        tk.Label(speed_frame, text="speed:", bg=BG, fg=DIM,
+                  font=("Consolas", 8)).pack(side="left")
+        # speed_label is created BEFORE the Scale's initial .set() below --
+        # tk.Scale.set() can invoke -command synchronously even for a
+        # programmatic change, and _on_speed_change/_refresh_speed_label
+        # both write to self.speed_label, so it must already exist.
+        self.speed_label = tk.Label(speed_frame, text="", bg=BG, fg=DIM,
+                                      font=("Consolas", 8), justify="left")
+        self.speed_scale = tk.Scale(
+            speed_frame, from_=0, to=len(SPEED_LEVELS) - 1, orient="horizontal",
+            resolution=1, showvalue=0, length=140, bg=BG, fg=FG,
+            troughcolor=PANEL_BG, highlightthickness=0, bd=0,
+            command=self._on_speed_change)
+        self.speed_scale.set(self.speed_idx)
+        self.speed_scale.pack(side="left", padx=(4, 4))
+        self.speed_label.pack(side="left")
+        self._refresh_speed_label()
+
         tk.Label(bottom, text=FOOTER_TEXT, bg=BG, fg=DIM,
-                  font=("Consolas", 8), wraplength=1000, justify="left"
+                  font=("Consolas", 8), wraplength=900, justify="left"
                   ).pack(side="left", padx=(16, 0))
 
     # -- static (receipt-only) panel content --------------------------
@@ -849,16 +1017,20 @@ class LatticeApp(tk.Tk):
                   bg=PANEL_BG, fg=WARN, font=("Consolas", 8), anchor="w",
                   justify="left", wraplength=395).pack(fill="x", pady=(4, 0))
         tk.Label(sf, text=f"live sampler settings (this app, not the receipt) -- "
-                           f"UNPINNED: n_chains/call={BATCH_CHAINS}, n_warmup={N_WARMUP}, "
-                           f"n_samples/call={N_SAMPLES_PER_CALL}",
+                           f"UNPINNED at Full speed: n_chains/call={BATCH_CHAINS}, "
+                           f"n_warmup={N_WARMUP}, n_samples/call={N_SAMPLES_PER_CALL}",
                   bg=PANEL_BG, fg=DIM, font=("Consolas", 8), anchor="w",
                   justify="left", wraplength=395).pack(fill="x", pady=(4, 0))
-        tk.Label(sf, text=f"PINNED (via simulate(clamp=...), one batch per pin "
-                           f"change): n_chains/call={CLAMP_N_CHAINS}, "
+        tk.Label(sf, text=f"PINNED at Full speed (via simulate(clamp=...), one batch "
+                           f"per pin change): n_chains/call={CLAMP_N_CHAINS}, "
                            f"n_warmup={CLAMP_N_WARMUP}, n_samples/call={CLAMP_N_SAMPLES}",
                   bg=PANEL_BG, fg=DIM, font=("Consolas", 8), anchor="w",
                   justify="left", wraplength=395).pack(fill="x", pady=(2, 0))
-        tk.Label(sf, text=f"both: steps_per_sample(thinning)={STEPS_PER_SAMPLE}",
+        tk.Label(sf, text=f"both: steps_per_sample(thinning)={STEPS_PER_SAMPLE} -- "
+                           f"n_warmup and steps_per_sample are FIXED at every speed "
+                           f"(see speed control in the bottom bar): only n_chains/call "
+                           f"and n_samples/call scale down below Full, which changes "
+                           f"batch size/display rate, never the sampled distribution.",
                   bg=PANEL_BG, fg=DIM, font=("Consolas", 8), anchor="w",
                   justify="left", wraplength=395).pack(fill="x", pady=(2, 0))
 
@@ -1047,6 +1219,10 @@ class LatticeApp(tk.Tk):
             self.last_valid_grid = msg["grid"]
             self.last_valid_mix = msg["mix"]
             self.last_valid_seed = msg["seed"]
+            # UI2: the ACTUAL per-call sampler params for THIS draw (varies
+            # with the speed control) -- Save World below reports this, not
+            # a Full-speed constant that may not be what actually ran.
+            self.last_valid_sampler_params = msg.get("sampler_params")
             self.world_stale = False
             # A fresh valid draw under the CURRENT clamp is direct proof
             # that clamp is feasible -- don't let a stale "infeasible" verdict
@@ -1197,16 +1373,21 @@ class LatticeApp(tk.Tk):
         # worldfile.py's format expects (values[y*width + x]).
         values = grid.flatten().tolist()
         clamp = self.clamp.as_dict()
-        if clamp:
-            sampler_params = {
-                "n_chains": CLAMP_N_CHAINS, "n_samples": CLAMP_N_SAMPLES,
-                "n_warmup": CLAMP_N_WARMUP, "steps_per_sample": STEPS_PER_SAMPLE,
-            }
-        else:
-            sampler_params = {
-                "n_chains": BATCH_CHAINS, "n_samples_per_call": N_SAMPLES_PER_CALL,
-                "n_warmup": N_WARMUP, "steps_per_sample": STEPS_PER_SAMPLE,
-            }
+        # UI2: report what ACTUALLY produced this grid -- captured off the
+        # worker message when this draw arrived (see _handle_msg), which
+        # reflects whatever speed level was active for that batch, not a
+        # Full-speed constant that may be wrong if the speed control was
+        # touched. Fall back to the Full-speed constants only in the
+        # (should-be-impossible-given the save button's own guard)
+        # case that a valid grid exists with no recorded sampler_params.
+        sampler_params = self.last_valid_sampler_params
+        if sampler_params is None:
+            sampler_params = (
+                {"n_chains": CLAMP_N_CHAINS, "n_samples": CLAMP_N_SAMPLES,
+                 "n_warmup": CLAMP_N_WARMUP, "steps_per_sample": STEPS_PER_SAMPLE}
+                if clamp else
+                {"n_chains": BATCH_CHAINS, "n_samples_per_call": N_SAMPLES_PER_CALL,
+                 "n_warmup": N_WARMUP, "steps_per_sample": STEPS_PER_SAMPLE})
         saved_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         seed = self.last_valid_seed if self.last_valid_seed is not None else -1
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
@@ -1241,6 +1422,35 @@ class LatticeApp(tk.Tk):
             self.worker.pause.clear()
             self.pause_btn.config(text="Pause")
 
+    def _on_step(self):
+        """UI2: Step -- pause first if currently playing (stepping only
+        means something from a stopped state), then ask the worker for
+        exactly one batch. The worker consumes step_evt itself (see
+        SampleWorker.run) -- this method never runs a batch directly."""
+        if not self.paused:
+            self._toggle_pause()
+        self.worker.request_step()
+
+    def _on_speed_change(self, value):
+        """UI2: speed slider moved. Updates both the app's own remembered
+        speed_idx (so a later pin-change/new-seed worker restart carries it
+        forward -- see _start_worker) and the LIVE worker in place, which
+        picks it up at the start of its next batch (see
+        SampleWorker.set_speed's docstring: never interrupts an in-flight
+        batch)."""
+        self.speed_idx = int(round(float(value)))
+        if hasattr(self, "worker"):  # guard: Tk's Scale.set() during layout
+            self.worker.set_speed(self.speed_idx)  # construction can fire
+        self._refresh_speed_label()  # -command before self.worker exists
+
+    def _refresh_speed_label(self):
+        lvl = speed_level(self.speed_idx)
+        pace = "no inter-batch delay" if lvl["delay_s"] == 0 else f"+{lvl['delay_s']:.2f}s between batches"
+        self.speed_label.config(
+            text=f"{lvl['label']}  (n_chains/call={lvl['chains']}, "
+                 f"clamp n_samples/call={lvl['clamp_samples']}, {pace} -- "
+                 f"display rate only, n_warmup/steps_per_sample unchanged)")
+
     def _stop_and_drain_worker(self):
         old = self.worker
         old.stop_evt.set()
@@ -1255,7 +1465,8 @@ class LatticeApp(tk.Tk):
     def _start_worker(self, seed_base: int):
         clamp = self.clamp.as_dict() or None
         self.worker = SampleWorker(self.receipt, self.in_q, seed_base=seed_base,
-                                    clamp=clamp, start_paused=self.paused)
+                                    clamp=clamp, start_paused=self.paused,
+                                    speed_idx=self.speed_idx)
         self.worker.start()
 
     def _new_seed(self):
@@ -1269,6 +1480,7 @@ class LatticeApp(tk.Tk):
         self.noncodeword_count = 0
         self.last_valid_grid = None
         self.last_valid_mix = None
+        self.last_valid_sampler_params = None
         self.world_photo = None
         self.world_stale = False
         self.batch_infeasible = False
