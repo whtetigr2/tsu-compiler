@@ -23,8 +23,9 @@ import networkx as nx
 
 from ..failures import CompileError, Offender, PlacementFailure, Remediation
 from ..target import TargetProfile
-from .analyse import GraphReport
+from .analyse import GraphReport, analyse
 from .lower import IsingModel
+from .route import MediationReport, insert_mediators
 
 # The four unit steps of an axis-aligned 2D grid. Z1's offset set (rotations of
 # (1,0)) always contains these, so any interaction graph that is a subgraph of the
@@ -110,6 +111,18 @@ class Placement:
     coords: dict           # node index -> (x, y); empty for targets with no lattice
     realized: tuple        # edges placed on a legal offset
     unrealized: tuple      # edges that could not be
+    # Task 6 (spec 5.3.6): set exactly when `place` had to mediate a
+    # non-bipartite graph to reach this placement. `mediated_ising`/
+    # `mediated_report` are the model/report every downstream pass (route,
+    # build_program, and this candidate's own regime/receipt) must use from
+    # this point on -- coords/realized/unrealized above are already indexed
+    # against `mediated_ising`'s (larger) node set whenever this is set, not
+    # the pre-mediation `ising` the caller passed in. None/None for a
+    # placement that needed no mediation at all (already bipartite, or the
+    # target does not require it).
+    mediation: MediationReport | None = None
+    mediated_ising: IsingModel | None = None
+    mediated_report: GraphReport | None = None
 
 
 def _anneal(G, offsets, side, iters, seed):
@@ -137,39 +150,7 @@ def _anneal(G, offsets, side, iters, seed):
     return coords, cur
 
 
-def place(ising: IsingModel, report: GraphReport, target: TargetProfile,
-         *, restarts: int = 6, iters: int = 40_000) -> Placement:
-    """`restarts`/`iters` tune ONLY the annealer fallback's effort budget (default
-    6 x 40,000, the production budget). They exist so a test can force a small,
-    deterministic effort budget without touching production behaviour -- see
-    `placement_effort_exhausted` below, which names running out of THIS budget,
-    not a claim about the substrate.
-    """
-    n = len(ising.nodes)
-
-    if report.max_degree > target.degree.value:
-        offenders = tuple(
-            Offender("node", f"{ising.nodes[i]} (degree {d})")
-            for i, d in nx.Graph(list(ising.edges)).degree()
-            if d > target.degree.value)
-        raise CompileError(
-            "placement failed: degree exceeded",
-            [PlacementFailure(
-                failure_class="degree_exceeded",
-                offending=offenders or (Offender("node", "unknown"),),
-                measured=report.max_degree, limit=target.degree.value,
-                assumed=target.is_assumed("degree"),
-                remediations=(
-                    Remediation("change encoding",
-                                "a sparser encoding lowers per-node degree",
-                                {"note": "estimate"}),
-                    Remediation("relax target",
-                                f"target.degree >= {report.max_degree}"),
-                ))])
-
-    if not target.offsets.value:            # no lattice: IDEAL
-        return Placement({}, tuple(ising.edges), ())
-
+def _budget_check(n: int, target: TargetProfile) -> None:
     if n > target.node_budget.value:
         raise CompileError(
             "placement failed: node budget exceeded",
@@ -178,31 +159,24 @@ def place(ising: IsingModel, report: GraphReport, target: TargetProfile,
                               n, target.node_budget.value,
                               target.is_assumed("node_budget"), ())])
 
-    if target.bipartite.value and not report.bipartite:
-        G = nx.Graph(); G.add_nodes_from(range(n)); G.add_edges_from(ising.edges)
-        cycle = nx.find_cycle(G)
-        # report.mediators is -1 when the graph exceeded MAXCUT_EXACT_LIMIT and the
-        # count was never computed. -1 is a sentinel, not a spin count -- publishing
-        # it as `extra_spins` would be the same "search failure reported as
-        # substrate fact" error C1 fixes for placement, just one field over.
-        known_cost = report.mediators >= 0
-        cost = ({"extra_spins": report.mediators, "note": "estimate"} if known_cost
-               else {"note": "extra_spins not computed: graph exceeds the exact "
-                             "max-cut limit"})
-        raise CompileError(
-            "placement failed: parity conflict",
-            [PlacementFailure(
-                failure_class="parity_conflict",
-                offending=tuple(Offender("edge", f"{ising.nodes[u]}-{ising.nodes[v]}")
-                                for u, v, *_ in cycle),
-                measured="odd cycle present", limit="bipartite",
-                assumed=target.is_assumed("bipartite"),
-                remediations=(
-                    Remediation("route through mediator",
-                                "hidden-spin mediation is exact and adds one spin "
-                                "per frustrated coupling", cost),
-                ))])
 
+def _embed_on_lattice(ising: IsingModel, target: TargetProfile,
+                      restarts: int, iters: int,
+                      mediation=None) -> Placement:
+    """The geometric search itself (structured grid embed, then the annealer
+    fallback): place every node of `ising` on Z^2 so that every edge is a
+    legal `target.offsets` step. `ising` here is ALREADY known bipartite (or
+    the target does not require it) -- this function has no opinion on
+    parity, only geometry.
+
+    `mediation`: the MediationReport that produced THIS `ising` (None when
+    it needed no mediation at all). Threaded through only so a
+    `placement_effort_exhausted` failure can carry it -- real, already-
+    computed mediation evidence (mediator count, bipartiteness achieved)
+    must not be silently dropped just because the SEPARATE geometric search
+    that follows it then ran out of budget. Never used to decide anything
+    about the geometry itself."""
+    n = len(ising.nodes)
     G = nx.Graph(); G.add_nodes_from(range(n)); G.add_edges_from(ising.edges)
 
     # Try a structured, exact embedding before ever spending annealer budget.
@@ -258,6 +232,93 @@ def place(ising: IsingModel, report: GraphReport, target: TargetProfile,
                     Remediation("change encoding",
                                 "a lower-degree encoding is easier to embed",
                                 {"note": "estimate"}),
-                ))])
+                ), mediation=mediation)])
 
     return Placement(best, tuple(realized), ())
+
+
+def place(ising: IsingModel, report: GraphReport, target: TargetProfile,
+         *, restarts: int = 6, iters: int = 40_000) -> Placement:
+    """`restarts`/`iters` tune ONLY the annealer fallback's effort budget (default
+    6 x 40,000, the production budget). They exist so a test can force a small,
+    deterministic effort budget without touching production behaviour -- see
+    `placement_effort_exhausted` below, which names running out of THIS budget,
+    not a claim about the substrate.
+
+    Task 6 (spec 5.3.6): a non-bipartite graph against a bipartite target is no
+    longer an automatic `parity_conflict`. This pass attempts hidden-spin
+    mediation FIRST (`insert_mediators`, spec 5.3) -- mathematically, ANY
+    2-partition-based subdivision makes ANY graph bipartite, so mediation
+    always succeeds at fixing parity; `parity_conflict` is reserved for the
+    (should-be-unreachable-in-practice) case where the mediated graph is
+    somehow still not bipartite, a defensive check this pass makes rather
+    than assumes. The node-budget gate is re-checked against the LARGER,
+    mediated node count too -- mediation can push a graph that fit the
+    original budget past it, and that must be reported as `budget_exceeded`,
+    not silently ignored.
+    """
+    n = len(ising.nodes)
+
+    if report.max_degree > target.degree.value:
+        offenders = tuple(
+            Offender("node", f"{ising.nodes[i]} (degree {d})")
+            for i, d in nx.Graph(list(ising.edges)).degree()
+            if d > target.degree.value)
+        raise CompileError(
+            "placement failed: degree exceeded",
+            [PlacementFailure(
+                failure_class="degree_exceeded",
+                offending=offenders or (Offender("node", "unknown"),),
+                measured=report.max_degree, limit=target.degree.value,
+                assumed=target.is_assumed("degree"),
+                remediations=(
+                    Remediation("change encoding",
+                                "a sparser encoding lowers per-node degree",
+                                {"note": "estimate"}),
+                    Remediation("relax target",
+                                f"target.degree >= {report.max_degree}"),
+                ))])
+
+    if not target.offsets.value:            # no lattice: IDEAL
+        return Placement({}, tuple(ising.edges), ())
+
+    _budget_check(n, target)
+
+    if target.bipartite.value and not report.bipartite:
+        med_ising, mediation = insert_mediators(ising, report)
+        if not mediation.bipartite_after:
+            # Defensive only: `insert_mediators`' own construction proves
+            # every within-side edge becomes cross-side once subdivided, so
+            # this should be unreachable. It is checked, not assumed, so a
+            # future change to that construction can never silently regress
+            # into a graph this pass claims to have fixed but has not.
+            G = nx.Graph(); G.add_nodes_from(range(n)); G.add_edges_from(ising.edges)
+            cycle = nx.find_cycle(G)
+            known_cost = report.mediators >= 0
+            cost = ({"extra_spins": report.mediators, "note": "estimate"} if known_cost
+                   else {"note": "extra_spins not computed: graph exceeds the "
+                                 "exact max-cut limit"})
+            raise CompileError(
+                "placement failed: parity conflict",
+                [PlacementFailure(
+                    failure_class="parity_conflict",
+                    offending=tuple(Offender("edge", f"{ising.nodes[u]}-{ising.nodes[v]}")
+                                    for u, v, *_ in cycle),
+                    measured="odd cycle present after mediation was attempted",
+                    limit="bipartite", assumed=target.is_assumed("bipartite"),
+                    remediations=(
+                        Remediation("route through mediator",
+                                    "hidden-spin mediation is exact and adds one "
+                                    "spin per frustrated coupling; it was attempted "
+                                    "and did not resolve this graph", cost),
+                    ))])
+
+        med_report = analyse(med_ising)
+        _budget_check(len(med_ising.nodes), target)
+        placement = _embed_on_lattice(med_ising, target, restarts, iters,
+                                          mediation=mediation)
+        return Placement(placement.coords, placement.realized,
+                         placement.unrealized, mediation=mediation,
+                         mediated_ising=med_ising, mediated_report=med_report)
+
+    return _embed_on_lattice(ising, target, restarts, iters)

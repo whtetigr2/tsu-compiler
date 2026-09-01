@@ -1,0 +1,58 @@
+name: lattice_l0_16x16
+description: >
+  Adjacency-constrained value assignment on a 16x16 grid, k=5 categorical --
+  same generic mechanisms as lattice_l1_16x16.yaml and adjacency_4x4_k4.yaml
+  (`grid`/A1, `product_over_edges`/A2, `forbid_value_pair_over_edges`/A3),
+  applied to an ORDINAL quantity instead of L1's nominal one.
+
+  Domain story, for intuition only, kept out of src/: this is an "L0" layer
+  (design spec section 2.1/4.6.1, candidate A) of five ORDERED levels, low to
+  peak -- 0 lowest, 4 highest, read as a coarse height band rather than an
+  unordered category. The physical rule is strict graduality: two directly
+  adjacent cells may never differ by more than one level (no cliff of more
+  than one band between neighbours). That forbids six ordered pairs whose
+  levels differ by 2, 3, or 4: (0,2) (0,3) (0,4) (1,3) (1,4) (2,4), each a
+  HARD rule (pre-scale weight 4.0).
+
+  Deliberately NO soft preference term here -- this was measured (design
+  spec section 4.6.1, candidate A): adding five self-preference terms (one
+  per level, encouraging same-level clustering the way lattice_l1_16x16.yaml
+  does for its nominal values) raises every level's measured partner count
+  from 3 to 4, which raises the per-node degree law
+  (`degree(v) = (k-1) + g*|partners(v)|`, g=4 for an interior grid cell) from
+  16 to 20 -- past Z1's 16-port budget. Omitting the self-preference term is
+  therefore deliberate and load-bearing, not an oversight; do not add
+  smoothing back in.
+
+  Deliberately beyond exact enumeration (256 cells far exceeds
+  thrml_backend.EXACT_LIMIT (18) under either encoding) -- the exact-layer
+  verification fields must honestly read `unavailable` for this instance, the
+  same contrast adjacency_4x4_k4.yaml's own description explains.
+generate:
+  kind: grid
+  width: 16
+  height: 16
+  variable_domain: {domain: categorical, k: 5}
+terms:
+  # HARD: every ordered pair whose levels differ by more than 1 (pre-scale
+  # weight 4.0). No soft/self-preference term -- see description above.
+  - {kind: product_over_edges, a_value: 0, b_value: 2, weight: 4.0}
+  - {kind: product_over_edges, a_value: 0, b_value: 3, weight: 4.0}
+  - {kind: product_over_edges, a_value: 0, b_value: 4, weight: 4.0}
+  - {kind: product_over_edges, a_value: 1, b_value: 3, weight: 4.0}
+  - {kind: product_over_edges, a_value: 1, b_value: 4, weight: 4.0}
+  - {kind: product_over_edges, a_value: 2, b_value: 4, weight: 4.0}
+contract:
+  validate:
+    - {rule: forbid_value_pair_over_edges, a_value: 0, b_value: 2,
+       message: "level 0 directly adjacent to level 2 (differ by more than 1) with no buffer between"}
+    - {rule: forbid_value_pair_over_edges, a_value: 0, b_value: 3,
+       message: "level 0 directly adjacent to level 3 (differ by more than 1) with no buffer between"}
+    - {rule: forbid_value_pair_over_edges, a_value: 0, b_value: 4,
+       message: "level 0 directly adjacent to level 4 (differ by more than 1) with no buffer between"}
+    - {rule: forbid_value_pair_over_edges, a_value: 1, b_value: 3,
+       message: "level 1 directly adjacent to level 3 (differ by more than 1) with no buffer between"}
+    - {rule: forbid_value_pair_over_edges, a_value: 1, b_value: 4,
+       message: "level 1 directly adjacent to level 4 (differ by more than 1) with no buffer between"}
+    - {rule: forbid_value_pair_over_edges, a_value: 2, b_value: 4,
+       message: "level 2 directly adjacent to level 4 (differ by more than 1) with no buffer between"}

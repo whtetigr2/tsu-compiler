@@ -41,6 +41,13 @@ def main(argv=None) -> int:
     c = sub.add_parser("compile"); c.add_argument("spec")
     c.add_argument("--target", default="z1"); c.add_argument("--out", required=True)
     c.add_argument("--allow-assumed", action="store_true")
+    c.add_argument("--placement-restarts", type=int, default=None)
+    c.add_argument("--placement-iters", type=int, default=None)
+    c.add_argument("--coefficient-scale", type=float, default=1.0,
+                   help="uniform multiplier on every energy coefficient "
+                        "(including the representation penalty); beta is "
+                        "compensated automatically so the induced "
+                        "distribution is unchanged (spec section 4.9)")
 
     i = sub.add_parser("inspect"); i.add_argument("spec")
     v = sub.add_parser("visualize"); v.add_argument("receipt")
@@ -75,7 +82,11 @@ def main(argv=None) -> int:
         return 0
 
     if a.cmd == "compile":
-        comp = compile_spec(load_spec(a.spec), PROFILES[a.target], a.allow_assumed)
+        _eff = {k: v for k, v in (("restarts", a.placement_restarts),
+                                  ("iters", a.placement_iters)) if v is not None}
+        comp = compile_spec(load_spec(a.spec), PROFILES[a.target], a.allow_assumed,
+                            coefficient_scale=a.coefficient_scale,
+                            placement_effort=_eff or None)
         d = write_receipt(comp, a.out)
         print(f"verdict: {comp.verdict}")
         if comp.verdict != "COMPILED":

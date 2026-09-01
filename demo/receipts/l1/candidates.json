@@ -1,0 +1,34 @@
+[
+  {
+    "encoding": "domain_wall",
+    "state": "HARDWARE_INFEASIBLE",
+    "reason": "a node requires 18 ports; target z1 provides 16",
+    "logical_spins": 1024,
+    "logical_edges": 8448,
+    "bipartite": false,
+    "mediators": null,
+    "physical_pbits": null,
+    "colour_blocks": 4,
+    "max_abs_J": 0.875,
+    "max_abs_b": 2.125,
+    "mediators_inserted": null,
+    "mediation_method": null,
+    "mediation_beta": null
+  },
+  {
+    "encoding": "one_hot",
+    "state": "HARDWARE_INFEASIBLE",
+    "reason": "placement failed: placement effort exhausted",
+    "logical_spins": 3778,
+    "logical_edges": 10818,
+    "bipartite": true,
+    "mediators": 0,
+    "physical_pbits": null,
+    "colour_blocks": 2,
+    "max_abs_J": 1.336643397505582,
+    "max_abs_b": 5.0,
+    "mediators_inserted": 2498,
+    "mediation_method": "bfs_depth_parity_with_greedy_local_search",
+    "mediation_beta": 4.0
+  }
+]

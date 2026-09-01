@@ -16,12 +16,15 @@ def test_both_encodings_are_generated_as_candidates():
     assert set(SLICE_ENCODINGS) == {"domain_wall", "one_hot"}
 
 
-def test_toy_on_z1_domain_wall_selected_one_hot_reported_hardware_infeasible():
+def test_toy_on_z1_domain_wall_selected_one_hot_mediated_but_not_selected():
     """one_hot's exactly-one penalty makes a clique per categorical variable,
-    which for toy.yaml's c (k=3) is a triangle -- not bipartite, so Z1 (which
-    requires bipartite=True) must reject it via placement's parity_conflict.
-    This is the honest, expected cost of one_hot, and it must be REPORTED, not
-    silently dropped from the candidate set."""
+    which for toy.yaml's c (k=3) is a triangle -- not bipartite. Task 6:
+    `place` no longer rejects that outright with `parity_conflict`; it
+    mediates the triangle's one within-side edge through a hidden spin
+    (making it bipartite, 6 physical spins total) and places it cleanly.
+    one_hot still loses selection to domain_wall's smaller physical p-bit
+    count (4 < 6), retained as VIABLE_NOT_SELECTED -- the honest, expected
+    cost of one_hot, reported rather than silently dropped."""
     c = compile_spec(load_spec("specs/toy.yaml"), Z1)
     assert c.verdict == "COMPILED"
     by_encoding = {cand.encoding: cand for cand in c.repset.candidates}
@@ -29,9 +32,11 @@ def test_toy_on_z1_domain_wall_selected_one_hot_reported_hardware_infeasible():
 
     assert by_encoding["domain_wall"].state == CandidateState.SELECTED
     oh = by_encoding["one_hot"]
-    assert oh.state == CandidateState.HARDWARE_INFEASIBLE
-    assert oh.reason, "a rejected candidate without its reason is not evidence"
-    assert "bipartite" in oh.reason.lower() or "parity" in oh.reason.lower()
+    assert oh.state == CandidateState.VIABLE_NOT_SELECTED
+    assert oh.reason, "a non-selected candidate without its reason is not evidence"
+    assert oh.placement.mediation is not None
+    assert oh.placement.mediation.mediator_count == 1
+    assert oh.placement.mediation.bipartite_after is True
 
 
 def test_both_feasible_lower_physical_pbit_count_wins_and_loser_is_recorded():
@@ -84,10 +89,17 @@ def test_compare_returns_a_row_per_candidate_with_every_required_column():
     assert dw["logical_spins"] == 4          # a, b, c__dw0, c__dw1
     assert dw["bipartite"] is True
 
+    # Task 6: one_hot's clique (a, b, c__oh0, c__oh1, c__oh2 -- 5 spins,
+    # not bipartite) is mediated before placement, so `logical_spins`/
+    # `bipartite` here describe the PLACED, post-mediation graph (5 + 1
+    # mediator, bipartite) -- `mediators_inserted` is the actual mediation
+    # pass's own count, distinct from `mediators` (analyse()'s theoretical
+    # floor for the ALREADY-bipartite mediated graph, which is 0).
     oh = by_encoding["one_hot"]
-    assert oh["state"] == "HARDWARE_INFEASIBLE"
-    assert oh["logical_spins"] == 5          # a, b, c__oh0, c__oh1, c__oh2
-    assert oh["bipartite"] is False          # the honest, reported clique cost
+    assert oh["state"] == "VIABLE_NOT_SELECTED"
+    assert oh["logical_spins"] == 6
+    assert oh["bipartite"] is True
+    assert oh["mediators_inserted"] == 1
 
 
 def test_compare_handles_a_candidate_with_no_report_gracefully():

@@ -84,20 +84,25 @@ def test_4x4_k4_both_encodings_fail_z1s_assumed_field_cap():
     assert "b|max" in rows["one_hot"]["reason"]
 
 
-def test_4x4_k4_domain_wall_recovers_under_allow_assumed_one_hot_still_does_not():
+def test_4x4_k4_domain_wall_recovers_under_allow_assumed_one_hot_mediated_not_selected():
     """The tuned result: overriding the assumed field cap lets domain_wall
-    through (its own excess was only 0.5 over the cap); one_hot's excess
-    (18.0 vs 6.0) is a DIFFERENT, non-overridable failure once the field cap
-    is out of the way -- it is not bipartite (its exactly-one clique per
-    categorical), and Z1 requires bipartite=True, which is sourced (F-18),
-    not assumed, and --allow-assumed cannot touch it."""
+    through (its own excess was only 0.5 over the cap). one_hot's field-cap
+    excess (18.0 vs 6.0) is ALSO overridden by --allow-assumed -- its
+    remaining obstacle was never overridable field cap so much as its
+    exactly-one clique per categorical not being bipartite; Task 6 makes
+    `place` mediate that (32 within-side edges get a hidden spin each, since
+    one_hot's per-cell K4 clique has 6 edges but a bipartite 2-partition of
+    K4 realizes only 4 of them directly -- 2 mediated per cell x 16 cells).
+    one_hot therefore now reaches HARDWARE_FEASIBLE too, just outranked by
+    domain_wall's far smaller physical p-bit count (48 vs 96+32)."""
     c = compile_spec(load_spec("specs/adjacency_4x4_k4.yaml"), Z1, allow_assumed=True)
     assert c.verdict == "COMPILED"
     assert c.repset.selected.encoding == "domain_wall"
 
     rows = {r["encoding"]: r for r in compare(c.repset)}
-    assert rows["one_hot"]["state"] == "HARDWARE_INFEASIBLE"
-    assert "parity" in rows["one_hot"]["reason"].lower()
+    assert rows["one_hot"]["state"] == "VIABLE_NOT_SELECTED"
+    assert rows["one_hot"]["bipartite"] is True
+    assert rows["one_hot"]["mediators_inserted"] == 32
 
 
 def test_4x4_k4_task_validity_is_measured_despite_no_exact_reference():

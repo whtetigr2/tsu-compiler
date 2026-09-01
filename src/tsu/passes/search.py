@@ -16,6 +16,7 @@ the full measured table so that ordering is auditable, not just asserted.
 from __future__ import annotations
 
 import dataclasses
+import functools
 import itertools
 import time
 import tracemalloc
@@ -31,11 +32,11 @@ from ..regime import analyse_regime, beta_recommendation_from_energy_scale
 from ..states import Candidate, CandidateState, RepresentationSet
 from ..target import IDEAL, TargetProfile
 from .analyse import analyse
-from .encode import encode
+from .encode import encode, spec_beta, validate_coefficient_scale
 from .lower import lower
 from .place import place
 from .program import build_program
-from .route import route
+from .route import insert_mediators, route
 from .verify import DecodedSample, Verification, tv_noise_floor
 
 SLICE_ENCODINGS = ("domain_wall", "one_hot")
@@ -76,6 +77,14 @@ class Compilation:
                                                          # throughput/params and
                                                          # the CPU baseline, from
                                                          # _verify
+    # Task 2: the uniform coefficient_scale this compile was run under (1.0 ==
+    # unscaled, the pre-existing behaviour) and the beta it was COMPENSATED
+    # to (spec_beta(spec) / coefficient_scale) so p(x) ~ exp(-beta*E(x)) is
+    # unchanged by the scale. Always set, on every verdict (LOGICAL/HARDWARE/
+    # COMPILED) -- both are deterministic given `spec` and `coefficient_scale`
+    # alone, never a measurement that could be legitimately unavailable.
+    coefficient_scale: float = 1.0
+    scaled_beta: float = 1.0
 
 
 def _physical_clamp(enc, ising, clamp):
@@ -91,7 +100,8 @@ def _physical_clamp(enc, ising, clamp):
     return {idx[name]: value for name, value in spin_clamp.items()}
 
 
-def _try(spec, target, encoding, allow_assumed, clamp=None):
+def _try(spec, target, encoding, allow_assumed, clamp=None, coefficient_scale=1.0,
+         placement_effort=None):
     """Run one candidate through the pipeline. Returns (Candidate, artefacts).
 
     `artefacts["gate_checks"]` is populated whenever the model reached gate
@@ -111,6 +121,17 @@ def _try(spec, target, encoding, allow_assumed, clamp=None):
     for artefacts (as it always has) and so carries no durations; every
     candidate that reaches `analyse` records at least that much, however it
     is ultimately rejected.
+
+    Task 2: `coefficient_scale` is threaded straight into `encode()` (which
+    scales every workload term weight AND the encoding's own structural
+    penalty by it -- see encode.py), then, once `lower()` has produced the
+    IsingModel, THIS is where beta gets compensated (beta -> spec_beta(spec)
+    / coefficient_scale) -- exactly once, before `ising` reaches anything
+    else (gates, `analyse_regime`, `build_program`'s SamplingProgram). Every
+    downstream consumer of `ising` from this point on therefore already sees
+    the physically-correct, scale-compensated beta: gate checks, the regime
+    report's precision headroom, the sampling program actually built, and
+    (via the receipt's program.json) a later `tsu simulate` replaying it.
     """
     durations: dict[str, float] = {}
 
@@ -121,7 +142,7 @@ def _try(spec, target, encoding, allow_assumed, clamp=None):
         return out
 
     try:
-        enc = _timed("encode", encode, spec, encoding)
+        enc = _timed("encode", encode, spec, encoding, coefficient_scale)
     except Exception as e:
         return Candidate(encoding, CandidateState.SEMANTICALLY_INVALID,
                          reason=f"encode failed: {e}"), None
@@ -131,6 +152,13 @@ def _try(spec, target, encoding, allow_assumed, clamp=None):
     except Exception as e:
         return Candidate(encoding, CandidateState.SEMANTICALLY_INVALID,
                          reason=f"lower failed: {e}"), None
+
+    # E -> s*E leaves p(x) ~ exp(-beta*E(x)) unchanged only if beta -> beta/s
+    # compensates it (spec section 4.9). `encode`/`lower` never touch beta
+    # themselves (by design -- see encode()'s own docstring); this is the
+    # ONE place that compensation happens, so it can never be applied twice
+    # or forgotten on some downstream path.
+    ising = dataclasses.replace(ising, beta=spec_beta(spec) / coefficient_scale)
 
     report = _timed("analyse", analyse, ising)
     t0 = time.perf_counter()
@@ -143,11 +171,63 @@ def _try(spec, target, encoding, allow_assumed, clamp=None):
                          report=report), {"report": report, "gate_checks": checks,
                                           "durations": durations}
     try:
-        placement = _timed("place", place, ising, report, target)
+        # `placement_effort` tunes ONLY the annealer fallback's budget
+        # (restarts, iters). It changes how hard the geometric SEARCH tries,
+        # never what counts as a valid embedding: a placement is accepted
+        # only when every edge is realized, at any effort. Measured on
+        # specs/lattice_small_8x8_k3.yaml, domain_wall: the default (6,
+        # 40_000) leaves 98 edges unrealized, while (12, 200_000) places it
+        # with 0 unrealized -- the default budget was the binding limit, not
+        # the substrate.
+        _pe = placement_effort or {}
+        _place = functools.partial(
+            place, **{k: v for k, v in _pe.items()
+                      if k in ("restarts", "iters")})
+        placement = _timed("place", _place, ising, report, target)
+        # Task 6 (spec 5.3.6): `place` mediates a non-bipartite graph itself
+        # rather than raising `parity_conflict` outright -- when it did,
+        # `placement.mediation` is set and `placement.{mediated_ising,
+        # mediated_report}` are the LARGER, bipartite model that was
+        # actually embedded (placement.coords/realized are already indexed
+        # against it). Everything from here on -- `route` (now a no-op,
+        # since `mediated_report.bipartite` is True), `build_program`,
+        # `regime`, and this candidate's own `report` -- must use that
+        # model, not the pre-mediation one, so a receipt's numbers describe
+        # what is ACTUALLY deployed to the substrate. Gate checks above
+        # already ran against the pre-mediation model (spec 5.3.6 only asks
+        # `place` to mediate; it does not re-run the hardware gates).
+        if placement.mediation is not None:
+            ising, report = placement.mediated_ising, placement.mediated_report
         ising = _timed("route", route, ising, report, target)
     except CompileError as e:
+        failure = e.failures[0]
+        # C2 fix: the SUCCESS path above swaps to the post-mediation
+        # report the moment `place()` had to mediate; this except branch is
+        # the placement-FAILURE path (e.g. a mediated graph that then hits
+        # `placement_effort_exhausted`) and used to leave `report` at its
+        # PRE-mediation value here, because `place()` raises before ever
+        # returning the `Placement` that carries `mediated_ising`/
+        # `mediated_report` -- this is exactly what produced `bipartite:
+        # False` in the committed L0/L1 receipts for a graph the mediation
+        # pass itself had already proven bipartite (review finding C2).
+        # `failure.mediation` (threaded through by `_embed_on_lattice`, see
+        # place.py) is the one signal available here that `place()` DID
+        # mediate before its separate geometric search then ran out of
+        # budget; `insert_mediators` is a pure, deterministic function of
+        # the pre-mediation ising's graph structure (route.py's own
+        # docstring), so recomputing it from the SAME `ising`/`report` this
+        # call already holds reproduces exactly the model `place` embedded
+        # against -- not a second, independently-derived model that could
+        # drift from it. A failure with no `mediation` (degree_exceeded,
+        # budget_exceeded on the pre-mediation graph, or a target that
+        # never needed mediation) leaves `ising`/`report` untouched, exactly
+        # as before.
+        med = getattr(failure, "mediation", None)
+        if med is not None:
+            ising, _ = insert_mediators(ising, report)
+            report = analyse(ising)
         return Candidate(encoding, CandidateState.HARDWARE_INFEASIBLE,
-                         reason=str(e), failure=e.failures[0], report=report), \
+                         reason=str(e), failure=failure, report=report), \
             {"report": report, "gate_checks": checks, "durations": durations}
 
     prog = _timed("build_program", build_program, ising, report,
@@ -166,15 +246,13 @@ ORDERING_RATIONALE = (
 
 
 def _physical_pbits(report) -> int:
-    """The count of spins actually deployed to the substrate. In this vertical
-    slice `route` never inserts a mediator spin (it is the identity for a graph
-    that already satisfies the target's parity requirement, and raises rather
-    than silently mediating one that does not -- see route.py), so physical
-    p-bit count equals the logical spin count (`report.n_nodes`) for every
-    candidate that reaches HARDWARE_FEASIBLE here. Kept as its own named
-    quantity (not just an alias read as `n_nodes`) because that equality is a
-    property of this slice's `route`, not a general truth the rest of the
-    compiler should assume."""
+    """The count of spins actually deployed to the substrate. Task 6:
+    `_try` swaps `report` to the MEDIATED graph's own report (`analyse` of
+    `placement.mediated_ising`) the moment `place` had to mediate, so
+    `report.n_nodes` here already includes every inserted mediator spin --
+    this stays a plain alias for `n_nodes` (not a separately-tracked
+    quantity) precisely because that swap is what keeps the equality true,
+    not an assumption this function makes on its own."""
     return report.n_nodes
 
 
@@ -188,10 +266,28 @@ def compare(repset: "RepresentationSet") -> tuple[dict, ...]:
     runner-up, and rejected alike -- so a selection can be audited against the
     numbers that produced it, not just the ordering_rationale prose. Any field
     a candidate never reached (e.g. `analyse` never ran because `encode` itself
-    failed) reads None here; callers must not treat that as zero."""
+    failed) reads None here; callers must not treat that as zero.
+
+    Task 6: for a candidate `place` had to mediate, `r`/`c.report` is already
+    the POST-mediation report (see `_try`'s own comment) -- "logical_spins"/
+    "logical_edges"/"bipartite"/"mediators" below describe the graph that was
+    actually placed and deployed, not the pre-mediation workload-derived one.
+    "mediators_inserted"/"mediation_method"/"mediation_beta" are the ACTUAL
+    mediation-pass record (`Placement.mediation`, spec 5.3), distinct from
+    "mediators" (analyse()'s theoretical max-cut FLOOR for whatever graph `r`
+    describes -- 0 once mediation has already made it bipartite): None for a
+    candidate that was never mediated at all, never a fabricated 0."""
     rows = []
     for c in repset.candidates:
         r, p = c.report, c.placement
+        # Task 6: prefer the SUCCEEDED placement's own MediationReport;
+        # fall back to a rejected candidate's failure (e.g. mediation made
+        # the graph bipartite but the geometric search that followed it
+        # then hit placement_effort_exhausted) so real, already-computed
+        # mediation evidence is never dropped just because placement
+        # ultimately failed for a different reason.
+        med = (p.mediation if p and p.mediation is not None else
+              getattr(c.failure, "mediation", None))
         rows.append({
             "encoding": c.encoding,
             "state": c.state.value,
@@ -204,12 +300,17 @@ def compare(repset: "RepresentationSet") -> tuple[dict, ...]:
             "colour_blocks": r.colour_blocks if r else None,
             "max_abs_J": r.max_abs_J if r else None,
             "max_abs_b": r.max_abs_b if r else None,
+            "mediators_inserted": med.mediator_count if med else None,
+            "mediation_method": med.partition_method if med else None,
+            "mediation_beta": med.beta_used if med else None,
         })
     return tuple(rows)
 
 
 def compile_spec(spec, target: TargetProfile, allow_assumed: bool = False,
-                 clamp=None, measure_memory: bool = False) -> Compilation:
+                 clamp=None, measure_memory: bool = False,
+                 coefficient_scale: float = 1.0,
+                 placement_effort=None) -> Compilation:
     """The public entry point.
 
     `measure_memory` is OPT-IN and defaults to False. Peak-memory measurement
@@ -223,20 +324,40 @@ def compile_spec(spec, target: TargetProfile, allow_assumed: bool = False,
     None otherwise so a receipt can honestly report it as unmeasured rather
     than as zero.
 
+    `coefficient_scale` (Task 2, spec section 4.9/5.2): a uniform multiplier
+    on every energy coefficient this compile produces, including the
+    representation penalty -- see `encode()`'s own docstring for the full
+    rationale. Validated HERE, before anything else runs, via the SAME
+    `validate_coefficient_scale` helper `encode()` itself calls (never a
+    second, independently-written check that could drift out of sync and
+    re-open the gap one of them closes) -- so an invalid scale raises
+    immediately and visibly rather than being caught by `_try`'s broad
+    `except Exception` and buried inside an opaque SEMANTICALLY_INVALID
+    ideal-control rejection three layers down. This closes a real gap found
+    in review: a bare `coefficient_scale <= 0` guard lets `float('nan')`
+    through silently (`nan <= 0` is `False` in Python), which previously
+    produced a "COMPILED" receipt full of NaN coefficients -- see
+    `validate_coefficient_scale`'s own docstring in encode.py for the full
+    reasoning, including why +inf is rejected too.
+
     It wraps the whole implementation rather than threading a measurement
     through `_compile_spec_impl`'s several return points, so LOGICAL,
     HARDWARE and COMPILED paths are all covered identically. `Compilation`
     is a plain (non-frozen) dataclass specifically so the measurement can be
     attached after the fact.
     """
+    validate_coefficient_scale(coefficient_scale)
+
     if not measure_memory:
-        result = _compile_spec_impl(spec, target, allow_assumed, clamp)
+        result = _compile_spec_impl(spec, target, allow_assumed, clamp,
+                                    coefficient_scale, placement_effort)
         result.peak_memory_bytes = None
         return result
 
     tracemalloc.start()
     try:
-        result = _compile_spec_impl(spec, target, allow_assumed, clamp)
+        result = _compile_spec_impl(spec, target, allow_assumed, clamp,
+                                    coefficient_scale, placement_effort)
     finally:
         _current, peak = tracemalloc.get_traced_memory()
         tracemalloc.stop()
@@ -245,7 +366,8 @@ def compile_spec(spec, target: TargetProfile, allow_assumed: bool = False,
 
 
 def _compile_spec_impl(spec, target: TargetProfile, allow_assumed: bool = False,
-                       clamp=None) -> Compilation:
+                       clamp=None, coefficient_scale: float = 1.0,
+                       placement_effort=None) -> Compilation:
     """`clamp` (C1): an optional {workload variable name: value} map, pinning
     those variables for the SAMPLING stage only. The preferred entry point
     for clamping (over a spec-file `clamp:` block) precisely so an
@@ -254,9 +376,23 @@ def _compile_spec_impl(spec, target: TargetProfile, allow_assumed: bool = False,
     deliberately run UNCLAMPED regardless: its only job is proving the spec
     is logically sound on its own terms, independent of any one run's clamp
     choice.
+
+    `coefficient_scale` (Task 2): run through the SAME `_try` call for the
+    ideal control as for every real candidate -- IDEAL's own thresholds are
+    all `inf` (target.py), so the scale changes nothing about whether the
+    control passes; keeping it consistent across every `_try` call (rather
+    than special-casing the control to always run unscaled) means there is
+    only one code path to reason about, not two that could silently drift.
+    `scaled_beta` is deterministic given `spec` and `coefficient_scale` alone
+    (spec_beta(spec) / coefficient_scale) and is therefore always set below,
+    on every verdict -- never a measurement that could be legitimately
+    unavailable.
     """
+    scaled_beta = spec_beta(spec) / coefficient_scale
+
     # --- the mandatory ideal control, first and always -----------------------
-    ideal_cand, ideal_art = _try(spec, IDEAL, SLICE_ENCODINGS[0], True)
+    ideal_cand, ideal_art = _try(spec, IDEAL, SLICE_ENCODINGS[0], True,
+                                 coefficient_scale=coefficient_scale)
     ideal_ok = ideal_cand.state == CandidateState.HARDWARE_FEASIBLE
     if not ideal_ok:
         return Compilation(
@@ -265,11 +401,13 @@ def _compile_spec_impl(spec, target: TargetProfile, allow_assumed: bool = False,
             repset=RepresentationSet((ideal_cand,), None,
                                      "ideal control failed; target not evaluated"),
             allow_assumed=allow_assumed, clamp=dict(clamp or {}),
-            pass_durations=(ideal_art or {}).get("durations", {}))
+            pass_durations=(ideal_art or {}).get("durations", {}),
+            coefficient_scale=coefficient_scale, scaled_beta=scaled_beta)
 
     cands, arts = [], {}
     for enc_name in SLICE_ENCODINGS:
-        c, a = _try(spec, target, enc_name, allow_assumed, clamp)
+        c, a = _try(spec, target, enc_name, allow_assumed, clamp,
+                    coefficient_scale, placement_effort)
         cands.append(c)
         if a:
             arts[enc_name] = (c, a)
@@ -285,7 +423,8 @@ def _compile_spec_impl(spec, target: TargetProfile, allow_assumed: bool = False,
             repset=RepresentationSet(tuple(cands), None,
                                      "no candidate was hardware-feasible"),
             allow_assumed=allow_assumed, gate_checks=checks, clamp=dict(clamp or {}),
-            pass_durations=durations)
+            pass_durations=durations,
+            coefficient_scale=coefficient_scale, scaled_beta=scaled_beta)
 
     chosen = min(feasible, key=_selection_key)
     art = arts[chosen.encoding][1]
@@ -348,7 +487,8 @@ def _compile_spec_impl(spec, target: TargetProfile, allow_assumed: bool = False,
         program=art["program"], encoded=art["encoded"], regime=regime,
         placement=art["placement"], verification=verification,
         clamp=dict(clamp or {}), pass_durations=durations, sample_cost=sample_cost,
-        sample=decoded_sample)
+        sample=decoded_sample,
+        coefficient_scale=coefficient_scale, scaled_beta=scaled_beta)
 
 
 def _measure_mixing(ising, chains: np.ndarray) -> EssEstimate:

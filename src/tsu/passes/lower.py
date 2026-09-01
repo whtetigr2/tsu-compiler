@@ -31,6 +31,14 @@ class IsingModel:
     biases: np.ndarray       # b, aligned with nodes
     beta: float
     offset: float            # constant energy, carried so E(x) is reproducible
+    # Task 6 (spec 5.3): physical node indices that are hidden MEDIATOR spins
+    # inserted by `route.insert_mediators`, empty for a model that was never
+    # mediated. Their couplings (A = arccosh(exp(2*beta*|J|))/(2*beta)) are
+    # temperature-dependent -- this is what lets a caller refuse to resample
+    # a mediated model at a different beta (spec 5.3.5) rather than silently
+    # reproducing the wrong physical couplings. Carried on the model itself
+    # (not a side table) so it survives a receipt round-trip verbatim.
+    mediator_nodes: tuple[int, ...] = ()
 
 
 def _term_expr(term, sym):
@@ -120,7 +128,15 @@ def _assert_pairwise(target, names, spin_list):
                 f"placed on a pairwise target")
 
 
-def lower(model: EnergyModel) -> IsingModel:
+def _lower_dense(model: EnergyModel) -> IsingModel:
+    """The original, fully-symbolic lowering. Retained as a **test oracle
+    only** -- it builds one global sympy expression over every spin in the
+    model (two dense `sp.Poly` calls, an O(n^2) `.coeff()` scan, and an O(n^2)
+    substitution pass for biases), which is superlinear enough to raise
+    `RecursionError` well before 1280 spins. It is not reachable from
+    `lower()`; `lower()` is the sparse per-term implementation below, proven
+    numerically identical to this oracle by `tests/test_lower_sparse.py`.
+    """
     for v in model.variables:
         if not isinstance(v.domain, Binary):
             raise ValueError(
@@ -175,5 +191,151 @@ def lower(model: EnergyModel) -> IsingModel:
     offset = float(-sp.expand(const))
 
     return IsingModel(nodes=names, edges=tuple(edges),
+                      weights=np.asarray(weights, dtype=float),
+                      biases=biases, beta=model.beta, offset=offset)
+
+
+def _affine(form, idx):
+    """LinearForm in OCCUPANCY -> (const, {spin_index: coeff}) in SPINS.
+
+    n = (s + 1) / 2, so a term c*n contributes c/2 to the spin coefficient
+    and c/2 to the constant. Raises if a categorical indicator survived,
+    matching the dense path's guard exactly.
+    """
+    const = float(form.const)
+    lin: dict[int, float] = {}
+    for ref, w in form.coeffs.items():
+        if ref.value is not None:
+            raise ValueError(
+                "a categorical indicator reached `lower`; run `encode` first")
+        half = float(w) / 2.0
+        const += half
+        i = idx[ref.name]
+        lin[i] = lin.get(i, 0.0) + half
+    return const, lin
+
+
+def _accumulate(acc, key, value):
+    if value == 0.0:
+        return
+    acc[key] = acc.get(key, 0.0) + value
+
+
+def _accumulate_symbolic(acc, t, names, idx):
+    """Handle a term carrying a `sympy_expr(occ) -> sympy expression` method
+    (the dense path's `hasattr(term, "sympy_expr")` branch), local to that
+    term's own few variables only -- never the whole model's symbol set.
+
+    `sympy_expr` receives OCCUPANCY expressions (n = (s + 1) / 2 in terms of
+    the term's own spins), exactly as the dense oracle's `_term_expr` passes
+    `occ` (not raw spins). The expanded result is folded exponent-mod-2 (a
+    binary spin satisfies s**2 == 1) and accumulated into `acc` keyed by
+    sorted global spin indices, matching every other branch of `lower`.
+    """
+    term_names: list[str] = []
+    seen: set[str] = set()
+    for ref in t.refs():
+        if ref.name not in seen:
+            seen.add(ref.name)
+            term_names.append(ref.name)
+
+    weight = float(t.weight)
+
+    if not term_names:
+        # No variables at all -- sympy_expr(...) is a bare constant.
+        _accumulate(acc, (), weight * float(t.sympy_expr({})))
+        return
+
+    spins_local = {n: sp.Symbol(f"s_{n}") for n in term_names}
+    occ_local = {n: (spins_local[n] + 1) / 2 for n in term_names}
+    expr = sp.expand(weight * t.sympy_expr(occ_local))
+
+    gens = [spins_local[n] for n in term_names]
+    poly = sp.Poly(expr, *gens)
+    for monom, coeff in poly.terms():
+        reduced = tuple(e % 2 for e in monom)
+        key = tuple(sorted(idx[n] for n, e in zip(term_names, reduced) if e))
+        _accumulate(acc, key, float(coeff))
+
+
+def _check_pairwise(acc, names):
+    """Raise ThreeBodyError if any monomial key in the sparse accumulator
+    couples 3+ distinct spins. Neither IR term kind (`Linear`, `Product`) can
+    itself produce such a key -- `Product(a, b)` contributes at most one spin
+    from each side, so its cross terms top out at order 2 -- but a term
+    carrying `sympy_expr` can, and this guard is exercised directly (with a
+    synthetic key) in `tests/test_lower_sparse.py` for exactly that reason.
+    """
+    for key in acc:
+        if len(key) > 2 and acc[key] != 0.0:
+            offending = " * ".join(f"s_{names[i]}" for i in key)
+            raise ThreeBodyError(
+                f"order-{len(key)} term {offending} survived expansion with "
+                f"coefficient {acc[key]}; the model is not pairwise and cannot "
+                f"be placed on a pairwise target")
+
+
+def lower(model: EnergyModel) -> IsingModel:
+    for v in model.variables:
+        if not isinstance(v.domain, Binary):
+            raise ValueError(
+                f"variable {v.name!r} is not binary; run `encode` before `lower`")
+
+    names = tuple(v.name for v in model.variables)
+    idx = {n: i for i, n in enumerate(names)}
+
+    # E(x) as a sparse monomial map over spin indices.
+    acc: dict[tuple[int, ...], float] = {}
+    for t in model.terms:
+        if hasattr(t, "sympy_expr"):
+            _accumulate_symbolic(acc, t, names, idx)
+            continue
+        if isinstance(t, Linear):
+            c, lin = _affine(t.form, idx)
+            w = float(t.weight)
+            _accumulate(acc, (), w * c)
+            for i, a in lin.items():
+                _accumulate(acc, (i,), w * a)
+        elif isinstance(t, Product):
+            ca, la = _affine(t.a, idx)
+            cb, lb = _affine(t.b, idx)
+            w = float(t.weight)
+            _accumulate(acc, (), w * ca * cb)
+            for i, a in la.items():
+                _accumulate(acc, (i,), w * a * cb)
+            for j, b in lb.items():
+                _accumulate(acc, (j,), w * ca * b)
+            for i, a in la.items():
+                for j, b in lb.items():
+                    if i == j:
+                        # s_i * s_i == 1 for a binary spin -> constant
+                        _accumulate(acc, (), w * a * b)
+                    else:
+                        _accumulate(acc, (min(i, j), max(i, j)), w * a * b)
+        else:
+            raise ValueError(f"unknown term type {type(t).__name__}")
+
+    # sum b s + sum J s s == -E. Sign flip applied ONCE, here, as in the
+    # dense path.
+    acc = {k: -v for k, v in acc.items()}
+
+    _check_pairwise(acc, names)
+
+    biases = np.zeros(len(names))
+    for i in range(len(names)):
+        biases[i] = acc.get((i,), 0.0)
+
+    edges, weights = [], []
+    for key, val in acc.items():
+        if len(key) == 2 and val != 0.0:
+            edges.append(key)
+            weights.append(val)
+    order = sorted(range(len(edges)), key=lambda k: edges[k])
+    edges = tuple(edges[k] for k in order)
+    weights = [weights[k] for k in order]
+
+    offset = float(-acc.get((), 0.0))
+
+    return IsingModel(nodes=names, edges=edges,
                       weights=np.asarray(weights, dtype=float),
                       biases=biases, beta=model.beta, offset=offset)

@@ -1,0 +1,67 @@
+name: lattice_l1_16x16
+description: >
+  Adjacency-constrained value assignment on a 16x16 grid, k=5 categorical --
+  the same generic mechanisms as adjacency_4x4_k4.yaml (`grid`/A1,
+  `product_over_edges`/A2, `forbid_value_pair_over_edges`/A3), scaled up and
+  carrying both HARD (forbidden) and SOFT (preferred) pairwise rules instead
+  of hard rules alone. None of those mechanisms know or care what a "value"
+  represents; the domain story lives only here.
+
+  Domain story, for intuition only, kept out of src/: value 0 is "plains",
+  value 1 is "desert", value 2 is "forest", value 3 is "mountain", value 4 is
+  "water" -- an L1 land-cover layer ("L1" per the design spec's own layer
+  naming, section 2.1/2.2; unrelated to any encoding or cache concept of the
+  same name). Four HARD rules (weight 4.0, a structural penalty analogous to
+  adjacency_4x4_k4's own) forbid a directly-adjacent pair that reads as
+  physically incoherent: mountain next to plains with no foothill between
+  (3,0), desert next to forest with no transition (1,2), water next to
+  mountain with no shore (4,3), water next to desert with no shore (4,1).
+  Four SOFT rules (weight -1.5, a preference -- negative weight lowers energy,
+  see toy.yaml's own precedent) encourage same-cover clustering: forest next
+  to forest (2,2), desert next to desert (1,1), water next to water (4,4),
+  mountain next to mountain (3,3) -- large contiguous regions read more
+  physically plausible than a checkerboard.
+
+  This is the FULL-SIZE (16x16) instance of the L1 rule set whose operating
+  point (`coefficient_scale = 0.25`) was derived by measurement at 3x3 (see
+  this task's report). The rule set's DEGREE law (ports needed per node) was
+  verified size-independent at 3x3/4x4/5x5 -- grid degree plateaus at 4 for
+  any interior cell regardless of overall grid size, and every value's
+  measured partner count stays p<=3: plains {mountain}; forest {desert,
+  forest}; desert {desert, forest, water}; mountain {mountain, plains,
+  water}; water {desert, mountain, water}. Whether the FIELD range (|b|max)
+  measured at 3x3 also holds at 16x16 was not previously checked -- that is
+  what compiling this instance verifies.
+
+  Deliberately beyond exact enumeration (256 cells far exceeds
+  thrml_backend.EXACT_LIMIT (18) under either encoding) -- the exact-layer
+  verification fields must honestly read `unavailable` for this instance, the
+  same contrast adjacency_4x4_k4.yaml's own description explains.
+generate:
+  kind: grid
+  width: 16
+  height: 16
+  variable_domain: {domain: categorical, k: 5}
+terms:
+  # HARD: forbidden adjacent pairs (pre-scale weight 4.0; the compile applies
+  # coefficient_scale separately -- see this task's report for the measured
+  # outcome at coefficient_scale=0.25).
+  - {kind: product_over_edges, a_value: 3, b_value: 0, weight: 4.0}
+  - {kind: product_over_edges, a_value: 1, b_value: 2, weight: 4.0}
+  - {kind: product_over_edges, a_value: 4, b_value: 3, weight: 4.0}
+  - {kind: product_over_edges, a_value: 4, b_value: 1, weight: 4.0}
+  # SOFT: preferred (same-value) adjacent pairs (pre-scale weight -1.5).
+  - {kind: product_over_edges, a_value: 2, b_value: 2, weight: -1.5}
+  - {kind: product_over_edges, a_value: 1, b_value: 1, weight: -1.5}
+  - {kind: product_over_edges, a_value: 4, b_value: 4, weight: -1.5}
+  - {kind: product_over_edges, a_value: 3, b_value: 3, weight: -1.5}
+contract:
+  validate:
+    - {rule: forbid_value_pair_over_edges, a_value: 3, b_value: 0,
+       message: "value 3 (mountain) directly adjacent to value 0 (plains) with no buffer between"}
+    - {rule: forbid_value_pair_over_edges, a_value: 1, b_value: 2,
+       message: "value 1 (desert) directly adjacent to value 2 (forest) with no buffer between"}
+    - {rule: forbid_value_pair_over_edges, a_value: 4, b_value: 3,
+       message: "value 4 (water) directly adjacent to value 3 (mountain) with no buffer between"}
+    - {rule: forbid_value_pair_over_edges, a_value: 4, b_value: 1,
+       message: "value 4 (water) directly adjacent to value 1 (desert) with no buffer between"}

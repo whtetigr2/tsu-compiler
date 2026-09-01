@@ -85,6 +85,31 @@ def _regime(regime: dict, key: str) -> Any:
     return _as_unavailable(v) if isinstance(v, str) else v
 
 
+def _coefficient_scale_display(passes: dict) -> str:
+    """Task 2, note 5: a scaled sample must never be mistakable for an
+    unscaled one. `coefficient_scale`/`scaled_beta` are ALWAYS present in
+    passes.json (Task 2's `search.py` sets them deterministically on every
+    verdict) so this only reads `unavailable: <reason>` for a receipt
+    written before Task 2 existed. At `coefficient_scale == 1.0` (the
+    default, and every pre-Task-2 compile) the base beta and the scaled
+    beta are numerically identical, so printing "1.0 (unscaled)" is what
+    keeps that case visibly distinct from a genuinely-scaled run that
+    happens to land on beta==base_beta by coincidence -- there is no such
+    coincidence to have at s=1.0."""
+    if "coefficient_scale" not in passes:
+        return "unavailable: not recorded"
+    s = passes["coefficient_scale"]
+    if s is None:
+        return "unavailable: not recorded"
+    if s == 1.0:
+        return "1.0 (unscaled)"
+    scaled_beta = passes.get("scaled_beta")
+    if scaled_beta is None:
+        return f"{_fmt(s)} (beta compensation unavailable: not recorded)"
+    base_beta = scaled_beta * s
+    return f"{_fmt(s)} (beta compensated: {_fmt(base_beta)} -> {_fmt(scaled_beta)})"
+
+
 def _gate(gates: list, name: str):
     """Returns the GateCheck dict for `name`, or None if it was never
     evaluated (e.g. the compile never reached gate checking)."""
@@ -262,6 +287,16 @@ def render_report(receipt_dir) -> str:
     lines.append(_line("Coupling range:", coupling_range))
     lines.append(_line("Coupling precision:", coupling_precision))
     lines.append(_line("Field range:", field_range))
+    # Task 6 (spec 5.3.7): what the mediation PASS itself actually did --
+    # distinct from "Mediators required" above (analyse()'s theoretical
+    # max-cut floor for whatever graph ended up selected, 0 once mediation
+    # has already made it bipartite). `passes.json`'s "mediation" is None
+    # exactly when the selected candidate never needed mediation at all.
+    mediation = passes.get("mediation")
+    if mediation:
+        lines.append(_line("Mediation:", f"{mediation['mediator_count']:,} spin(s) "
+                           f"via {mediation['partition_method']}"))
+        lines.append(_line("Mediation beta:", mediation["beta_used"]))
     lines.append("")
 
     # -- SAMPLING ---------------------------------------------------------
@@ -299,6 +334,7 @@ def render_report(receipt_dir) -> str:
         diversity_line = f"{distinct}/{valid_n if valid_n is not None else '?'} " \
                          f"valid samples distinct ({tail})"
     lines.append(_line("Diversity:", diversity_line))
+    lines.append(_line("Coefficient scale:", _coefficient_scale_display(passes)))
     lines.append("")
 
     # -- VERDICT ------------------------------------------------------------
@@ -607,6 +643,17 @@ def render_explain(receipt_dir) -> str:
     lines.append(_eline("Colour blocks:",
                        _rep_display(metrics, rep_row, verdict, "colour_blocks",
                                     "colour_blocks")))
+    # Task 6 (spec 5.3.7): the mediation PASS's own record -- how many
+    # mediator spins it actually inserted, by what method, and at what beta
+    # (spec 5.3.5: those couplings are only valid at this beta). None when
+    # the selected candidate never needed mediation.
+    mediation = passes.get("mediation")
+    lines.append(_eline("Mediation method:",
+                       mediation["partition_method"] if mediation else
+                       "unavailable: not mediated"))
+    lines.append(_eline("Mediation beta:",
+                       mediation["beta_used"] if mediation else
+                       "unavailable: not mediated"))
     if placement is None:
         placement_line = _as_unavailable(f"no placement recorded (verdict={verdict})")
         lines.append(_eline("Placement:", placement_line))
@@ -632,6 +679,7 @@ def render_explain(receipt_dir) -> str:
         lines.append(_eline("Free blocks:",
                            _as_unavailable(f"no program built (verdict={verdict})")
                            if verdict != "COMPILED" else "0"))
+    lines.append(_eline("Coefficient scale:", _coefficient_scale_display(passes)))
     clamp = program.get("clamp") or {}
     lines.append(_eline("Clamp:", clamp if clamp else "none"))
     sampler_cost = cost.get("sampler") or {}

@@ -66,7 +66,14 @@ def reconstruct_program(receipt_dir) -> SamplingProgram:
         edges=tuple(tuple(e) for e in p["edges"]),
         weights=np.asarray(p["weights"], dtype=float),
         biases=np.asarray(p["biases"], dtype=float),
-        beta=float(p["beta"]), offset=float(p["offset"]))
+        beta=float(p["beta"]), offset=float(p["offset"]),
+        # Task 6: round-trip which physical nodes are mediator spins so a
+        # replayed/resampled program still knows it was mediated -- this is
+        # what lets `simulate()` refuse a `--beta` override that would
+        # silently reproduce the wrong mediator couplings (spec 5.3.5).
+        # Absent on a receipt written before Task 6 existed; `()` then,
+        # same as an unmediated program.
+        mediator_nodes=tuple(p.get("mediator_nodes", ())))
     blocks = tuple(tuple(b) for b in p["blocks"])
     clamped = tuple(p["clamped_nodes"])
     clamp_values = {int(k): v for k, v in p["clamp_values"].items()}
@@ -95,7 +102,12 @@ def simulate(receipt_dir, *, n_chains: int = 32, n_samples: int = 200,
 
     `beta`: overrides the compiled model's own beta for this run only --
     beta is a scalar multiplier on the SAME fixed energy model, so this
-    never touches nodes/edges/weights/biases/offset.
+    never touches nodes/edges/weights/biases/offset. Task 6/spec 5.3.5: if
+    the receipt's own program carries mediator spins (`base.ising.
+    mediator_nodes`), their couplings are baked in at the beta they were
+    computed at -- an override to any OTHER beta would silently sample the
+    WRONG couplings, so `assert_beta_consistent` refuses it outright rather
+    than letting it through.
 
     Returns `(simulation.json path, flattened samples array, the IsingModel
     actually sampled)` -- the array is (n_chains*n_samples, n_spins), column
@@ -104,9 +116,12 @@ def simulate(receipt_dir, *, n_chains: int = 32, n_samples: int = 200,
     file this also writes.
     """
     from .backends.thrml_backend import sample_chains
+    from .passes.route import assert_beta_consistent
 
     d = Path(receipt_dir)
     base = reconstruct_program(d)
+    if beta is not None:
+        assert_beta_consistent(base.ising, float(beta))
     im = base.ising if beta is None else replace(base.ising, beta=float(beta))
 
     encoding = _selected_encoding(d)

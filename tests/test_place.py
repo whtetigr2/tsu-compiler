@@ -39,11 +39,48 @@ def test_degree_failure_is_classified_as_degree_exceeded():
     assert f.offending, "must name the offending nodes, not just a count"
 
 
-def test_odd_cycle_failure_is_classified_as_parity_conflict_and_is_routable():
-    """A triangle cannot sit on a bipartite lattice. That is parity, not geometry."""
+def test_odd_cycle_is_mediated_and_places_cleanly():
+    """Task 6: a triangle cannot sit on a bipartite lattice DIRECTLY, but
+    `place` now attempts hidden-spin mediation before ever reporting
+    `parity_conflict` (spec 5.3.6) -- subdividing the triangle's own
+    within-side edge through one mediator spin makes it bipartite, and that
+    mediated (4-node) graph places on Z1 with nothing left unrealized."""
     im = ising(3, [(0, 1), (1, 2), (0, 2)])
-    with pytest.raises(CompileError) as e:
-        place(im, analyse(im), Z1)
+    p = place(im, analyse(im), Z1)
+    assert p.unrealized == ()
+    assert p.mediation is not None
+    assert p.mediation.mediator_count == 1
+    assert p.mediation.bipartite_after is True
+    assert p.mediated_ising is not None
+    assert len(p.mediated_ising.nodes) == 4          # 3 original + 1 mediator
+    assert len(p.coords) == 4
+
+
+def test_parity_conflict_is_still_raised_when_mediation_itself_cannot_fix_it():
+    """Defensive path: `insert_mediators`' own construction proves every
+    within-side edge becomes cross-side once subdivided, so a mediated graph
+    failing to be bipartite should be unreachable in practice -- but `place`
+    checks this rather than assuming it (spec 5.3.6), and that check must
+    still classify the failure as `parity_conflict` with a routable
+    remediation, exactly as before Task 6, if it is ever hit."""
+    import tsu.passes.place as place_mod
+    from tsu.passes.route import MediationReport
+
+    from tsu.passes.route import insert_mediators as real_insert_mediators
+
+    def _broken_insert_mediators(ising, report):
+        med, rep = real_insert_mediators(ising, report)
+        return med, MediationReport(rep.mediator_count, rep.partition_method,
+                                    False, rep.beta_used)
+
+    im = ising(3, [(0, 1), (1, 2), (0, 2)])
+    orig = place_mod.insert_mediators
+    place_mod.insert_mediators = _broken_insert_mediators
+    try:
+        with pytest.raises(CompileError) as e:
+            place(im, analyse(im), Z1)
+    finally:
+        place_mod.insert_mediators = orig
     f = e.value.failures[0]
     assert f.failure_class == "parity_conflict"
     assert any(r.action == "route through mediator" for r in f.remediations)
@@ -116,13 +153,16 @@ def test_effort_exhaustion_is_never_reported_as_geometry_unreachable():
     assert p.unrealized == ()
 
 
-def test_parity_conflict_remediation_never_publishes_the_uncomputed_sentinel():
-    """I5: report.mediators == -1 means 'not computed' (the graph exceeded
-    MAXCUT_EXACT_LIMIT), not zero. The parity_conflict remediation must not
-    publish it as a numeric extra_spins estimate -- that is the same
-    sentinel-as-a-published-fact error C1 fixes for placement's own verdict,
-    one field over. Reproduced on a 25-node odd ring, exactly as the review
-    found it."""
+def test_a_large_odd_ring_beyond_exact_maxcut_is_mediated_and_places_cleanly():
+    """Task 6: a 25-node odd ring exceeds MAXCUT_EXACT_LIMIT (20), so
+    `report.mediators` (the theoretical floor) is never computed -- but
+    `insert_mediators` needs no max-cut computation at all (it is O(V+E)
+    regardless), so `place` mediates and places this graph exactly as it
+    would a small one. Before Task 6 this raised `parity_conflict`
+    immediately; see
+    `test_parity_conflict_is_still_raised_when_mediation_itself_cannot_fix_it`
+    for the (now defensive-only) I5 sentinel-safety check that test used to
+    exercise via this same graph."""
     from tsu.passes.analyse import MAXCUT_EXACT_LIMIT
 
     n = MAXCUT_EXACT_LIMIT + 5
@@ -131,8 +171,47 @@ def test_parity_conflict_remediation_never_publishes_the_uncomputed_sentinel():
     report = analyse(im)
     assert report.mediators == -1
 
-    with pytest.raises(CompileError) as e:
-        place(im, report, Z1)
+    p = place(im, report, Z1)
+    assert p.unrealized == ()
+    assert p.mediation is not None
+    assert p.mediation.bipartite_after is True
+
+
+def test_parity_conflict_remediation_never_publishes_the_uncomputed_sentinel():
+    """I5: report.mediators == -1 means 'not computed' (the graph exceeded
+    MAXCUT_EXACT_LIMIT), not zero. The parity_conflict remediation must not
+    publish it as a numeric extra_spins estimate -- that is the same
+    sentinel-as-a-published-fact error C1 fixes for placement's own verdict,
+    one field over. Task 6 makes this remediation defensive-only (mediation
+    itself resolves parity in every practical case -- see
+    `test_parity_conflict_is_still_raised_when_mediation_itself_cannot_fix_it`),
+    so the failing-mediation path is forced here the same way that test
+    forces it, on the same 25-node odd ring the original review found this
+    on."""
+    import tsu.passes.place as place_mod
+    from tsu.passes.analyse import MAXCUT_EXACT_LIMIT
+    from tsu.passes.route import MediationReport
+
+    from tsu.passes.route import insert_mediators as real_insert_mediators
+
+    def _broken_insert_mediators(ising, report):
+        med, rep = real_insert_mediators(ising, report)
+        return med, MediationReport(rep.mediator_count, rep.partition_method,
+                                    False, rep.beta_used)
+
+    n = MAXCUT_EXACT_LIMIT + 5
+    edges = [(i, (i + 1) % n) for i in range(n)]
+    im = ising(n, edges)
+    report = analyse(im)
+    assert report.mediators == -1
+
+    orig = place_mod.insert_mediators
+    place_mod.insert_mediators = _broken_insert_mediators
+    try:
+        with pytest.raises(CompileError) as e:
+            place(im, report, Z1)
+    finally:
+        place_mod.insert_mediators = orig
     f = e.value.failures[0]
     assert f.failure_class == "parity_conflict"
     rem = next(r for r in f.remediations if r.action == "route through mediator")
