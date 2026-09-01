@@ -43,6 +43,7 @@ import threading
 import time
 import tkinter as tk
 from collections import deque
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -52,13 +53,17 @@ from scipy import ndimage
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC = REPO_ROOT / "src"
-RECEIPT_DIR = REPO_ROOT / "demo" / "receipts" / "small"
+DEMO_DIR = REPO_ROOT / "demo"
+RECEIPT_DIR = DEMO_DIR / "receipts" / "small"
+WORLDS_DIR = DEMO_DIR / "worlds"
 sys.path.insert(0, str(SRC))
+sys.path.insert(0, str(DEMO_DIR))
 
 from tsu.spec import load_spec  # noqa: E402
 from tsu.passes.encode import encode  # noqa: E402
 from tsu.simulate import reconstruct_program, _selected_encoding  # noqa: E402
 from tsu.backends.thrml_backend import sample as thrml_sample  # noqa: E402
+from worldfile import save_world  # noqa: E402 -- A2: save/load provenance-carrying worlds
 
 # --------------------------------------------------------------------------
 # constants shared by the raw-lattice grid and the decode/render path
@@ -477,6 +482,7 @@ class LatticeApp(tk.Tk):
         self.noncodeword_count = 0
         self.last_valid_grid = None
         self.last_valid_mix = None
+        self.last_valid_seed = None  # seed of the draw last_valid_grid came from
         self.world_photo = None  # keep a reference; Tk drops PhotoImages with none
         self.log_lines: deque = deque(maxlen=400)
 
@@ -544,6 +550,18 @@ class LatticeApp(tk.Tk):
                                    bg=PANEL_BG, fg=FG, activebackground=BORDER,
                                    activeforeground=FG, relief="flat", padx=12, pady=4)
         self.seed_btn.pack(side="left", padx=(6, 0))
+        # A2: Save world -- writes the CURRENTLY DISPLAYED world (last_valid_
+        # grid) plus its provenance to demo/worlds/. Disabled (not just
+        # ignored) whenever that world is STALE (drawn under a since-changed
+        # clamp) or the active clamp is INFEASIBLE -- both states this app
+        # already tracks in _refresh_world_status -- so a saved file can
+        # never silently be evidence for a clamp it wasn't actually drawn
+        # under, or claim a world that never came back valid.
+        self.save_btn = tk.Button(bottom, text="Save world", command=self._on_save_world,
+                                   bg=PANEL_BG, fg=FG, activebackground=BORDER,
+                                   activeforeground=FG, relief="flat", padx=12, pady=4,
+                                   state="disabled")
+        self.save_btn.pack(side="left", padx=(6, 0))
         tk.Label(bottom, text=FOOTER_TEXT, bg=BG, fg=DIM,
                   font=("Consolas", 8), wraplength=1000, justify="left"
                   ).pack(side="left", padx=(16, 0))
@@ -795,6 +813,7 @@ class LatticeApp(tk.Tk):
             self.valid_count += 1
             self.last_valid_grid = msg["grid"]
             self.last_valid_mix = msg["mix"]
+            self.last_valid_seed = msg["seed"]
             self.world_stale = False
             # A fresh valid draw under the CURRENT clamp is direct proof
             # that clamp is feasible -- don't let a stale "infeasible" verdict
@@ -871,6 +890,14 @@ class LatticeApp(tk.Tk):
         else:
             self.infeasible_label.config(text="")
 
+        # A2: Save world is only ever enabled for a world that is BOTH
+        # present and current -- never stale, never drawn under a clamp
+        # since shown infeasible.
+        can_save = (self.last_valid_grid is not None
+                    and not self.world_stale
+                    and not self.batch_infeasible)
+        self.save_btn.config(state="normal" if can_save else "disabled")
+
     # -- click-to-pin ----------------------------------------------------
     def _pin_color(self, value: int) -> str:
         r, g, b = (int(c) for c in PAL[value])
@@ -914,6 +941,51 @@ class LatticeApp(tk.Tk):
         self._redraw_pin_markers()
         self._refresh_pins_panel()
         self._restart_sampling_for_clamp_change()
+
+    def _on_save_world(self):
+        """Write the currently displayed world to demo/worlds/. Guarded
+        twice: the button itself is disabled (see _refresh_world_status)
+        whenever the world is STALE or the active clamp is INFEASIBLE, and
+        this handler re-checks the same conditions before writing, so a
+        stray event (e.g. a queued click landing after a state change)
+        can't slip a bad save through."""
+        if (self.last_valid_grid is None or self.world_stale
+                or self.batch_infeasible):
+            return
+
+        grid = self.last_valid_grid
+        # grid[y, x] via classify_draw's own construction (see
+        # classify_draw above) -- flatten() with numpy's default C order
+        # walks x fastest within each y row, i.e. row-major exactly as
+        # worldfile.py's format expects (values[y*width + x]).
+        values = grid.flatten().tolist()
+        clamp = self.clamp.as_dict()
+        if clamp:
+            sampler_params = {
+                "n_chains": CLAMP_N_CHAINS, "n_samples": CLAMP_N_SAMPLES,
+                "n_warmup": CLAMP_N_WARMUP, "steps_per_sample": STEPS_PER_SAMPLE,
+            }
+        else:
+            sampler_params = {
+                "n_chains": BATCH_CHAINS, "n_samples_per_call": N_SAMPLES_PER_CALL,
+                "n_warmup": N_WARMUP, "steps_per_sample": STEPS_PER_SAMPLE,
+            }
+        saved_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        seed = self.last_valid_seed if self.last_valid_seed is not None else -1
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
+        out_path = WORLDS_DIR / f"world_{stamp}_seed{seed}.json"
+
+        try:
+            save_world(out_path, spec_name=self.receipt.spec.name,
+                       receipt_dir=str(self.receipt.path), seed=seed,
+                       clamp=clamp, width=W, height=H, values=values,
+                       value_names=[TERRAIN_NAMES[k] for k in TERRAIN_ORDER],
+                       task_valid=True, violations=[],
+                       sampler_params=sampler_params, saved_at=saved_at)
+        except Exception as exc:  # surfaced in the log, never swallowed
+            self._log(f"SAVE FAILED: {exc}")
+            return
+        self._log(f"saved world -> {out_path.relative_to(REPO_ROOT)}")
 
     def _log(self, text: str):
         self.log_lines.append(text)
