@@ -81,6 +81,7 @@ from tsu.ess import (integrated_autocorrelation_time,  # noqa: E402
 from layers import FIELD_CAP, FieldCapExceeded, bias_patch  # noqa: E402 -- Task 7
 from elevation import band_patch, thermometer_level, monotonicity_violations  # noqa: E402
 from elevation_world import render_elevation_world_image  # noqa: E402 -- composite view, reused verbatim
+import explainer  # noqa: E402 -- Task 9: "What is this?" explainer window
 
 
 def _rgb(hex_str: str) -> tuple[int, int, int]:
@@ -456,6 +457,246 @@ def render_temperature_track(width: int, height: int, adjustable: bool,
     x0 = max(thumb_x - thumb_w // 2, 0)
     x1 = min(x0 + thumb_w, width - 1)
     draw.rectangle([x0, 1, x1, height - 2], fill=thumb_color, outline=hexrgb(theme.CREAM), width=1)
+    return img
+
+
+# ==========================================================================
+# Task 11: FRONTIER redesign -- load gauges, not a wall of monospace.
+#
+# PRESENTATION ONLY. Every number below is read verbatim from a
+# frontier_mod.FrontierReport that demo/frontier.py already computed (same
+# object `frontier_mod.render_text` renders to the plain-text panel this
+# replaces) -- nothing here re-derives a prediction or a measurement.
+# frontier_gauge_specs performs exactly ONE interpretive step beyond
+# copying fields: which gate is "highest current utilisation" (argmax of
+# already-computed pct_used) and which gate frontier_mod's own
+# BindingForecast headline names as binding FIRST (an exact substring
+# match against that SAME string, via _binding_gate_name -- never a
+# re-walk of the law). Both are SELECTIONS among numbers frontier.py
+# already produced, not new arithmetic.
+#
+# Every predicted value stays labelled with its source law in
+# GaugeSpec.predicted_law/predicted_label -- the tokens spec's own
+# requirement that a prediction never be presented as a measurement.
+# ==========================================================================
+
+FRONTIER_GAUGE_LABELS = {
+    "degree": "DEGREE",
+    "coupling_cap": "COUPLING CAP",
+    "field_cap": "FIELD CAP",
+    "node_budget": "NODE BUDGET",
+}
+
+# Verbatim FOOTER_TEXT's own assumed-cap disclosure (not a second, drifting
+# phrasing of the same fact) -- |J| and |b| are project assumptions, not
+# sourced Extropic figures, and every gauge that shows one says so.
+ASSUMED_CAP_NOTE = ("assumed project limit -- |J| and |b| caps are assumed "
+                     "project values, not sourced Extropic figures")
+
+# When a gate's predicted next value sits PAST its own cap, the track is
+# compressed to this fraction of the gauge's width (0..cap) and a hatched
+# red region fills the remainder -- verbatim the tokens spec's own
+# buildability note ("FRONTIER gauges with hatched overrun... Predicted
+# hairline and hatched overrun are the design. Do not flatten to a
+# progressbar.").
+GAUGE_OVERRUN_TRACK_FRAC = 0.62
+
+
+@dataclass(frozen=True)
+class GaugeSpec:
+    """One FRONTIER load gauge's presentation data -- everything a renderer
+    needs to draw one gate's row, with no further arithmetic required of
+    the renderer. See the module section docstring above for what "tag" and
+    "predicted_*" are derived from."""
+    gate: str
+    label: str
+    measured: float
+    limit: float
+    pct_used: float | None
+    tag_kind: str | None       # "bind" | "over" | "ok" | None
+    tag_text: str | None
+    predicted_value: float | None
+    predicted_label: str | None   # e.g. "predicted degree 11 after k -> 4"
+    predicted_law: str | None     # e.g. "one-hot law, spec section 4.2"
+    predicted_exceeds_cap: bool
+    foot_text: str
+
+    @property
+    def frac_current(self) -> float:
+        return _safe_frac(self.measured, self.limit)
+
+    @property
+    def frac_predicted(self) -> float | None:
+        if self.predicted_value is None:
+            return None
+        return _safe_frac(self.predicted_value, self.limit)
+
+
+def _safe_frac(value: float, limit: float) -> float:
+    """value/limit, clamped to [0, 1] -- never raises on a zero/inf/NaN
+    limit (headroom_from_receipt already refuses to compute a PERCENTAGE
+    for those, see GateHeadroom.pct_used; this is the same guard applied to
+    a gauge's fill fraction, which the renderer needs even when pct_used
+    is None)."""
+    if not isinstance(limit, (int, float)):
+        return 0.0
+    if limit in (0, float("inf")) or limit != limit:  # zero, inf, NaN
+        return 0.0
+    return min(max(float(value) / float(limit), 0.0), 1.0)
+
+
+def _binding_gate_name(headline: str, headroom: Sequence[Any]) -> str | None:
+    """Which headroom gate frontier_mod.BindingForecast's own headline names
+    as binding FIRST -- an EXACT substring match against the same string
+    predict_first_binding_gate generated (".../ {gate} is predicted to bind
+    FIRST, ..."), never a re-derivation of the forecast. Returns None for
+    the "no gate is predicted to bind" headline, or if the headline's
+    phrasing ever changes out from under this match (fails safe to "no
+    tag" rather than guessing)."""
+    for h in headroom:
+        if f"{h.gate} is predicted to bind FIRST" in headline:
+            return h.gate
+    return None
+
+
+def frontier_gauge_specs(report: Any) -> list[GaugeSpec]:
+    """Build one GaugeSpec per report.headroom entry (degree, coupling_cap,
+    field_cap, node_budget -- headroom_from_receipt's own fixed order).
+    `report` is a frontier_mod.FrontierReport; every field read below
+    already exists on it (see demo/frontier.py) -- this function only
+    selects and labels, never computes a new prediction."""
+    headroom = report.headroom
+    bind_first = _binding_gate_name(report.binding.headline, headroom)
+    ranked = [h for h in headroom if h.pct_used is not None]
+    highest = max(ranked, key=lambda h: h.pct_used) if ranked else None
+
+    specs = []
+    for h in headroom:
+        tag_kind = tag_text = None
+        if h.gate == bind_first:
+            tag_kind, tag_text = "over", "PREDICTED TO BIND FIRST"
+        elif highest is not None and h.gate == highest.gate:
+            tag_kind, tag_text = "bind", "HIGHEST CURRENT UTILISATION"
+        elif h.gate == "node_budget" and h.pct_used is not None and h.pct_used < 5.0:
+            tag_kind, tag_text = "ok", "UNBOUND ON Z1-CLASS"
+
+        predicted_value = predicted_label = predicted_law = None
+        predicted_exceeds_cap = False
+        if h.gate == "degree":
+            predicted_value = report.law_predicted_degree_next_k
+            predicted_label = (f"predicted degree {predicted_value} after "
+                               f"k -> {report.shape.k + 1}")
+            predicted_law = "one-hot law, spec section 4.2"
+            predicted_exceeds_cap = predicted_value > h.limit
+        elif h.gate == "field_cap":
+            predicted_value = report.law_predicted_field_floor_next_k
+            predicted_label = (f"predicted |b| floor {predicted_value:.2f} "
+                               f"after k -> {report.shape.k + 1}")
+            predicted_law = "one-hot law, spec section 4.8"
+            predicted_exceeds_cap = predicted_value > h.limit
+
+        foot_parts = []
+        if h.gate == "degree":
+            ticks = ", ".join(str(int(round(h.limit * f)))
+                              for f in (0, 0.25, 0.5, 0.75, 1.0))
+            foot_parts.append(f"ticks at {ticks}")
+        if predicted_value is not None:
+            over_note = "OVER CAP" if predicted_exceeds_cap else "still under cap"
+            foot_parts.append(f"dashed/hatch = {predicted_label} "
+                              f"({predicted_law}) -- {over_note}")
+        if h.gate in ("coupling_cap", "field_cap"):
+            foot_parts.append(ASSUMED_CAP_NOTE)
+        if h.gate == "node_budget":
+            if tag_kind == "ok":
+                foot_parts.append("p-bits are not the constraint here")
+            elif h.pct_used is not None:
+                foot_parts.append(f"{h.pct_used:.2f}% of node budget used")
+            else:
+                foot_parts.append("unavailable: node budget percentage "
+                                  "could not be computed")
+        foot_text = "  |  ".join(foot_parts)
+
+        specs.append(GaugeSpec(
+            gate=h.gate, label=FRONTIER_GAUGE_LABELS[h.gate],
+            measured=h.measured, limit=h.limit, pct_used=h.pct_used,
+            tag_kind=tag_kind, tag_text=tag_text,
+            predicted_value=predicted_value, predicted_label=predicted_label,
+            predicted_law=predicted_law,
+            predicted_exceeds_cap=predicted_exceeds_cap, foot_text=foot_text))
+    return specs
+
+
+def _dashed_vline(draw: "ImageDraw.ImageDraw", x: int, height: int,
+                  color: tuple[int, int, int], dash: int = 3, gap: int = 2) -> None:
+    y = 0
+    while y < height:
+        y2 = min(y + dash, height)
+        draw.line([(x, y), (x, y2)], fill=color, width=1)
+        y = y2 + gap
+
+
+def _hatch_fill(draw: "ImageDraw.ImageDraw", x0: int, y0: int, x1: int, y1: int,
+                fg: tuple[int, int, int], bg: tuple[int, int, int],
+                spacing: int = 6, stripe_w: int = 2) -> None:
+    """Diagonal hatch inside [x0,x1]x[y0,y1] -- the tokens spec's own
+    "hatched overrun" treatment, drawn as repeated 45-degree stripes (PIL
+    has no repeating-pattern fill primitive)."""
+    draw.rectangle([x0, y0, x1, y1], fill=bg)
+    h = y1 - y0
+    offset = -h
+    while offset < (x1 - x0) + h:
+        draw.line([(x0 + offset, y1), (x0 + offset + h, y0)], fill=fg, width=stripe_w)
+        offset += spacing
+
+
+def render_frontier_gauge_track(width: int, height: int, frac_current: float,
+                                frac_predicted: float | None = None,
+                                overrun_ratio: float | None = None) -> Image.Image:
+    """Task 11: one FRONTIER gauge's track, IMAGE per the tokens spec's own
+    buildability table ("FRONTIER gauges with hatched overrun" is listed
+    IMAGE, PhotoImage/Canvas). Draws only what GaugeSpec already computed --
+    frac_current/frac_predicted are measured/limit and predicted/limit,
+    already-safe fractions (see _safe_frac); this function never reads a
+    report or a limit itself.
+
+    overrun_ratio is None: a plain track, full width, gold_dim fill to
+    frac_current, plus an optional gold DASHED hairline at frac_predicted
+    (predicted <= cap in this branch, so it fits inside the track).
+
+    overrun_ratio is not None (predicted_value / limit for a gate whose
+    prediction EXCEEDS its cap): the track compresses to
+    GAUGE_OVERRUN_TRACK_FRAC of the image width (still 0..cap, same fill
+    scale as the plain branch) and a hatched red region fills the rest,
+    its own width scaled by how far past 1.0 overrun_ratio sits (clamped
+    so a very large overrun still fits the image) -- visually distinct
+    from the measured gold fill, never a second gold bar."""
+    def hexrgb(h):
+        h = h.lstrip("#")
+        return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+
+    img = Image.new("RGB", (width, height), hexrgb(theme.INSET))
+    draw = ImageDraw.Draw(img)
+
+    track_frac = GAUGE_OVERRUN_TRACK_FRAC if overrun_ratio is not None else 1.0
+    track_w = max(int(round(width * track_frac)), 2)
+
+    draw.rectangle([0, 0, track_w - 1, height - 1], outline=hexrgb(theme.GOLD_GHOST), width=1)
+    fill_w = int(round(track_w * min(max(frac_current, 0.0), 1.0)))
+    if fill_w > 1:
+        draw.rectangle([1, 1, max(fill_w - 1, 1), height - 2], fill=hexrgb(theme.GOLD_DIM))
+
+    if overrun_ratio is None:
+        if frac_predicted is not None:
+            x = int(round(min(max(frac_predicted, 0.0), 1.0) * (track_w - 1)))
+            _dashed_vline(draw, x, height, hexrgb(theme.GOLD))
+    else:
+        over_span = min(max(overrun_ratio - 1.0, 0.05), 1.5)
+        avail = max(width - track_w, 6)
+        hatch_w = max(int(round(avail * min(over_span / 0.5, 1.0))), 6)
+        hatch_w = min(hatch_w, avail)
+        x0, x1 = track_w, min(track_w + hatch_w, width - 1)
+        _hatch_fill(draw, x0, 0, x1, height - 1, hexrgb(theme.RED), hexrgb("#6a2018"))
+        draw.rectangle([x0, 0, x1, height - 1], outline=hexrgb(theme.RED), width=1)
     return img
 
 
@@ -1429,6 +1670,7 @@ class LatticeApp(tk.Tk):
         self.last_valid_sampler_params = None  # UI2: what actually drew it
         self.world_photo = None  # keep a reference; Tk drops PhotoImages with none
         self.log_lines: deque = deque(maxlen=400)
+        self.explainer_window = None  # Task 9: singleton "What is this?" Toplevel
 
         # click-to-pin state -- pure ClampState, no Tk in it (see the
         # headless tests). world_stale is True whenever the world currently
@@ -1795,6 +2037,13 @@ class LatticeApp(tk.Tk):
                                    bg=PANEL_BG, fg=FG, activebackground=BORDER,
                                    activeforeground=FG, relief="flat", padx=12, pady=4)
         self.step_btn.pack(side="left", padx=(6, 0))
+        # Task 9: "What is this?" -- a newcomer's tour, in its own Toplevel.
+        self.explainer_btn = tk.Button(bottom, text="What is this?",
+                                        command=self._on_show_explainer,
+                                        bg=PANEL_BG, fg=ACCENT, activebackground=BORDER,
+                                        activeforeground=ACCENT, relief="flat",
+                                        padx=12, pady=4)
+        self.explainer_btn.pack(side="left", padx=(6, 0))
 
         # UI2: speed control -- a stepped selector (Scale in integer,
         # snap-to-level mode) over SPEED_LEVELS, DISPLAY RATE ONLY. Says so
@@ -2096,11 +2345,55 @@ class LatticeApp(tk.Tk):
         # above): the frontier is a property of the compiled receipt, not
         # of anything sampled live.
         ff = self.frontier_panel.body
+        report = None
         try:
             report = frontier_mod.build_frontier_report(r.path)
             frontier_text = frontier_mod.render_text(report)
         except Exception as exc:  # never crash the app over a display panel
             frontier_text = f"unavailable: frontier report failed: {exc}"
+
+        GAUGE_W = 300  # panel body's own usable width (left col 340px minus
+                        # Panel's border/padding) -- the gauges' fixed drawing
+                        # width; re-verified by screenshot, see task report.
+
+        if report is not None:
+            # Task 11: load gauges -- one per hardware limit, the binding
+            # limit visually dominant, the predicted cost of one more
+            # terrain value (k -> k+1) shown against them so a viewer can
+            # see which one breaks first. Presentation only: every number
+            # below comes straight from `report` (frontier_gauge_specs),
+            # never recomputed here.
+            tk.Label(ff, text=(f"HEADROOM THIS COMPILED MODEL -- "
+                               f"{report.encoding.upper()} -- K={report.shape.k} "
+                               f"P={report.shape.worst_partners}"),
+                     bg=PANEL_BG, fg=ACCENT, font=(MONO_FAMILY, 8, "bold"),
+                     anchor="w", justify="left", wraplength=GAUGE_W
+                     ).pack(fill="x", pady=(0, 6))
+
+            gauges_frame = tk.Frame(ff, bg=PANEL_BG)
+            gauges_frame.pack(fill="x")
+            for spec in frontier_gauge_specs(report):
+                self._build_frontier_gauge_row(gauges_frame, spec, GAUGE_W)
+
+            # The bind-first conclusion, called out on its own (verbatim
+            # report.binding.headline -- not a paraphrase, so it can never
+            # drift from the Text box below or from `python demo/frontier.py`).
+            bind_box = tk.Frame(ff, bg=theme.PANEL_2, highlightbackground=theme.RED,
+                                highlightthickness=1)
+            bind_box.pack(fill="x", pady=(4, 6))
+            tk.Label(bind_box, text="FIRST TO BIND", bg=theme.PANEL_2, fg=theme.RED_HOT,
+                     font=(MONO_FAMILY, 8, "bold"), anchor="w"
+                     ).pack(fill="x", padx=6, pady=(4, 0))
+            tk.Label(bind_box, text=report.binding.headline, bg=theme.PANEL_2, fg=FG,
+                     font=(MONO_FAMILY, 8), anchor="w", justify="left",
+                     wraplength=GAUGE_W).pack(fill="x", padx=6, pady=(0, 4))
+
+        # Full detail (model shape, both next-increment axes, the verified
+        # predicted-vs-observed rows, the |J|/|b| assumed-value disclaimer)
+        # stays the UNCHANGED frontier_mod.render_text output, in a
+        # scrollable Text box below the gauges -- nothing the old panel
+        # showed is dropped, only the headroom section is now ALSO a gauge
+        # above rather than shown solely as text.
         frontier_frame = tk.Frame(ff, bg=PANEL_BG)
         frontier_frame.pack(fill="both", expand=True)
         fsb = tk.Scrollbar(frontier_frame)
@@ -2179,6 +2472,59 @@ class LatticeApp(tk.Tk):
         # on their "(no data yet)" / "(no draws yet)" placeholder, same
         # honesty convention as the two traces just above).
         self._refresh_scope_panel()
+
+    def _build_frontier_gauge_row(self, parent: tk.Frame, spec: GaugeSpec,
+                                  width: int) -> None:
+        """Task 11: one FRONTIER load-gauge row -- CHROME meta text (name,
+        tag, fraction, percent) as Labels, IMAGE track (fill + predicted
+        hairline / hatched overrun) blitted from render_frontier_gauge_track,
+        CHROME foot caption. `spec` already carries every number and label
+        this needs (see frontier_gauge_specs) -- this method only lays
+        widgets out, it computes nothing."""
+        row = tk.Frame(parent, bg=PANEL_BG)
+        row.pack(fill="x", pady=(0, 8))
+
+        head = tk.Frame(row, bg=PANEL_BG)
+        head.pack(fill="x")
+        left_head = tk.Frame(head, bg=PANEL_BG)
+        left_head.pack(side="left")
+        tk.Label(left_head, text=spec.label, bg=PANEL_BG, fg=ACCENT,
+                 font=(MONO_FAMILY, 9, "bold"), anchor="w").pack(side="left")
+        if spec.tag_text:
+            tag_fg = {"over": theme.RED_HOT, "bind": WARN, "ok": GOOD}[spec.tag_kind]
+            tag_border = {"over": theme.RED, "bind": WARN, "ok": GOOD}[spec.tag_kind]
+            tk.Label(left_head, text=" " + spec.tag_text + " ", bg=PANEL_BG, fg=tag_fg,
+                     font=(MONO_FAMILY, 7, "bold"), highlightbackground=tag_border,
+                     highlightthickness=1, bd=0
+                     ).pack(side="left", padx=(8, 0))
+        right_head = tk.Frame(head, bg=PANEL_BG)
+        right_head.pack(side="right")
+        frac_text = f"{spec.measured:g} / {spec.limit:g}"
+        pct_text = f"{spec.pct_used:.0f}%" if spec.pct_used is not None else "n/a"
+        tk.Label(right_head, text=pct_text, bg=PANEL_BG, fg=DIM,
+                 font=(MONO_FAMILY, 8), anchor="e").pack(side="right", padx=(6, 0))
+        tk.Label(right_head, text=frac_text, bg=PANEL_BG, fg=FG,
+                 font=(MONO_FAMILY, 8, "bold"), anchor="e").pack(side="right")
+
+        track_h = 18 if spec.tag_kind == "over" else 14
+        overrun_ratio = None
+        if spec.predicted_exceeds_cap and spec.predicted_value is not None and spec.limit:
+            overrun_ratio = spec.predicted_value / spec.limit
+        img = render_frontier_gauge_track(
+            width, track_h, spec.frac_current,
+            frac_predicted=(spec.frac_predicted if not spec.predicted_exceeds_cap else None),
+            overrun_ratio=overrun_ratio)
+        photo = ImageTk.PhotoImage(img)
+        canvas = tk.Canvas(row, width=width, height=track_h, bg=PANEL_BG,
+                           highlightthickness=0)
+        canvas.pack(fill="x", pady=(3, 2))
+        canvas.create_image(0, 0, anchor="nw", image=photo)
+        canvas.image = photo  # keep a reference; Tk drops PhotoImages with none
+
+        if spec.foot_text:
+            tk.Label(row, text=spec.foot_text, bg=PANEL_BG, fg=DIM,
+                     font=(MONO_FAMILY, 7), anchor="w", justify="left",
+                     wraplength=width).pack(fill="x")
 
     def _draw_trace(self, canvas: tk.Canvas, trace: "Trace", xlabel: str,
                     ylabel: str) -> None:
@@ -2912,6 +3258,23 @@ class LatticeApp(tk.Tk):
         if not self.paused:
             self._toggle_pause()
         self.worker.request_step()
+
+    # -- Task 9: "What is this?" explainer window -------------------------
+    def _on_show_explainer(self):
+        """Opens demo/explainer.py's ExplainerWindow -- a real tk.Toplevel
+        (draggable/resizable/minimizable via the native window manager,
+        never overrideredirect). Singleton: a second click LIFTS the
+        existing window (and un-minimizes it via deiconify) rather than
+        stacking duplicate windows -- winfo_exists() is checked because the
+        user closing the window (WM_DELETE_WINDOW -> destroy, wired in
+        ExplainerWindow.__init__) leaves self.explainer_window pointing at
+        a destroyed Tk object, which would raise on any method call."""
+        if self.explainer_window is not None and self.explainer_window.winfo_exists():
+            self.explainer_window.deiconify()
+            self.explainer_window.lift()
+            self.explainer_window.focus_set()
+            return
+        self.explainer_window = explainer.open_explainer(self)
 
     # -- Task 7: per-layer regenerate ------------------------------------
     def _on_regenerate_layer(self):

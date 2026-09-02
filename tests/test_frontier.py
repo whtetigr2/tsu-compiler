@@ -23,6 +23,7 @@ if str(DEMO) not in sys.path:
 
 import frontier as fr  # noqa: E402
 import lattice_app as la  # noqa: E402
+import theme  # noqa: E402 -- Task 11: gauge pixel-colour tests
 
 
 # ===========================================================================
@@ -296,3 +297,219 @@ def test_energy_of_draw_matches_hand_computed_ising_energy():
     # E = offset - b.s - J*s0*s1 ... using the module's own convention:
     expected = im.offset - (im.biases[0]*1 + im.biases[1]*-1) - (im.weights[0]*1*-1)
     assert la.energy_of_draw(im, row) == pytest.approx(expected)
+
+
+# ===========================================================================
+# Task 11: FRONTIER redesign -- load gauges. frontier_gauge_specs is
+# PRESENTATION ONLY (no new arithmetic): these tests lock in that every
+# number on demo/receipts/small's own report survives unchanged into the
+# gauges, and that the two SELECTIONS (highest current utilisation,
+# predicted-to-bind-first) land on the gates the underlying report already
+# implies -- degree is highest currently used (56.25%), field_cap is what
+# BindingForecast's own headline names as binding first.
+# ===========================================================================
+
+def _small_report():
+    return fr.build_frontier_report(SMALL)
+
+
+def test_frontier_gauge_specs_preserves_every_headroom_number_unchanged():
+    """No new maths -- Step 1 of the brief. Every measured/limit/pct_used
+    on each GaugeSpec must be the EXACT same value headroom_from_receipt
+    already produced, not a re-derived one."""
+    report = _small_report()
+    specs = la.frontier_gauge_specs(report)
+    by_gate = {s.gate: s for s in specs}
+    for h in report.headroom:
+        s = by_gate[h.gate]
+        assert s.measured == h.measured
+        assert s.limit == h.limit
+        assert s.pct_used == h.pct_used
+
+
+def test_frontier_gauge_specs_covers_all_four_gates_in_headroom_order():
+    report = _small_report()
+    specs = la.frontier_gauge_specs(report)
+    assert [s.gate for s in specs] == [h.gate for h in report.headroom]
+    assert [s.gate for s in specs] == ["degree", "coupling_cap", "field_cap", "node_budget"]
+
+
+def test_frontier_gauge_specs_tags_degree_as_highest_current_utilisation():
+    """56.25% (degree) > 41.67% (coupling_cap) > 26.67% (field_cap) >
+    0.08% (node_budget) on the small receipt -- degree is the highest
+    CURRENT utilisation, even though it is not what's predicted to bind
+    first (see the next test)."""
+    report = _small_report()
+    by_gate = {s.gate: s for s in la.frontier_gauge_specs(report)}
+    assert by_gate["degree"].tag_kind == "bind"
+    assert by_gate["degree"].tag_text == "HIGHEST CURRENT UTILISATION"
+
+
+def test_frontier_gauge_specs_tags_field_cap_as_predicted_to_bind_first():
+    """Matches report.binding.headline (fr.predict_first_binding_gate):
+    field_cap crosses its cap at k=4, one increment away -- long before
+    degree would (k=10 or p=4)."""
+    report = _small_report()
+    assert "field_cap" in report.binding.headline
+    by_gate = {s.gate: s for s in la.frontier_gauge_specs(report)}
+    assert by_gate["field_cap"].tag_kind == "over"
+    assert by_gate["field_cap"].tag_text == "PREDICTED TO BIND FIRST"
+    assert by_gate["field_cap"].predicted_exceeds_cap
+
+
+def test_frontier_gauge_specs_node_budget_tagged_unbound_and_untagged_by_utilisation():
+    """node_budget's 0.08% is nowhere near the highest (degree's 56.25%
+    is), so it must get its OWN "unbound" tag, not the utilisation one."""
+    report = _small_report()
+    by_gate = {s.gate: s for s in la.frontier_gauge_specs(report)}
+    assert by_gate["node_budget"].tag_kind == "ok"
+    assert by_gate["node_budget"].tag_text == "UNBOUND ON Z1-CLASS"
+
+
+def test_frontier_gauge_specs_coupling_cap_has_no_predicted_value():
+    """frontier.py has no named law predicting coupling_cap's next value --
+    a gauge must never fabricate a hairline/overrun frontier.py itself
+    never computed."""
+    report = _small_report()
+    by_gate = {s.gate: s for s in la.frontier_gauge_specs(report)}
+    assert by_gate["coupling_cap"].predicted_value is None
+    assert by_gate["coupling_cap"].predicted_label is None
+    assert not by_gate["coupling_cap"].predicted_exceeds_cap
+
+
+def test_frontier_gauge_specs_degree_predicted_value_matches_report_field():
+    report = _small_report()
+    by_gate = {s.gate: s for s in la.frontier_gauge_specs(report)}
+    assert by_gate["degree"].predicted_value == report.law_predicted_degree_next_k
+    assert not by_gate["degree"].predicted_exceeds_cap  # 11 <= 16
+
+
+def test_frontier_gauge_specs_field_cap_predicted_value_matches_report_field():
+    report = _small_report()
+    by_gate = {s.gate: s for s in la.frontier_gauge_specs(report)}
+    assert by_gate["field_cap"].predicted_value == report.law_predicted_field_floor_next_k
+    assert by_gate["field_cap"].predicted_exceeds_cap  # 10.0 > 6.0
+
+
+def test_frontier_gauge_specs_predicted_labels_name_their_law_never_bare():
+    """Every prediction must stay labelled as a prediction from a named
+    law, never presented as a measurement (the panel's entire credibility,
+    per the brief) -- both predicted gauges must carry a non-empty
+    predicted_law naming the spec section."""
+    report = _small_report()
+    for s in la.frontier_gauge_specs(report):
+        if s.predicted_value is not None:
+            assert s.predicted_law and "section" in s.predicted_law
+            assert s.predicted_label and s.gate.replace("_cap", "") in s.predicted_label \
+                or "degree" in s.predicted_label or "floor" in s.predicted_label
+
+
+def test_frontier_gauge_specs_assumed_cap_note_appears_for_coupling_and_field():
+    """|J| <= 6.0 and |b| <= 6.0 are ASSUMED project values, not sourced
+    Extropic figures -- every gauge that shows either cap must say so."""
+    report = _small_report()
+    by_gate = {s.gate: s for s in la.frontier_gauge_specs(report)}
+    assert "assumed project value" in by_gate["coupling_cap"].foot_text.lower()
+    assert "assumed project value" in by_gate["field_cap"].foot_text.lower()
+
+
+def test_binding_gate_name_matches_the_reports_own_headline_exactly():
+    report = _small_report()
+    assert la._binding_gate_name(report.binding.headline, report.headroom) == "field_cap"
+
+
+def test_binding_gate_name_is_none_when_headline_predicts_no_binding_gate():
+    headroom = [fr.GateHeadroom("degree", 1, 16, 6.25),
+               fr.GateHeadroom("field_cap", 1, 6.0, 16.7)]
+    headline = ("under the one-hot law, no gate is predicted to bind "
+               "within 128 increments of k or p")
+    assert la._binding_gate_name(headline, headroom) is None
+
+
+def test_safe_frac_clamps_and_never_raises_on_degenerate_limits():
+    assert la._safe_frac(9, 16) == pytest.approx(9 / 16)
+    assert la._safe_frac(20, 16) == 1.0    # clamped, never > 1
+    assert la._safe_frac(5, 0) == 0.0      # zero limit -> 0, never ZeroDivisionError
+    assert la._safe_frac(5, float("inf")) == 0.0
+    assert la._safe_frac(5, float("nan")) == 0.0
+
+
+def test_gauge_spec_frac_current_and_frac_predicted_properties():
+    report = _small_report()
+    by_gate = {s.gate: s for s in la.frontier_gauge_specs(report)}
+    degree = by_gate["degree"]
+    assert degree.frac_current == pytest.approx(9 / 16)
+    assert degree.frac_predicted == pytest.approx(11 / 16)
+    coupling = by_gate["coupling_cap"]
+    assert coupling.frac_predicted is None  # no predicted value at all
+
+
+# ---------------------------------------------------------------------------
+# render_frontier_gauge_track -- the IMAGE track itself. Pixel-level checks,
+# same convention as render_temperature_track's own tests
+# (tests/test_lattice_app_logic.py): sample real pixels, don't just check
+# the image doesn't crash.
+# ---------------------------------------------------------------------------
+
+def _hexrgb(h):
+    h = h.lstrip("#")
+    return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def _close(a, b, tol=24):
+    return all(abs(x - y) <= tol for x, y in zip(a, b))
+
+
+def test_gauge_track_is_the_requested_size():
+    img = la.render_frontier_gauge_track(300, 14, 0.5)
+    assert img.size == (300, 14)
+
+
+def test_gauge_track_fill_reaches_frac_current_and_stops():
+    img = la.render_frontier_gauge_track(300, 14, 0.5)
+    mid_y = 7
+    filled_px = img.getpixel((100, mid_y))     # inside the 50% fill
+    empty_px = img.getpixel((250, mid_y))       # past the fill, inside the track
+    assert _close(filled_px, _hexrgb(theme.GOLD_DIM))
+    assert not _close(empty_px, _hexrgb(theme.GOLD_DIM))
+
+
+def test_gauge_track_predicted_hairline_is_gold_and_distinct_from_fill():
+    """The predicted hairline must be visually distinct from the measured
+    gold_dim fill (dashed gold, not a second solid fill) -- sample a column
+    at the predicted fraction, away from the current fill, and check it is
+    NOT the same colour as the inset background at that same column with no
+    prediction at all."""
+    plain = la.render_frontier_gauge_track(300, 14, 0.2, frac_predicted=None)
+    predicted = la.render_frontier_gauge_track(300, 14, 0.2, frac_predicted=0.6)
+    x = int(0.6 * 299)
+    col_plain = [plain.getpixel((x, y)) for y in range(14)]
+    col_pred = [predicted.getpixel((x, y)) for y in range(14)]
+    assert col_plain != col_pred, \
+        "a predicted hairline must change pixels at its own column"
+
+
+def test_gauge_track_overrun_draws_a_hatched_red_region_past_the_compressed_track():
+    """When overrun_ratio is given, the track compresses to
+    GAUGE_OVERRUN_TRACK_FRAC and a red-ish hatched region fills the rest --
+    must be visually distinct from the gold fill (never a second gold bar)."""
+    img = la.render_frontier_gauge_track(300, 18, 0.3, overrun_ratio=1.67)
+    mid_y = 9
+    track_w = int(round(300 * la.GAUGE_OVERRUN_TRACK_FRAC))
+    hatch_px = img.getpixel((track_w + 10, mid_y))
+    fill_px = img.getpixel((30, mid_y))
+    assert not _close(hatch_px, _hexrgb(theme.GOLD_DIM))
+    assert not _close(fill_px, hatch_px, tol=10)
+
+
+def test_gauge_track_no_overrun_never_draws_past_full_width():
+    """Sanity: the plain (non-overrun) branch uses the FULL image width as
+    the track, not the compressed GAUGE_OVERRUN_TRACK_FRAC -- so the fill at
+    frac_current=0.9 should extend almost to the right edge, not stop at
+    62% of it."""
+    img = la.render_frontier_gauge_track(300, 14, 0.9)
+    mid_y = 7
+    # fill extends to ~0.9*300=270px; sample just inside that, well past
+    # where GAUGE_OVERRUN_TRACK_FRAC (62%, ~186px) would have cut it off.
+    near_edge_px = img.getpixel((260, mid_y))
+    assert _close(near_edge_px, _hexrgb(theme.GOLD_DIM))
