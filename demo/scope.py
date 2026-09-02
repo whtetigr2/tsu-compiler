@@ -115,6 +115,35 @@ def beta_to_temperature(beta: float) -> float:
     return 1.0 / beta
 
 
+def temperature_control_state(ising) -> tuple[str, str | None]:
+    """Task 8: the temperature control's two explicit states --
+    ("adjustable", None) or ("fixed", reason) -- keyed on EXACTLY the fact
+    `tsu.passes.route.assert_beta_consistent` gates sampling on: whether
+    `ising.mediator_nodes` is empty. That function is a no-op (accepts ANY
+    requested beta) iff mediator_nodes is empty; this returns "adjustable"
+    under precisely that condition, so the two can never silently drift
+    apart -- see tests/test_scope.py's own
+    test_temperature_control_state_keys_on_the_same_fact_... for a direct
+    cross-check against assert_beta_consistent.
+
+    The reason names the mediator count and the beta they were coupled at
+    -- NEVER a layer name. A prior review flagged the locked-state message
+    hardcoding the word "base" in demo/lattice_app.py: that would become a
+    lie the moment any OTHER layer ever compiled with mediator spins, since
+    "locked" is a property of THIS model, not of being named "base". The
+    caller (whichever panel is showing this) already displays which layer
+    is selected; this function has no opinion on that and takes no layer
+    argument at all, so there is nothing left to hardcode."""
+    if not ising.mediator_nodes:
+        return ("adjustable", None)
+    reason = (
+        f"fixed at beta={ising.beta:.4g} -- {len(ising.mediator_nodes)} "
+        f"mediator spin(s) were coupled at this temperature; any other "
+        f"beta would silently reproduce the wrong couplings, so "
+        f"assert_beta_consistent refuses it (BetaMismatchError, spec 5.3.5)")
+    return ("fixed", reason)
+
+
 def autocorrelation(series: Sequence[float], max_lag: int) -> list[float]:
     """Normalised autocorrelation of ONE series, lags 0..max_lag inclusive
     (acf[0] == 1.0 always). Delegates to `tsu.ess.autocorrelation` -- see

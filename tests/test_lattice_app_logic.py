@@ -555,3 +555,173 @@ def test_inset_recessed_areas_use_the_inset_token():
     import theme
     assert la.PLOT_BG == tuple(
         int(theme.INSET.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
+
+
+# ---------------------------------------------------------------------------
+# Task 8: render_temperature_track -- the beta slider TRACK, drawn on a
+# PIL image (numpy/PIL blitted to a Canvas) rather than a native tk.Scale.
+# The tokens spec calls this out by name as a trap: a native Scale cannot
+# be gold, and in the locked state it always LOOKS disabled -- exactly the
+# wrong message for a control that is refusing a change on purpose, not
+# broken. These tests check actual pixel content: the adjustable state's
+# thermal ramp (cold -> gold -> hot) and the locked state's solid cold
+# field with a fixed-centre thumb that does NOT move with value_frac.
+# ---------------------------------------------------------------------------
+
+def _hexrgb(h):
+    h = h.lstrip("#")
+    return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def _close(a, b, tol=24):
+    return all(abs(x - y) <= tol for x, y in zip(a, b))
+
+
+def test_temperature_track_is_the_requested_size():
+    import theme
+    img = la.render_temperature_track(240, 28, adjustable=True, value_frac=0.5)
+    assert img.size == (240, 28)
+
+
+def test_adjustable_track_is_a_cold_to_hot_thermal_ramp():
+    """Verbatim the tokens spec's own 3-stop gradient: blue_deep -> gold
+    at 55% -> orange. value_frac=0.5 puts the thumb at CENTRE, so both
+    edges and the 55% stop are sampled well clear of it -- the thumb
+    overlay never contaminates the ramp-colour check."""
+    import theme
+    img = la.render_temperature_track(240, 28, adjustable=True, value_frac=0.5)
+    w, h = img.size
+    mid_y = h // 2
+    cold_px = img.getpixel((2, mid_y))
+    gold_px = img.getpixel((int(0.55 * (w - 1)), mid_y))
+    hot_px = img.getpixel((w - 3, mid_y))
+    assert _close(cold_px, _hexrgb(theme.BLUE_DEEP))
+    assert _close(gold_px, _hexrgb(theme.GOLD))
+    assert _close(hot_px, _hexrgb(theme.ORANGE))
+
+
+def test_adjustable_thumb_tracks_value_frac():
+    import theme
+    img_cold = la.render_temperature_track(240, 28, adjustable=True, value_frac=0.0)
+    img_hot = la.render_temperature_track(240, 28, adjustable=True, value_frac=1.0)
+    mid_y = 28 // 2
+    # A thumb at value_frac=0.0 puts gold-thumb pixels near x=0; at
+    # value_frac=1.0 the SAME near-x=0 region is instead cold ramp colour
+    # (no thumb there any more) -- proof the thumb actually moved.
+    assert _close(img_cold.getpixel((2, mid_y)), _hexrgb(theme.GOLD))
+    assert not _close(img_hot.getpixel((2, mid_y)), _hexrgb(theme.GOLD))
+
+
+def test_locked_track_is_a_solid_cold_field_never_the_live_ramp():
+    """No 'useful window' exists when locked -- the whole track is one
+    solid blue_deep field, not a greyed-out copy of the gradient."""
+    import theme
+    img = la.render_temperature_track(240, 28, adjustable=False, value_frac=0.9)
+    w, h = img.size
+    mid_y = h // 2
+    # Sample away from both the thumb (frozen at centre) and the lock-bar
+    # (drawn across the middle row) -- e.g. near the left edge, one row
+    # off centre.
+    bg_px = img.getpixel((6, mid_y - 4))
+    assert _close(bg_px, _hexrgb(theme.BLUE_DEEP))
+
+
+def test_locked_thumb_is_frozen_at_centre_regardless_of_value_frac():
+    """This is the whole point of Task 8's locked state: the thumb does
+    NOT read `value_frac` (there is nothing to show a live position of).
+    A value_frac near 0 or 1 must not move it -- it must stay at 50%."""
+    import theme
+    w = 240
+    center_x = w // 2
+    mid_y = 28 // 2
+    for value_frac in (0.0, 0.5, 1.0):
+        img = la.render_temperature_track(w, 28, adjustable=False, value_frac=value_frac)
+        assert _close(img.getpixel((center_x, mid_y)), _hexrgb(theme.BLUE_LIT))
+
+
+def test_locked_and_adjustable_tracks_are_visually_distinct_at_the_same_value():
+    """The two states must be distinguishable at a glance -- same
+    value_frac, different pixels, at a point on the track away from the
+    thumb (the thumb colour alone already differs, but the TRACK itself
+    must too: solid blue vs. a gradient)."""
+    import theme
+    live = la.render_temperature_track(240, 28, adjustable=True, value_frac=0.5)
+    locked = la.render_temperature_track(240, 28, adjustable=False, value_frac=0.5)
+    # Near the left edge (well clear of either state's thumb/lock-bar
+    # geometry): live shows the cold end of the ramp, locked shows the
+    # solid field -- both nominally "blue_deep-ish" at x=2, so instead
+    # compare a point further right where live has visibly warmed toward
+    # gold but locked is still flat blue_deep.
+    x = int(0.35 * 240)
+    mid_y = 28 // 2
+    live_px = live.getpixel((x, mid_y))
+    locked_px = locked.getpixel((x, mid_y))
+    assert not _close(live_px, locked_px, tol=10)
+
+
+# ---------------------------------------------------------------------------
+# Task 8: get_beta_override / set_beta_override -- WHERE a layer's chosen
+# beta override lives, generalised over base and bands. A prior review
+# flagged `_refresh_temperature_control` reaching straight into
+# `self.bands[self.active_layer]`, which raises KeyError the instant
+# "base" is the active layer, because base has no LayerState. These pure
+# functions replace that direct indexing everywhere in the app.
+# ---------------------------------------------------------------------------
+
+class _FakeAppForBase:
+    def __init__(self, base_beta_override=None):
+        self.base_beta_override = base_beta_override
+
+
+def test_get_beta_override_reads_the_base_slot_for_base():
+    app = _FakeAppForBase(base_beta_override=2.5)
+    assert la.get_beta_override("base", app.base_beta_override, {}) == 2.5
+
+
+def test_get_beta_override_does_not_keyerror_when_base_has_no_bands_entry():
+    """THE fix: before this task, the equivalent inline code indexed
+    `self.bands["base"]` directly and raised KeyError -- base is
+    deliberately absent from `bands` (see LayerState's own docstring).
+    This must return cleanly instead."""
+    bands = {"band0": la.LayerState("band0", la.ClampState(cycle=(0, 1)))}
+    result = la.get_beta_override("base", None, bands)
+    assert result is None  # no exception
+
+
+def test_get_beta_override_reads_a_bands_layer_state():
+    band = la.LayerState("band0", la.ClampState(cycle=(0, 1)))
+    band.beta_override = 1.75
+    assert la.get_beta_override("band0", None, {"band0": band}) == 1.75
+
+
+def test_get_beta_override_returns_none_for_an_unknown_layer():
+    assert la.get_beta_override("composite", None, {}) is None
+
+
+def test_set_beta_override_writes_the_base_slot_for_base():
+    app = _FakeAppForBase()
+    la.set_beta_override("base", 3.0, app, {})
+    assert app.base_beta_override == 3.0
+
+
+def test_set_beta_override_writes_a_bands_layer_state_not_the_base_slot():
+    app = _FakeAppForBase(base_beta_override=None)
+    band = la.LayerState("band0", la.ClampState(cycle=(0, 1)))
+    la.set_beta_override("band0", 0.6, app, {"band0": band})
+    assert band.beta_override == 0.6
+    assert app.base_beta_override is None  # untouched
+
+
+def test_temperature_value_frac_clamps_into_zero_one():
+    assert la.temperature_value_frac(0.3, 0.3, 3.0) == 0.0
+    assert la.temperature_value_frac(3.0, 0.3, 3.0) == 1.0
+    assert la.temperature_value_frac(-10.0, 0.3, 3.0) == 0.0   # clamped, not negative
+    assert la.temperature_value_frac(999.0, 0.3, 3.0) == 1.0   # clamped, not >1
+    mid = la.temperature_value_frac(1.65, 0.3, 3.0)
+    assert 0.0 < mid < 1.0
+
+
+def test_temperature_value_frac_rejects_a_degenerate_range():
+    import pytest
+    with pytest.raises(ValueError):
+        la.temperature_value_frac(1.0, 1.0, 1.0)

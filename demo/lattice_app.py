@@ -233,6 +233,11 @@ DEFAULT_SPEED_IDX = len(SPEED_LEVELS) - 1  # Full speed -- matches pre-UI2 behav
 # how often it redraws.
 # --------------------------------------------------------------------------
 SCOPE_PLOT_W, SCOPE_PLOT_H = 300, 150       # px, one sub-plot's image size
+# Task 8: temperature control -- the on-screen T range (unchanged from the
+# tk.Scale this replaces: from_=0.3, to=3.0), and the Canvas track's own
+# pixel size.
+TEMP_T_MIN, TEMP_T_MAX = 0.3, 3.0
+TEMP_TRACK_W, TEMP_TRACK_H = 240, 20
 SCOPE_ENERGY_TRACE_MAXLEN = 400             # same ring-buffer length B2's
 # energy_trace already used before this task; named here so the ACF plot's
 # own caption can state it rather than hardcoding a second "400" that could
@@ -340,6 +345,118 @@ def layer_supports_temperature(mediator_nodes: Sequence) -> bool:
     future layer's own topology changes (see task 7's own brief: key the
     control on this fact, not on "base is always locked")."""
     return not bool(mediator_nodes)
+
+
+def get_beta_override(layer_name: str, base_override: float | None,
+                       bands: "dict[str, LayerState]") -> float | None:
+    """Task 8 structural fix: WHERE a layer's chosen beta override lives,
+    generalised over base AND bands -- a prior review flagged
+    `_refresh_temperature_control`/`_on_temperature_change` reaching
+    straight into `self.bands[self.active_layer]`, which raises KeyError
+    the moment "base" is the active layer (base has no LayerState -- see
+    LayerState's own docstring). That never fired in practice only because
+    base has always compiled WITH mediator spins (locked, no override
+    settable) -- a defect waiting for the day base ever compiles
+    unmediated, not a hardcoded-safe path. `base_override` is threaded in
+    explicitly (LatticeApp.base_beta_override) rather than assuming
+    `bands["base"]` exists."""
+    if layer_name == "base":
+        return base_override
+    if layer_name in bands:
+        return bands[layer_name].beta_override
+    return None
+
+
+def set_beta_override(layer_name: str, value: float,
+                       app_for_base, bands: "dict[str, LayerState]") -> None:
+    """Setter counterpart to get_beta_override -- see its docstring. Base
+    has no LayerState to hold a per-layer override, so its slot lives on
+    the app itself (`app_for_base.base_beta_override`); a band's lives on
+    its own LayerState, unchanged from before this task."""
+    if layer_name == "base":
+        app_for_base.base_beta_override = value
+    elif layer_name in bands:
+        bands[layer_name].beta_override = value
+
+
+def temperature_value_frac(t: float, t_min: float, t_max: float) -> float:
+    """Map a temperature T (T=1/beta) to [0, 1] for the slider track's
+    thumb position -- clamped, since a caller can hold a value outside
+    [t_min, t_max] (e.g. a receipt's own compiled beta) that the on-screen
+    range doesn't span."""
+    if t_max <= t_min:
+        raise ValueError(f"t_max ({t_max!r}) must exceed t_min ({t_min!r})")
+    frac = (t - t_min) / (t_max - t_min)
+    return min(1.0, max(0.0, frac))
+
+
+def render_temperature_track(width: int, height: int, adjustable: bool,
+                              value_frac: float = 0.5) -> Image.Image:
+    """Task 8: the beta-temperature slider TRACK, IMAGE per the tokens
+    spec (numpy/PIL blitted to a Canvas), not a native Scale -- the spec
+    calls this out by name as a trap: a native Scale (`ttk.Scale`, and the
+    plain `tk.Scale` this app used before Task 8) cannot be gold, and in
+    the LOCKED state it always LOOKS disabled -- exactly the wrong message
+    for a control that is refusing a change ON PURPOSE, not broken.
+
+    ADJUSTABLE (the useful window a viewer can move through): a cold ->
+    gold -> hot thermal ramp, verbatim the tokens spec's own 3-stop
+    gradient (blue_deep -> gold at 55% -> orange), with a gold thumb at
+    `value_frac` (0 = coldest, 1 = hottest).
+
+    FIXED (the "lock plate"): a SOLID cold-blue field -- never a copy of
+    the live ramp, greyed or otherwise, since there IS no useful window to
+    show (the model has exactly one valid beta) -- with a blue_lit
+    lock-bar across the middle and a blue_lit thumb FROZEN at the centre
+    regardless of `value_frac`. Deliberate and authoritative, per the
+    brief's own framing: a point of pride, not an apology.
+
+    Buildability: flat rectangles only, 1px outlines, zero corner radius,
+    no shadow/blur/glow -- see the tokens spec's own buildability rules.
+    """
+    def hexrgb(h):
+        h = h.lstrip("#")
+        return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+
+    img = Image.new("RGB", (width, height), hexrgb(theme.PANEL))
+    draw = ImageDraw.Draw(img)
+    track_top, track_bot = 3, height - 4
+    track_h = max(track_bot - track_top, 1)
+
+    if adjustable:
+        cold = np.array(hexrgb(theme.BLUE_DEEP), dtype=float)
+        gold = np.array(hexrgb(theme.GOLD), dtype=float)
+        hot = np.array(hexrgb(theme.ORANGE), dtype=float)
+        mid = 0.55  # verbatim the tokens spec's CSS gradient stop
+        xs = np.arange(width, dtype=float)
+        frac = xs / max(width - 1, 1)
+        colors = np.empty((width, 3), dtype=float)
+        left = frac <= mid
+        t_left = frac[left] / mid if mid > 0 else np.zeros(left.sum())
+        colors[left] = cold[None, :] * (1 - t_left[:, None]) + gold[None, :] * t_left[:, None]
+        right = ~left
+        t_right = (frac[right] - mid) / max(1 - mid, 1e-9)
+        colors[right] = gold[None, :] * (1 - t_right[:, None]) + hot[None, :] * t_right[:, None]
+        colors = colors.clip(0, 255).astype(np.uint8)
+        row = np.tile(colors[None, :, :], (track_h, 1, 1))
+        img.paste(Image.fromarray(row, "RGB"), (0, track_top))
+        draw.rectangle([0, track_top, width - 1, track_bot - 1],
+                       outline=hexrgb(theme.GOLD_DIM), width=1)
+        thumb_color = hexrgb(theme.GOLD)
+        thumb_x = int(round(value_frac * (width - 1)))
+    else:
+        draw.rectangle([0, track_top, width - 1, track_bot - 1],
+                       fill=hexrgb(theme.BLUE_DEEP), outline=hexrgb(theme.BLUE), width=1)
+        mid_y = (track_top + track_bot) // 2
+        draw.line([(2, mid_y), (width - 3, mid_y)], fill=hexrgb(theme.BLUE_LIT), width=1)
+        thumb_color = hexrgb(theme.BLUE_LIT)
+        thumb_x = width // 2  # frozen -- does NOT read value_frac, see docstring
+
+    thumb_w = 6
+    x0 = max(thumb_x - thumb_w // 2, 0)
+    x1 = min(x0 + thumb_w, width - 1)
+    draw.rectangle([x0, 1, x1, height - 2], fill=thumb_color, outline=hexrgb(theme.CREAM), width=1)
+    return img
 
 
 def band_index_from_name(layer_name: str) -> int:
@@ -1283,9 +1400,19 @@ class LatticeApp(tk.Tk):
         # fix-round 1 (1160 -> 1240) when the sigmoid cell's caption grew
         # from 4 to 11 lines to carry the reconstruction-vs-defect
         # disclosure on screen. Task 7: grew again (1240 -> 1380) for the
-        # new LAYERS row -- every other panel's own size/position is again
-        # unchanged.
-        self.geometry("1760x1380")
+        # new LAYERS row. Task 8: grew again (1380 -> 1420) -- the
+        # Canvas-drawn temperature control (state label + track + axis
+        # labels + SEAL header + reason) needs more vertical room than the
+        # single-line tk.Scale it replaced (measured: 208px natural content
+        # in a row that previously budgeted 190px, so the reason/seal text
+        # was silently clipped off the bottom of the window -- caught only
+        # by launching the real app and looking, not by any unit test; see
+        # task-0-8-report.md). Kept the temp control itself tight (13pt not
+        # 16pt readout, a 20px not 28px track) and grew the window by only
+        # 40px rather than more, because 1440px is this screen's own
+        # height and a taller request gets silently clamped by the OS --
+        # verified 1420 is NOT clamped here, leaving ~20px margin.
+        self.geometry("1760x1420")
         self.configure(bg=BG)
 
         self.in_q: "queue.Queue[dict]" = queue.Queue(maxsize=64)
@@ -1341,6 +1468,14 @@ class LatticeApp(tk.Tk):
         # no entry here (it is derived, never stored).
         self.active_layer = "base"
         self.alpha = 1.0   # demo/elevation.band_patch's own `strength` -- see DOSE_RESPONSE_NOTE
+        # Task 8: base's own beta-override slot. Base has no LayerState (see
+        # LayerState's own docstring), so this is where a base beta
+        # override would live IF base ever compiled unmediated and became
+        # adjustable -- see get_beta_override/set_beta_override, which read
+        # and write this exact attribute for layer_name=="base" instead of
+        # indexing self.bands["base"] (which would KeyError -- the fix a
+        # prior review flagged).
+        self.base_beta_override: float | None = None
         self.bands: dict[str, LayerState] = {
             name: LayerState(name, ClampState(cycle=(0, 1))) for name in BAND_NAMES}
         self.layer_photo = None  # DECODED WORLD's blitted image when a band/composite is active
@@ -1491,7 +1626,7 @@ class LatticeApp(tk.Tk):
         # per-layer regenerate / temperature (overlay-only) / composite
         # validation readout -- see the brief's own 6 steps, one widget
         # group per step, left to right.
-        content.grid_rowconfigure(2, weight=0, minsize=190)
+        content.grid_rowconfigure(2, weight=0, minsize=230)  # Task 8: 190 -> 230, see self.geometry's own comment above
         self.layers_panel = Panel(content, "LAYERS  (base / band0.."
                                           f"band{N_BANDS - 1} / composite)")
         self.layers_panel.grid(row=2, column=0, columnspan=5, sticky="nsew", pady=(6, 0))
@@ -1568,22 +1703,60 @@ class LatticeApp(tk.Tk):
                                            justify="left", wraplength=180)
         self.regenerate_status.pack(fill="x", pady=(4, 0))
 
-        # Step 5: temperature control -- overlays only, derived from
-        # whether the ACTIVE layer's program carries mediator spins.
-        temp_cell = _layers_cell("TEMPERATURE (overlay layers only)", width=260)
+        # Step 5: temperature control -- Task 8's two explicit states,
+        # ADJUSTABLE (overlay layers, a live slider) or FIXED (base today,
+        # any layer carrying mediator spins in general -- see
+        # temperature_control_state), drawn entirely on a Canvas (see
+        # render_temperature_track's own docstring for why: a native Scale
+        # cannot be gold, and in the locked state it always looks disabled
+        # -- the opposite of "a point of pride, not an apology"). `temp_cell`
+        # itself is the state's outer frame -- its 1px border colour is
+        # reconfigured per state in _refresh_temperature_control (gold_dim
+        # live / blue locked), matching the mockup's own temp-box treatment.
+        temp_cell = _layers_cell("TEMPERATURE", width=260)
+        self.temp_cell = temp_cell
+        temp_cell.config(highlightthickness=1, highlightbackground=theme.GOLD_DIM,
+                         highlightcolor=theme.GOLD_DIM)
+        # I1 (visual pass): the first cut of this layout measured 236px
+        # natural content height for a 190px-tall row -- silently clipping
+        # the SEAL/reason text off the bottom of the actual window (caught
+        # by launching the real app and looking, not by a unit test: see
+        # task-0-8-report.md). Tightened below (13pt not 16pt readout, a
+        # 20px not 28px track, tighter pady throughout) instead of growing
+        # the window further, since the window height is already
+        # screen-height-limited on a 1440px-tall display.
         self.temp_label = tk.Label(temp_cell, text="", bg=PANEL_BG, fg=FG,
-                                    font=MONO, anchor="w")
-        self.temp_label.pack(fill="x", pady=(2, 0))
-        self.temp_scale = tk.Scale(
-            temp_cell, from_=0.3, to=3.0, resolution=0.05, orient="horizontal",
-            showvalue=0, length=240, bg=PANEL_BG, fg=FG, troughcolor=BG,
-            highlightthickness=0, bd=0, command=self._on_temperature_change)
-        self.temp_scale.set(1.0)
-        self.temp_scale.pack(fill="x")
+                                    font=(MONO_FAMILY, 13, "bold"), anchor="w")
+        self.temp_label.pack(fill="x", pady=(2, 0), padx=4)
+        self.temp_state_label = tk.Label(temp_cell, text="", bg=PANEL_BG, fg=FG,
+                                          font=(MONO_FAMILY, 8), anchor="w")
+        self.temp_state_label.pack(fill="x", padx=4)
+        self.temp_canvas = tk.Canvas(temp_cell, width=TEMP_TRACK_W, height=TEMP_TRACK_H,
+                                     bg=PANEL_BG, highlightthickness=0)
+        self.temp_canvas.pack(pady=(4, 1), padx=4)
+        self.temp_canvas.create_image(0, 0, anchor="nw", tags="track")
+        self.temp_photo = None
+        self.temp_canvas.bind("<Button-1>", self._on_temp_canvas_interact)
+        self.temp_canvas.bind("<B1-Motion>", self._on_temp_canvas_interact)
+        temp_labels_row = tk.Frame(temp_cell, bg=PANEL_BG)
+        temp_labels_row.pack(fill="x", padx=4)
+        tk.Label(temp_labels_row, text=f"cold {TEMP_T_MIN:.1f}", bg=PANEL_BG, fg=DIM,
+                  font=(MONO_FAMILY, 7)).pack(side="left")
+        tk.Label(temp_labels_row, text="", bg=PANEL_BG, fg=DIM,
+                  font=(MONO_FAMILY, 7)).pack(side="left", expand=True)
+        tk.Label(temp_labels_row, text=f"hot {TEMP_T_MAX:.1f}", bg=PANEL_BG, fg=DIM,
+                  font=(MONO_FAMILY, 7)).pack(side="right")
+        # I1 (visual pass, round 2): a separate "SEAL / SPEC 5.3.5" header
+        # Label cost a whole extra line's worth of height for a fact the
+        # reason text below can carry as its own opening words just as
+        # legibly -- folded together so the disclosure text itself has
+        # room to render in full instead of being clipped by the row's
+        # fixed height. See _refresh_temperature_control for the merged
+        # text this produces.
         self.temp_reason = tk.Label(temp_cell, text="", bg=PANEL_BG, fg=WARN,
                                      font=(MONO_FAMILY, 7), anchor="w",
                                      justify="left", wraplength=250)
-        self.temp_reason.pack(fill="x", pady=(2, 0))
+        self.temp_reason.pack(fill="x", pady=(3, 2), padx=4)
 
         # Step 6: composite validation readout.
         comp_cell = _layers_cell("COMPOSITE VALIDATION  (cross-layer, separate "
@@ -2414,15 +2587,32 @@ class LatticeApp(tk.Tk):
                                       f"(demo/elevation.band_patch's own scale "
                                       f"-- see dose-response note below)")
 
-    def _on_temperature_change(self, value):
-        """Overlay-only: stores the chosen T for the ACTIVE band, applied
-        on that band's NEXT regenerate (same 'takes effect next batch'
-        idiom the speed control already uses) -- never resamples here."""
-        if self.active_layer not in self.bands:
+    def _on_temp_canvas_interact(self, event):
+        """Task 8: click/drag on the Canvas-drawn track. ADJUSTABLE only --
+        a drag on the FIXED/locked track (or on composite's n/a track) is
+        deliberately a no-op, not merely visually disabled: the tokens
+        spec's own trap #2 is that a disabled-LOOKING control reads as
+        broken, not as a deliberate refusal, which is exactly why this is
+        drawn on a Canvas rather than relying on a native Scale's disabled
+        state to communicate anything. Overlay-only in practice today
+        (base/composite always fail the `state == "adjustable"` check),
+        but keyed on temperature_control_state like everything else here,
+        not on `self.active_layer == "base"`.
+
+        Stores the chosen T for the ACTIVE layer via set_beta_override,
+        applied on that layer's NEXT regenerate (same 'takes effect next
+        batch' idiom the speed control already uses) -- never resamples
+        here."""
+        ising = self._active_layer_ising()
+        if ising is None:
             return
-        t = float(value)
+        state, _ = temperature_control_state(ising)
+        if state != "adjustable":
+            return
+        frac = min(1.0, max(0.0, event.x / max(TEMP_TRACK_W - 1, 1)))
+        t = TEMP_T_MIN + frac * (TEMP_T_MAX - TEMP_T_MIN)
         beta = 1.0 / t   # T = 1/beta (demo/scope.py's own beta_to_temperature, inverted)
-        self.bands[self.active_layer].beta_override = beta
+        set_beta_override(self.active_layer, beta, self, self.bands)
         self._refresh_temperature_control()
 
     def _active_layer_ising(self):
@@ -2439,38 +2629,61 @@ class LatticeApp(tk.Tk):
         return None
 
     def _refresh_temperature_control(self):
-        """Task 7 Step 5: enabled iff the ACTIVE layer's program carries NO
-        mediator spins -- layer_supports_temperature DERIVES this from
-        `ising.mediator_nodes`, the SAME fact
-        `tsu.passes.route.assert_beta_consistent` gates sampling on, not a
-        hardcoded 'base is locked' flag. This is the honest INVERSE of the
-        SAMPLER panel's existing 'no beta slider' note, which stays on
-        screen unchanged (see _populate_static_panels)."""
+        """Task 8: the temperature control's two explicit states, drawn
+        entirely on the Canvas track (render_temperature_track) plus this
+        method's own Label/border styling -- ADJUSTABLE (a live slider,
+        gold) or FIXED (a locked seal, cold blue -- a point of pride, not
+        an apology, never a greyed-out control). Keyed on
+        temperature_control_state, which derives the decision from EXACTLY
+        the fact `tsu.passes.route.assert_beta_consistent` gates sampling
+        on (`ising.mediator_nodes` empty or not) -- never a hardcoded
+        'base is locked' flag, and never `self.bands[self.active_layer]`
+        directly (see get_beta_override's own docstring for the KeyError a
+        prior review flagged in that direct-indexing pattern)."""
         ising = self._active_layer_ising()
-        if ising is None:  # composite
-            self.temp_scale.config(state="disabled")
-            self.temp_label.config(text="T: n/a -- composite has no program of its own")
+        if ising is None:  # composite -- no program, nothing to show at all
+            self.temp_cell.config(highlightbackground=BORDER, highlightcolor=BORDER)
+            self.temp_label.config(text="n/a", fg=DIM)
+            self.temp_state_label.config(text="composite has no program of its own", fg=DIM)
             self.temp_reason.config(text="")
+            img = render_temperature_track(TEMP_TRACK_W, TEMP_TRACK_H,
+                                           adjustable=False, value_frac=0.5)
+            self.temp_photo = ImageTk.PhotoImage(img)
+            self.temp_canvas.itemconfig("track", image=self.temp_photo)
             return
-        supported = layer_supports_temperature(ising.mediator_nodes)
-        if not supported:
-            self.temp_scale.config(state="disabled")
-            self.temp_label.config(text=f"T: FIXED at {1.0/ising.beta:.3f} (beta={ising.beta:.4g})")
-            self.temp_reason.config(
-                text=f"base carries {len(ising.mediator_nodes)} mediator spin(s) "
-                     f"coupled at beta={ising.beta!r}; assert_beta_consistent "
-                     f"refuses any other beta for this model (BetaMismatchError, "
-                     f"spec 5.3.5) -- same fact the SAMPLER panel's 'no beta "
-                     f"slider' note states, this control is its honest inverse.")
+
+        state, reason = temperature_control_state(ising)
+        if state == "fixed":
+            self.temp_cell.config(highlightbackground=theme.BLUE, highlightcolor=theme.BLUE)
+            t = beta_to_temperature(ising.beta)
+            self.temp_label.config(text=f"T = {t:.3f}", fg=theme.BLUE_LIT)
+            self.temp_state_label.config(text="FIXED · NOT DISABLED", fg=theme.BLUE_LIT)
+            # "SEALED" up front carries the same pride-not-apology framing a
+            # separate "SEAL / SPEC 5.3.5" header line used to (see I1 fix,
+            # round 2, above) without spending a whole extra Label's worth
+            # of vertical space on it -- `reason` (from
+            # temperature_control_state) already cites "spec 5.3.5" itself.
+            self.temp_reason.config(text=f"SEALED -- {reason}", fg=DIM)
+            value_frac = 0.5   # frozen -- render_temperature_track's locked branch ignores this too
         else:
-            self.temp_scale.config(state="normal")
-            beta = self.bands[self.active_layer].beta_override or ising.beta
-            self.temp_label.config(text=f"T = {1.0/beta:.3f}  (beta={beta:.4g}, "
-                                         f"takes effect on this layer's NEXT regenerate)")
+            self.temp_cell.config(highlightbackground=theme.GOLD_DIM, highlightcolor=theme.GOLD_DIM)
+            beta = get_beta_override(self.active_layer, self.base_beta_override,
+                                     self.bands) or ising.beta
+            t = beta_to_temperature(beta)
+            self.temp_label.config(text=f"T = {t:.3f}", fg=ACCENT)
+            self.temp_state_label.config(text=f"ADJUSTABLE · {self.active_layer}", fg=ACCENT)
             self.temp_reason.config(
-                text=f"{self.active_layer} is bipartite: place() needed no "
-                     f"mediator spins for it, so nothing here is welded to a "
-                     f"compile-time beta -- free to sample at any T.")
+                text=f"beta = {beta:.4g} -- bipartite: no mediator spins, so "
+                     f"nothing here is welded to a compile-time beta. Moving "
+                     f"this re-samples {self.active_layer} on its NEXT "
+                     f"regenerate; it does not recompile.", fg=DIM)
+            value_frac = temperature_value_frac(t, TEMP_T_MIN, TEMP_T_MAX)
+
+        img = render_temperature_track(TEMP_TRACK_W, TEMP_TRACK_H,
+                                       adjustable=(state == "adjustable"),
+                                       value_frac=value_frac)
+        self.temp_photo = ImageTk.PhotoImage(img)
+        self.temp_canvas.itemconfig("track", image=self.temp_photo)
 
     def _refresh_composite_readout(self):
         """Task 7 Step 6: cross-layer (monotonicity) validation, SEPARATE
