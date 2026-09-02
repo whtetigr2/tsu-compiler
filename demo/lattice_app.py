@@ -225,6 +225,60 @@ def cell_at(px: int, py: int, origin_x: int, origin_y: int, cell_px: int,
     return int(dx // cell_px), int(dy // cell_px)
 
 
+def spin_cell_position(index: int, n_world_spins: int, spins_per_cell: int,
+                        grid_w: int) -> tuple[int, int, int] | None:
+    """Map a physical spin index to (cell_x, cell_y, slot), or None if the
+    spin is a mediator and belongs to no cell.
+
+    The encoder emits each categorical variable's chain spins consecutively
+    (`g{x}_{y}__dw{p}`), and the grid generator emits variables in row-major
+    order, so cell = index // spins_per_cell and slot = index % spins_per_cell.
+    `spins_per_cell` must be passed by the caller, derived from the receipt
+    (world spin count / cell count), never hardcoded here -- this function
+    only implements the arithmetic, not the assumption that it's 2."""
+    if index >= n_world_spins:
+        return None
+    cell, slot = divmod(index, spins_per_cell)
+    return (cell % grid_w, cell // grid_w, slot)
+
+
+def cell_block_bounds(cell_x: int, cell_y: int, cell_px: int) -> tuple[int, int, int, int]:
+    """Pixel bounds (x0, y0, x1, y1) of one cell's whole block on the LIVE
+    LATTICE canvas, at `cell_px` per cell -- the SAME pitch the DECODED
+    WORLD panel uses (WORLD_CELL_PX), so cell (x, y) lands at the identical
+    on-screen origin in both panels and a pinned shape reads congruently in
+    both. No margin here -- this is the block's OUTER border; sub-spin
+    rectangles inside it are inset by spin_slot_rect below."""
+    x0, y0 = cell_x * cell_px, cell_y * cell_px
+    return (x0, y0, x0 + cell_px, y0 + cell_px)
+
+
+def spin_slot_rect(cell_x: int, cell_y: int, slot: int, spins_per_cell: int,
+                    cell_px: int, inset: int = 2) -> tuple[int, int, int, int]:
+    """Pixel bounds of ONE sub-spin's fill rectangle inside its cell's
+    block: `spins_per_cell` slots laid out side by side (never stacked --
+    stacking would put slot 1 outside the 1:1 aspect this whole fix exists
+    to restore), each `inset` px clear of its neighbours and of the block's
+    own border so the border reads as a border, not just another seam."""
+    bx0, by0, bx1, by1 = cell_block_bounds(cell_x, cell_y, cell_px)
+    slot_w = max(1, (bx1 - bx0) // spins_per_cell)
+    x0 = bx0 + slot * slot_w
+    x1 = bx0 + (slot + 1) * slot_w if slot < spins_per_cell - 1 else bx1
+    return (x0 + inset, by0 + inset, x1 - inset, by1 - inset)
+
+
+def mediator_slot_rect(slot_index: int, cols: int, cw: int,
+                        inset: int = 1) -> tuple[int, int, int, int]:
+    """Pixel bounds of one mediator's rectangle within the mediator strip,
+    relative to the strip's own top-left (0, 0) -- the caller offsets by
+    the strip's canvas y-origin. Mediators are laid out row-major in their
+    own `cols`-wide grid, deliberately NOT the world's 8-wide grid: they
+    belong to no cell, so nothing about their layout should suggest one."""
+    row, col = divmod(slot_index, cols)
+    x0, y0 = col * cw, row * cw
+    return (x0 + inset, y0 + inset, x0 + cw - inset, y0 + cw - inset)
+
+
 def batch_feasibility(draws: list[dict]) -> tuple[bool, str]:
     """Given a batch of classify_draw() results, say whether the clamp that
     produced them is infeasible (zero valid worlds among the draws) and why,
@@ -893,31 +947,87 @@ class LatticeApp(tk.Tk):
         # expand=True (no fill) into the panel body -- that centres the
         # whole block in whatever vertical space the panel grid cell gives
         # it, instead of the block hugging the top and leaving dead PANEL_BG
-        # below it. `cw` (px/spin) is also bumped up from 18 so the grid
-        # itself reads less like a postage stamp.
+        # below it.
+        #
+        # Redraw (was: divmod(i, 16), no cell boundary, mediators tacked on
+        # as four more rows -- the two panels read at 2:1 vs 1:1 aspect and
+        # mediators inflated the row count, which is why a pinned shape
+        # didn't visually match between LIVE LATTICE and DECODED WORLD).
+        # Now: an 8x8 grid of bordered cell BLOCKS at the SAME cell_px pitch
+        # as the DECODED WORLD panel (WORLD_CELL_PX), each block holding its
+        # spins_per_cell sub-spins side by side; mediators get their own
+        # labelled strip below, never implying they belong to a cell.
+        # spins_per_cell is DERIVED from the receipt (world spin count /
+        # cell count), never hardcoded -- this app has no basis for
+        # assuming k=3 domain-wall coding stays true if the receipt changes.
         lf = self.lattice_panel.body
         inner = tk.Frame(lf, bg=PANEL_BG)
         inner.pack(expand=True)
-        cols = 16
-        rows = -(-r.n_spins // cols)
-        cw = 24
-        self.lattice_canvas = tk.Canvas(inner, width=cols * cw, height=rows * cw,
+
+        n_world = len(r.world_idx)
+        n_cells = W * H
+        if n_world % n_cells != 0:
+            raise ValueError(
+                f"world spin count {n_world} is not evenly divisible by "
+                f"{n_cells} cells ({W}x{H}) -- cannot derive spins_per_cell "
+                f"without guessing; this receipt's encoding doesn't match "
+                f"the assumption this panel is built on")
+        spins_per_cell = n_world // n_cells
+        cell_px = WORLD_CELL_PX  # same on-screen pitch as DECODED WORLD
+
+        world_w, world_h = W * cell_px, H * cell_px
+        med_cols = 16
+        med_cw = 16
+        med_count = len(r.mediator_idx)
+        med_rows = -(-med_count // med_cols) if med_count else 0
+        gap, label_h = 10, 16
+        canvas_w = max(world_w, med_cols * med_cw)
+        canvas_h = world_h + gap + label_h + med_rows * med_cw + 4
+
+        self.lattice_canvas = tk.Canvas(inner, width=canvas_w, height=canvas_h,
                                           bg=PANEL_BG, highlightthickness=0)
         self.lattice_canvas.pack(pady=(2, 6))
+
+        # cell blocks: one bordered outline per cell, drawn once ...
+        for cy in range(H):
+            for cx in range(W):
+                bx0, by0, bx1, by1 = cell_block_bounds(cx, cy, cell_px)
+                self.lattice_canvas.create_rectangle(
+                    bx0, by0, bx1, by1, outline=BORDER, width=1)
+
+        # ... then each world spin's own fill rectangle inside its block,
+        # positioned via spin_cell_position -- the single source of truth
+        # for "which cell does this physical spin belong to."
         self.lattice_rects = []
         for i in range(r.n_spins):
-            row, col = divmod(i, cols)
-            x0, y0 = col * cw + 1, row * cw + 1
+            pos = spin_cell_position(i, n_world, spins_per_cell, W)
+            if pos is not None:
+                cx, cy, slot = pos
+                x0, y0, x1, y1 = spin_slot_rect(cx, cy, slot, spins_per_cell, cell_px)
+            else:
+                m = i - n_world  # mediator's own index within the strip
+                mx0, my0, mx1, my1 = mediator_slot_rect(m, med_cols, med_cw)
+                strip_y0 = world_h + gap + label_h
+                x0, y0, x1, y1 = mx0, my0 + strip_y0, mx1, my1 + strip_y0
             rect = self.lattice_canvas.create_rectangle(
-                x0, y0, x0 + cw - 2, y0 + cw - 2, outline="", fill=WORLD_OFF)
+                x0, y0, x1, y1, outline="", fill=WORLD_OFF)
             self.lattice_rects.append(rect)
+
+        self.lattice_canvas.create_text(
+            4, world_h + gap + label_h / 2, anchor="w", fill=DIM,
+            font=("Consolas", 8),
+            text=f"MEDIATOR SPINS ({med_count}) -- hidden spins from edge "
+                 f"subdivision; belong to no cell")
+
         legend = tk.Frame(inner, bg=PANEL_BG)
         legend.pack(fill="x")
         self._swatch(legend, WORLD_ON, f"world spin (0-{len(r.world_idx) - 1}), lit = 1")
         self._swatch(legend, MEDIATOR_ON, f"mediator spin ({r.mediator_idx[0]}-{r.mediator_idx[-1]}), lit = 1")
         tk.Label(inner, text="Raw physical spin state of the compiled program --\n"
                            "this is NOT the decoded world; a spin here has no\n"
-                           "terrain meaning until enc.decode succeeds.",
+                           "terrain meaning until enc.decode succeeds. Each\n"
+                           "bordered block above is one DECODED WORLD cell, at\n"
+                           "the same grid position and pitch as that panel.",
                   bg=PANEL_BG, fg=DIM, font=("Consolas", 8), justify="left", anchor="w"
                   ).pack(fill="x", pady=(6, 0))
 
