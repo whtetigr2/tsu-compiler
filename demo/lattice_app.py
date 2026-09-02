@@ -47,10 +47,10 @@ from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 import numpy as np
-from PIL import Image, ImageTk
+from PIL import Image, ImageDraw, ImageTk
 from scipy import ndimage
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -67,7 +67,11 @@ from tsu.simulate import reconstruct_program, _selected_encoding  # noqa: E402
 from tsu.backends.thrml_backend import sample as thrml_sample  # noqa: E402
 from worldfile import save_world  # noqa: E402 -- A2: save/load provenance-carrying worlds
 import frontier as frontier_mod  # noqa: E402 -- B1: capacity frontier panel
-from scope import beta_to_temperature  # noqa: E402 -- Task 5: temperature alongside beta
+from scope import (beta_to_temperature, autocorrelation, magnetization,  # noqa: E402
+                    energy_histogram, local_field_response, sigmoid,
+                    MIN_LOCAL_FIELD_BIN_COUNT)  # Task 5/6
+from tsu.ess import (integrated_autocorrelation_time,  # noqa: E402
+                     RELIABILITY_MIN_N_OVER_TAU)  # SCOPE panel's tau readout
 
 # --------------------------------------------------------------------------
 # constants shared by the raw-lattice grid and the decode/render path
@@ -141,6 +145,30 @@ SPEED_LEVELS = (
      "chains": BATCH_CHAINS, "clamp_samples": CLAMP_N_SAMPLES, "delay_s": 0.0},
 )
 DEFAULT_SPEED_IDX = len(SPEED_LEVELS) - 1  # Full speed -- matches pre-UI2 behaviour
+
+# --------------------------------------------------------------------------
+# Task 6: SCOPE panel -- sizing/cadence constants. None of these change what
+# is SAMPLED (that's N_WARMUP/STEPS_PER_SAMPLE, untouched above); they only
+# bound how much of the live session's own history this panel looks at and
+# how often it redraws.
+# --------------------------------------------------------------------------
+SCOPE_PLOT_W, SCOPE_PLOT_H = 300, 150       # px, one sub-plot's image size
+SCOPE_ENERGY_TRACE_MAXLEN = 400             # same ring-buffer length B2's
+# energy_trace already used before this task; named here so the ACF plot's
+# own caption can state it rather than hardcoding a second "400" that could
+# drift from the Trace(...) construction below.
+SCOPE_RAW_DRAWS_MAXLEN = 600                # ring buffer of raw spin rows,
+# feeds local_field_response -- 600 draws * up to ~200 spins/draw pools
+# comfortably past MIN_LOCAL_FIELD_BIN_COUNT per bin without growing
+# unbounded over a long session.
+SCOPE_ACF_MAX_LAG = 40                      # lag window drawn on the
+# semi-log ACF plot; tau is marked separately even if it falls outside it
+SCOPE_ENERGY_HIST_BINS = 24
+SCOPE_LOCAL_FIELD_BINS = 16
+SCOPE_REDRAW_EVERY_N_DRAWS = 5              # throttle: local_field_response
+# pools SCOPE_RAW_DRAWS_MAXLEN draws * every spin each redraw -- cheap per
+# call, but recomputing on literally every one of many draws/sec is wasted
+# work the display rate (poll cadence, ~80ms) doesn't need.
 
 
 def speed_level(idx: int) -> dict:
@@ -735,6 +763,225 @@ MONO = ("Consolas", 9)
 MONO_B = ("Consolas", 9, "bold")
 
 
+def _rgb(hex_str: str) -> tuple[int, int, int]:
+    """'#rrggbb' -> (r, g, b) ints -- so the SCOPE panel's PIL-rendered
+    plots (below) can share this file's own colour palette instead of a
+    second, hand-copied one that could drift from it."""
+    h = hex_str.lstrip("#")
+    return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+
+
+# Task 6: colours for the SCOPE panel's PIL-rendered plots, derived from
+# this file's own palette above (never a second literal set of colours).
+PLOT_BG = _rgb("#111218")      # same canvas background _draw_trace uses
+PLOT_FG = _rgb(FG)
+PLOT_DIM = _rgb(DIM)
+PLOT_ACCENT = _rgb(ACCENT)
+PLOT_WARN = _rgb(WARN)
+PLOT_GOOD = _rgb(GOOD)
+PLOT_BAD = _rgb(BAD)
+
+
+# --------------------------------------------------------------------------
+# Task 6: SCOPE panel plot renderers. Pure functions -- no Tk here, each
+# returns a PIL.Image (the brief requires plots be numpy/PIL images blitted
+# to a Tk canvas, not drawn as Tk canvas primitives / widget chrome: a
+# semi-log axis, filled histogram bars, and an overlaid scatter+curve are
+# not things Tk's own line/rect primitives render well). Axis extremes are
+# ALWAYS drawn on the image itself (never skipped -- an unlabelled
+# sparkline is decoration, not instrumentation); a longer plain-language
+# caption is returned alongside for the caller to show as a Tk label,
+# where PIL's small bitmap font would be unreadable.
+# --------------------------------------------------------------------------
+
+def render_acf_plot(w: int, h: int, series: Sequence[float],
+                    max_lag: int = SCOPE_ACF_MAX_LAG, floor: float = 1e-3
+                    ) -> tuple[Image.Image, str]:
+    """Semi-log (log-y) autocorrelation plot: x=lag (linear), y=|rho(lag)|
+    on a log scale -- matches Extropic's DTM paper (arXiv 2510.23972)
+    Figure 4b's own semi-log-with-decorrelation-time-marked convention
+    (see demo/scope.py's module docstring). rho values <= `floor` are
+    FLOORED to `floor` so the log axis has something to plot (a log scale
+    cannot show zero or negative values) -- floored points are marked with
+    a small warn-coloured dot so the flooring is visible, not hidden.
+    tau (Sokal's windowed estimate) is marked as a vertical line when it
+    falls within the plotted lag range."""
+    img = Image.new("RGB", (w, h), PLOT_BG)
+    d = ImageDraw.Draw(img)
+    if len(series) < 12:
+        d.text((10, h // 2 - 6), "(not enough draws yet)", fill=PLOT_DIM)
+        return img, "waiting for more draws before an ACF can be estimated..."
+
+    lag_cap = min(max_lag, len(series) - 1)
+    acf = autocorrelation(list(series), max_lag=lag_cap)
+    iat = integrated_autocorrelation_time(np.asarray(series, dtype=float))
+    n = len(series)
+    n_over_tau = (n / iat.tau) if iat.tau > 0 else float("inf")
+
+    pad_l, pad_r, pad_t, pad_b = 40, 8, 8, 16
+    pw, ph = w - pad_l - pad_r, h - pad_t - pad_b
+    ylo, yhi = math.log10(floor), 0.0  # rho[0] == 1.0 always -> log10(1)=0
+
+    def px(lag): return pad_l + (lag / lag_cap) * pw if lag_cap else pad_l
+
+    def py(v):
+        vv = max(v, floor)
+        return pad_t + (1.0 - (math.log10(vv) - ylo) / (yhi - ylo)) * ph
+
+    pts = [(px(k), py(v)) for k, v in enumerate(acf)]
+    if len(pts) >= 2:
+        d.line(pts, fill=PLOT_ACCENT, width=1)
+    for k, v in enumerate(acf):
+        if v <= floor:
+            x, y = px(k), py(v)
+            d.ellipse([x - 1.5, y - 1.5, x + 1.5, y + 1.5], fill=PLOT_WARN)
+
+    tau_in_range = 0 < iat.tau <= lag_cap
+    if tau_in_range:
+        xp = px(iat.tau)
+        d.line([(xp, pad_t), (xp, pad_t + ph)], fill=PLOT_WARN, width=1)
+        d.text((min(xp + 2, w - 40), pad_t), f"tau~{iat.tau:.1f}", fill=PLOT_WARN)
+
+    d.text((pad_l, pad_t), "1.0", fill=PLOT_DIM, anchor="la")
+    d.text((pad_l, pad_t + ph), f"{floor:g}", fill=PLOT_DIM, anchor="la")
+    d.text((pad_l, h - 4), "lag=0", fill=PLOT_DIM, anchor="ls")
+    d.text((w - pad_r, h - 4), f"{lag_cap}", fill=PLOT_DIM, anchor="rs")
+    d.text((w - pad_r, pad_t), "rho (log)", fill=PLOT_DIM, anchor="ra")
+
+    reliable = n_over_tau >= RELIABILITY_MIN_N_OVER_TAU
+    caption = (
+        f"tau~={iat.tau:.2f} (Sokal window={iat.window}"
+        f"{'*, saturated -- see tsu.ess' if iat.window_saturated else ''})"
+        f"{'  (beyond the plotted window)' if not tau_in_range else ''}  "
+        f"N={n}  N/tau={n_over_tau:.3g}  reliability threshold (tsu.ess."
+        f"RELIABILITY_MIN_N_OVER_TAU)=5000: {'MET' if reliable else 'NOT MET'}. "
+        f"This is this LIVE session's own energy trace (ring buffer, "
+        f"maxlen={SCOPE_ENERGY_TRACE_MAXLEN}) -- a SEPARATE measurement from "
+        f"the receipt's own precomputed ess in the VERIFICATION panel above, "
+        f"not a live update of it.")
+    return img, caption
+
+
+def render_line_plot(w: int, h: int, xs: Sequence[float], ys: Sequence[float],
+                     xlabel: str, ylabel: str,
+                     y_range: tuple[float, float] | None = None) -> Image.Image:
+    """Linear x/y line plot -- used for the magnetization trace, with
+    y_range fixed to (-1, 1) (the order parameter's own physical bounds,
+    a more honest axis than autoscaling to whatever range happened to be
+    observed so far)."""
+    img = Image.new("RGB", (w, h), PLOT_BG)
+    d = ImageDraw.Draw(img)
+    if len(xs) < 2:
+        d.text((10, h // 2 - 6), "(no data yet)", fill=PLOT_DIM)
+        return img
+    pad_l, pad_r, pad_t, pad_b = 40, 8, 8, 16
+    pw, ph = w - pad_l - pad_r, h - pad_t - pad_b
+    xmin, xmax = min(xs), max(xs)
+    ymin, ymax = y_range if y_range is not None else (min(ys), max(ys))
+    xspan = (xmax - xmin) or 1.0
+    yspan = (ymax - ymin) or (abs(ymax) or 1.0)
+
+    def px(x): return pad_l + (x - xmin) / xspan * pw
+
+    def py(y): return pad_t + (1.0 - (y - ymin) / yspan) * ph
+
+    pts = [(px(x), py(y)) for x, y in zip(xs, ys)]
+    d.line(pts, fill=PLOT_ACCENT, width=1)
+    d.text((pad_l, pad_t), f"{ymax:.3g}", fill=PLOT_DIM, anchor="la")
+    d.text((pad_l, pad_t + ph), f"{ymin:.3g}", fill=PLOT_DIM, anchor="la")
+    d.text((pad_l, h - 4), f"{xlabel}={xmin:.0f}", fill=PLOT_DIM, anchor="ls")
+    d.text((w - pad_r, h - 4), f"{xmax:.0f}", fill=PLOT_DIM, anchor="rs")
+    d.text((w - pad_r, pad_t), ylabel, fill=PLOT_DIM, anchor="ra")
+    return img
+
+
+def render_energy_histogram_plot(w: int, h: int, series: Sequence[float],
+                                 bins: int = SCOPE_ENERGY_HIST_BINS) -> Image.Image:
+    """Filled-bar histogram of `series` (the energy trace's own values) --
+    the distribution the trace only samples one point of at a time."""
+    img = Image.new("RGB", (w, h), PLOT_BG)
+    d = ImageDraw.Draw(img)
+    if len(series) < 4:
+        d.text((10, h // 2 - 6), "(no data yet)", fill=PLOT_DIM)
+        return img
+    edges, counts = energy_histogram(list(series), bins=bins)
+    pad_l, pad_r, pad_t, pad_b = 40, 8, 8, 16
+    pw, ph = w - pad_l - pad_r, h - pad_t - pad_b
+    cmax = max(counts) or 1
+    n_bins = len(counts)
+    bw = pw / n_bins if n_bins else pw
+    for i, c in enumerate(counts):
+        x0 = pad_l + i * bw
+        x1 = x0 + bw * 0.85
+        bar_h = (c / cmax) * ph
+        y1 = pad_t + ph
+        y0 = y1 - bar_h
+        d.rectangle([x0, y0, x1, y1], fill=PLOT_ACCENT)
+    d.text((pad_l, pad_t), f"{cmax}", fill=PLOT_DIM, anchor="la")
+    d.text((pad_l, h - 4), f"E={edges[0]:.3g}", fill=PLOT_DIM, anchor="ls")
+    d.text((w - pad_r, h - 4), f"{edges[-1]:.3g}", fill=PLOT_DIM, anchor="rs")
+    d.text((w - pad_r, pad_t), "count", fill=PLOT_DIM, anchor="ra")
+    return img
+
+
+def render_sigmoid_plot(w: int, h: int, draws: Sequence[Sequence[int]], ising,
+                        bins: int = SCOPE_LOCAL_FIELD_BINS) -> tuple[Image.Image, str]:
+    """Measured P(s=1) per local-field bin (blue points) overlaid on the
+    analytic sigmoid(2*gamma) (green curve) -- the measurable analogue of
+    Extropic's DTM paper Figure 4a. A bin with too few pooled samples
+    (see MIN_LOCAL_FIELD_BIN_COUNT in demo/scope.py) is SKIPPED here, not
+    plotted at a fabricated position -- the caption below reports how many
+    were skipped so that omission is visible, not silent."""
+    img = Image.new("RGB", (w, h), PLOT_BG)
+    d = ImageDraw.Draw(img)
+    if len(draws) < 4:
+        d.text((10, h // 2 - 6), "(no draws yet)", fill=PLOT_DIM)
+        return img, "waiting for draws..."
+    centers, probs, counts = local_field_response(draws, ising, bins=bins)
+    if not centers:
+        d.text((10, h // 2 - 6), "(no field data)", fill=PLOT_DIM)
+        return img, "no data"
+
+    pad_l, pad_r, pad_t, pad_b = 40, 8, 8, 16
+    pw, ph = w - pad_l - pad_r, h - pad_t - pad_b
+    gmin, gmax = min(centers), max(centers)
+    gspan = (gmax - gmin) or 1.0
+
+    def px(g): return pad_l + (g - gmin) / gspan * pw
+
+    def py(p): return pad_t + (1.0 - p) * ph
+
+    curve_pts = [(px(gmin + gspan * i / 40.0),
+                  py(float(sigmoid(2.0 * (gmin + gspan * i / 40.0)))))
+                 for i in range(41)]
+    d.line(curve_pts, fill=PLOT_GOOD, width=1)
+
+    n_skipped = 0
+    for c, p, n in zip(centers, probs, counts):
+        if n == 0:
+            continue
+        if math.isnan(p):
+            n_skipped += 1
+            continue
+        x, y = px(c), py(p)
+        r = 2.5
+        d.ellipse([x - r, y - r, x + r, y + r], fill=PLOT_ACCENT)
+
+    d.text((pad_l, pad_t), "1.0", fill=PLOT_DIM, anchor="la")
+    d.text((pad_l, pad_t + ph), "0.0", fill=PLOT_DIM, anchor="la")
+    d.text((pad_l, h - 4), f"gamma={gmin:.2f}", fill=PLOT_DIM, anchor="ls")
+    d.text((w - pad_r, h - 4), f"{gmax:.2f}", fill=PLOT_DIM, anchor="rs")
+    d.text((w - pad_r, pad_t), "P(s=1)", fill=PLOT_DIM, anchor="ra")
+
+    caption = (
+        f"blue = measured P(s=1) per local-field bin (this sampler's own "
+        f"draws); green = analytic sigmoid(2*gamma). "
+        f"{n_skipped}/{len(centers)} bin(s) skipped -- fewer than "
+        f"{MIN_LOCAL_FIELD_BIN_COUNT} pooled samples to report a "
+        f"probability (counts are real, just too sparse to plot).")
+    return img, caption
+
+
 class Panel(tk.Frame):
     def __init__(self, master, title: str, **kw):
         super().__init__(master, bg=PANEL_BG, highlightbackground=BORDER,
@@ -751,7 +998,10 @@ class LatticeApp(tk.Tk):
         super().__init__()
         self.receipt = receipt
         self.title("tsu lattice demo -- live sampling of a compiled receipt")
-        self.geometry("1760x900")
+        # Task 6: +260px height for the new SCOPE panel row added below the
+        # existing content row -- every other panel's own size/position is
+        # unchanged, this only makes room for the addition.
+        self.geometry("1760x1160")
         self.configure(bg=BG)
 
         self.in_q: "queue.Queue[dict]" = queue.Queue(maxsize=64)
@@ -783,8 +1033,20 @@ class LatticeApp(tk.Tk):
         # subset) and valid fraction over the session (recomputed at the
         # SAME cadence, from self.valid_count/self.total_draws already
         # tracked above). Bounded ring buffers, see Trace's own docstring.
-        self.energy_trace = Trace(maxlen=400)
-        self.valid_frac_trace = Trace(maxlen=400)
+        self.energy_trace = Trace(maxlen=SCOPE_ENERGY_TRACE_MAXLEN)
+        self.valid_frac_trace = Trace(maxlen=SCOPE_ENERGY_TRACE_MAXLEN)
+
+        # Task 6: SCOPE panel state. magnetization_trace mirrors energy_
+        # trace's own convention (every draw, valid or not -- the order
+        # parameter is a property of the raw chain too). raw_draws is a
+        # SEPARATE, longer ring buffer of full spin rows (not just a
+        # scalar per draw): local_field_response needs the actual pooled
+        # (gamma, spin) pairs a real draw produced, not a summary of one.
+        self.magnetization_trace = Trace(maxlen=SCOPE_ENERGY_TRACE_MAXLEN)
+        self.raw_draws: deque = deque(maxlen=SCOPE_RAW_DRAWS_MAXLEN)
+        self._scope_redraw_counter = 0
+        # keep references so Tk doesn't garbage-collect the blitted images
+        self.acf_photo = self.mag_photo = self.hist_photo = self.sigmoid_photo = None
 
         self._build_layout()
         self._populate_static_panels()
@@ -804,6 +1066,10 @@ class LatticeApp(tk.Tk):
         for c, weight in enumerate((0, 1, 1, 0, 0)):
             content.grid_columnconfigure(c, weight=weight)
         content.grid_rowconfigure(0, weight=1)
+        # Task 6: SCOPE panel -- a new row below the existing content row,
+        # spanning every column, fixed height (grid_propagate off) so it
+        # never eats into the row-0 panels' own space.
+        content.grid_rowconfigure(1, weight=0, minsize=260)
 
         left = tk.Frame(content, bg=BG, width=340)
         left.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
@@ -855,6 +1121,44 @@ class LatticeApp(tk.Tk):
         self.mix_panel.grid(row=2, column=0, sticky="nsew", pady=4)
         self.log_panel = Panel(right, "SAMPLE LOG")
         self.log_panel.grid(row=3, column=0, sticky="nsew", pady=(4, 0))
+
+        # Task 6: SCOPE panel -- autocorrelation (semi-log, tau + the 5000
+        # reliability threshold), magnetization trace, energy histogram,
+        # and the measured-vs-analytic sigmoid response, four sub-plots in
+        # a row. Every plot is a PIL image blitted onto its own Canvas (see
+        # render_acf_plot etc. above) -- Tk canvas primitives alone can't
+        # do a log axis, filled bars, or an overlaid scatter+curve well.
+        self.scope_panel = Panel(content, "SCOPE  (autocorrelation / magnetization / "
+                                          "energy histogram / measured sigmoid response)")
+        self.scope_panel.grid(row=1, column=0, columnspan=5, sticky="nsew", pady=(6, 0))
+        scope_row = tk.Frame(self.scope_panel.body, bg=PANEL_BG)
+        scope_row.pack(fill="both", expand=True)
+
+        def _scope_cell(title):
+            cell = tk.Frame(scope_row, bg=PANEL_BG)
+            cell.pack(side="left", fill="both", expand=True, padx=4)
+            tk.Label(cell, text=title, bg=PANEL_BG, fg=ACCENT,
+                      font=("Consolas", 8, "bold"), anchor="w").pack(fill="x")
+            canvas = tk.Canvas(cell, width=SCOPE_PLOT_W, height=SCOPE_PLOT_H,
+                                bg="#111218", highlightthickness=0)
+            canvas.pack(pady=(2, 2))
+            caption = tk.Label(cell, text="", bg=PANEL_BG, fg=DIM,
+                                font=("Consolas", 7), anchor="w", justify="left",
+                                wraplength=SCOPE_PLOT_W, height=4)
+            caption.pack(fill="x")
+            return canvas, caption
+
+        self.acf_canvas, self.acf_caption = _scope_cell(
+            "AUTOCORRELATION (semi-log, tau marked)")
+        self.mag_canvas, self.mag_caption = _scope_cell(
+            "MAGNETIZATION (order parameter, per draw)")
+        self.hist_canvas, self.hist_caption = _scope_cell(
+            "ENERGY HISTOGRAM (over the session)")
+        self.sigmoid_canvas, self.sigmoid_caption = _scope_cell(
+            "LOCAL-FIELD RESPONSE (measured P(s=1) vs analytic sigmoid)")
+        for canvas in (self.acf_canvas, self.mag_canvas, self.hist_canvas,
+                      self.sigmoid_canvas):
+            canvas.create_image(0, 0, anchor="nw", tags="plot")
 
         bottom = tk.Frame(self, bg=BG)
         bottom.pack(fill="x", padx=8, pady=(0, 8))
@@ -1265,6 +1569,11 @@ class LatticeApp(tk.Tk):
         self._draw_trace(self.valid_frac_canvas, self.valid_frac_trace,
                          "draw", "valid %")
 
+        # Task 6: SCOPE panel's own initial draw (all four sub-plots start
+        # on their "(no data yet)" / "(no draws yet)" placeholder, same
+        # honesty convention as the two traces just above).
+        self._refresh_scope_panel()
+
     def _draw_trace(self, canvas: tk.Canvas, trace: "Trace", xlabel: str,
                     ylabel: str) -> None:
         """Redraw one line plot from `trace`'s current contents. Axis
@@ -1298,6 +1607,43 @@ class LatticeApp(tk.Tk):
                             font=("Consolas", 7), anchor="se")
         canvas.create_text(w - pad_r, pad_t, text=ylabel, fill=DIM,
                             font=("Consolas", 7), anchor="ne")
+
+    def _refresh_scope_panel(self) -> None:
+        """Task 6: rebuild all four SCOPE sub-plots from this session's own
+        live history (energy_trace, magnetization_trace, raw_draws) and
+        blit them onto their canvases. Each render_* function already
+        handles "not enough data yet" honestly; this method just calls
+        them, converts to PhotoImage, and keeps a reference (Tk drops a
+        PhotoImage with no surviving Python reference -- same pattern
+        _update_world already uses for world_photo)."""
+        energy_ys = list(self.energy_trace.ys)
+        acf_img, acf_caption = render_acf_plot(SCOPE_PLOT_W, SCOPE_PLOT_H, energy_ys)
+        self.acf_photo = ImageTk.PhotoImage(acf_img)
+        self.acf_canvas.itemconfig("plot", image=self.acf_photo)
+        self.acf_caption.config(text=acf_caption)
+
+        mag_img = render_line_plot(
+            SCOPE_PLOT_W, SCOPE_PLOT_H, list(self.magnetization_trace.xs),
+            list(self.magnetization_trace.ys), "draw", "M", y_range=(-1.0, 1.0))
+        self.mag_photo = ImageTk.PhotoImage(mag_img)
+        self.mag_canvas.itemconfig("plot", image=self.mag_photo)
+        self.mag_caption.config(
+            text="Mean spin per draw (s=2*occupancy-1), fixed axis [-1, 1] "
+                 "-- the order parameter's own physical bounds.")
+
+        hist_img = render_energy_histogram_plot(SCOPE_PLOT_W, SCOPE_PLOT_H, energy_ys)
+        self.hist_photo = ImageTk.PhotoImage(hist_img)
+        self.hist_canvas.itemconfig("plot", image=self.hist_photo)
+        self.hist_caption.config(
+            text=f"Distribution of the energy trace's own {len(energy_ys)} "
+                 f"value(s) so far this session -- the trace itself only "
+                 f"samples one point of this at a time.")
+
+        sigmoid_img, sigmoid_caption = render_sigmoid_plot(
+            SCOPE_PLOT_W, SCOPE_PLOT_H, list(self.raw_draws), self.receipt.im)
+        self.sigmoid_photo = ImageTk.PhotoImage(sigmoid_img)
+        self.sigmoid_canvas.itemconfig("plot", image=self.sigmoid_photo)
+        self.sigmoid_caption.config(text=sigmoid_caption)
 
     def _swatch(self, master, color, text):
         row = tk.Frame(master, bg=PANEL_BG)
@@ -1346,6 +1692,14 @@ class LatticeApp(tk.Tk):
         # against this app's own running draw counter as "sweep".
         self.energy_trace.append(self.total_draws, energy_of_draw(self.receipt.im, raw))
 
+        # Task 6: magnetization trace and the raw-draw pool for
+        # local_field_response -- SAME "every draw, valid or not" convention
+        # as the energy trace just above (mixing/the order parameter/the
+        # local field are all properties of the raw chain, not of the
+        # conditional-valid subset).
+        self.magnetization_trace.append(self.total_draws, magnetization([raw])[0])
+        self.raw_draws.append(raw)
+
         if kind == "valid":
             self.valid_count += 1
             self.last_valid_grid = msg["grid"]
@@ -1383,6 +1737,17 @@ class LatticeApp(tk.Tk):
         self._draw_trace(self.valid_frac_canvas, self.valid_frac_trace,
                          "draw", "valid %")
         self._refresh_world_status()
+
+        # Task 6: throttled -- local_field_response pools every spin of
+        # every buffered draw on each call, cheap per call but wasted work
+        # at the poll cadence (~80ms) if run on literally every draw; every
+        # SCOPE_REDRAW_EVERY_N_DRAWS-th draw (plus the first few, so the
+        # panel doesn't sit on "(no data yet)" longer than it has to) is
+        # plenty for a display, not a measurement.
+        self._scope_redraw_counter += 1
+        if (self.total_draws <= 5
+                or self._scope_redraw_counter % SCOPE_REDRAW_EVERY_N_DRAWS == 0):
+            self._refresh_scope_panel()
 
     def _update_lattice(self, raw):
         med = set(self.receipt.mediator_idx)
@@ -1626,9 +1991,15 @@ class LatticeApp(tk.Tk):
         self.valid_frac_label.config(text="valid fraction: n/a (0 draws)")
         self.energy_trace = Trace(maxlen=self.energy_trace.xs.maxlen)
         self.valid_frac_trace = Trace(maxlen=self.valid_frac_trace.xs.maxlen)
+        # Task 6: a new seed starts a genuinely new chain -- the SCOPE
+        # panel's history must not mix pre- and post-seed draws (same
+        # reasoning as the energy/valid-fraction resets just above).
+        self.magnetization_trace = Trace(maxlen=self.magnetization_trace.xs.maxlen)
+        self.raw_draws.clear()
         self._draw_trace(self.energy_canvas, self.energy_trace, "sweep", "energy")
         self._draw_trace(self.valid_frac_canvas, self.valid_frac_trace,
                          "draw", "valid %")
+        self._refresh_scope_panel()
         self._refresh_world_status()
 
         new_seed_base = random.randint(0, 2**31 - 1)
@@ -1658,9 +2029,15 @@ class LatticeApp(tk.Tk):
         # ring buffer, drawing a plot whose x-axis runs backwards.
         self.energy_trace = Trace(maxlen=self.energy_trace.xs.maxlen)
         self.valid_frac_trace = Trace(maxlen=self.valid_frac_trace.xs.maxlen)
+        # Task 6: same reasoning -- a clamp change starts a new conditional
+        # distribution, so the SCOPE panel's history resets alongside the
+        # energy/valid-fraction traces, not just some of them.
+        self.magnetization_trace = Trace(maxlen=self.magnetization_trace.xs.maxlen)
+        self.raw_draws.clear()
         self._draw_trace(self.energy_canvas, self.energy_trace, "sweep", "energy")
         self._draw_trace(self.valid_frac_canvas, self.valid_frac_trace,
                          "draw", "valid %")
+        self._refresh_scope_panel()
         self._refresh_world_status()
 
         new_seed_base = random.randint(0, 2**31 - 1)
