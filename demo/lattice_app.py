@@ -2532,17 +2532,33 @@ class LatticeApp(tk.Tk):
                      for y in range(H)])
                 # I2 (fix-round-2): terrain now comes from
                 # composite_base_grid -- the base decode actually captured
-                # at the most recent band regenerate (see
-                # _regenerate_band_async/_on_band_regenerated) -- NOT
-                # self.last_valid_grid, which keeps streaming from base's
-                # continuous background worker while a band is selected.
-                # Rendering self.last_valid_grid here would show elevation
-                # conditioned on base-decode-A hillshaded over terrain from
-                # a LATER base-decode-B: not a draw from p(base)*p(band|
-                # base) at all. composite_base_grid is guaranteed non-None
-                # here: `missing` above is empty only once every band has a
-                # last_valid_decoded, which is set in the same handler that
-                # sets composite_base_grid.
+                # at the MOST RECENT band regenerate, whichever band that
+                # was (see _regenerate_band_async/_on_band_regenerated) --
+                # NOT self.last_valid_grid, which keeps streaming from
+                # base's continuous background worker while a band is
+                # selected. Rendering self.last_valid_grid here would show
+                # elevation conditioned on base-decode-A hillshaded over
+                # terrain from a LATER base-decode-B: not a draw from
+                # p(base)*p(band|base) at all. composite_base_grid is
+                # guaranteed non-None here: `missing` above is empty only
+                # once every band has a last_valid_decoded, which is set in
+                # the same handler that sets composite_base_grid.
+                #
+                # NOTE (fix-round-3, re-review residual): composite_base_
+                # grid is a SINGLE app-wide value, overwritten unconditionally
+                # by WHICHEVER band regenerates most recently -- it is not a
+                # base shared by all three bands. Per-layer regenerate is
+                # deliberate (bands resample independently), so band0/1/2
+                # are the normal case, not the exception, conditioned on
+                # DIFFERENT historical base draws. The status text below
+                # must therefore name only the most-recently-regenerated
+                # band's base, not "the bands" plural -- claiming joint
+                # consistency across all three is exactly the overclaim
+                # this whole review round was about. Tracking each band's
+                # own conditioning snapshot (so the status line could name
+                # per-band staleness precisely) is the fuller fix and is
+                # deliberately NOT done here -- out of scope for a wording
+                # correction, belongs in its own reviewed task.
                 terrain_grid = self.composite_base_grid
                 img = render_elevation_world_image(terrain_grid, elevation)
                 disp = img.resize((WORLD_DISPLAY_PX, WORLD_DISPLAY_PX), Image.LANCZOS)
@@ -2556,10 +2572,13 @@ class LatticeApp(tk.Tk):
                     " -- currently matches base's live decode too")
                 self.world_status_label.config(
                     text="composite: elevation-driven hillshade over the "
-                         "base decode the bands were ACTUALLY conditioned "
-                         "on at their most recent regenerate" + staleness_note +
-                         " (see COMPOSITE VALIDATION below for the "
-                         "cross-layer check)", fg=(WARN if base_is_stale else DIM))
+                         "base decode the MOST RECENTLY REGENERATED band "
+                         "was conditioned on" + staleness_note +
+                         " -- the OTHER bands may have been conditioned on "
+                         "a DIFFERENT base draw (each band regenerates "
+                         "independently; see COMPOSITE VALIDATION below "
+                         "for the cross-layer check)",
+                    fg=(WARN if base_is_stale else DIM))
             self.infeasible_label.config(text="")
             self.save_btn.config(state="disabled")
         self._redraw_pin_markers()
@@ -2751,8 +2770,13 @@ class LatticeApp(tk.Tk):
                 [[int(rep[f"g{x}_{y}"]) for x in range(W)] for y in range(H)])
             # I2 (fix-round-2): record the base decode THIS band was
             # actually conditioned on, so the composite can render terrain
-            # consistent with what its elevation was built from rather than
-            # base's current (possibly since-advanced) live decode.
+            # consistent with THIS band's contribution rather than base's
+            # current (possibly since-advanced) live decode. This
+            # unconditionally overwrites whatever the previous regenerate
+            # (of this band or any other) had stored -- it names only the
+            # MOST RECENT regenerate's base, never a base shared by all
+            # three bands (fix-round-3: see the composite status text's
+            # own wording for why that distinction matters on screen too).
             self.composite_base_grid = msg["base_grid"]
             self.regenerate_status.config(
                 text=f"{band_name}: {len(valid)}/{msg['total']} valid "
