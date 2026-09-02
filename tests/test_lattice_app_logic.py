@@ -393,3 +393,67 @@ def test_worker_request_step_sets_the_event():
     w = _worker()
     w.request_step()
     assert w.step_evt.is_set()
+
+
+# ---------------------------------------------------------------------------
+# Task 7: LAYERS panel pure logic -- layer_supports_temperature,
+# band_index_from_name, overlay_pin_patch, composite_missing_layers,
+# grid_to_decoded, and ClampState's per-instance `cycle` override. No Tk.
+# ---------------------------------------------------------------------------
+
+def test_layer_supports_temperature_true_for_no_mediators():
+    assert la.layer_supports_temperature(()) is True
+    assert la.layer_supports_temperature([]) is True
+
+
+def test_layer_supports_temperature_false_when_mediators_present():
+    assert la.layer_supports_temperature((1, 2, 3)) is False
+
+
+def test_band_index_from_name_parses_the_trailing_digit():
+    assert la.band_index_from_name("band0") == 0
+    assert la.band_index_from_name("band2") == 2
+
+
+def test_band_index_from_name_rejects_non_band_names():
+    import pytest
+    with pytest.raises(ValueError):
+        la.band_index_from_name("base")
+    with pytest.raises(ValueError):
+        la.band_index_from_name("composite")
+
+
+def test_overlay_pin_patch_empty_for_no_pins():
+    assert la.overlay_pin_patch([]) == {}
+
+
+def test_overlay_pin_patch_signs_match_pinned_value():
+    patch = la.overlay_pin_patch([((0, 0), 1), ((2, 3), 0)], strength=2.0)
+    assert patch[("g0_0", 1)] == 2.0    # pinned "above" -> encourage value 1
+    assert patch[("g2_3", 1)] == -2.0   # pinned "below" -> discourage value 1
+
+
+def test_composite_missing_layers_lists_base_and_every_missing_band():
+    missing = la.composite_missing_layers(None, [None, "decoded", None])
+    assert missing == ["base", "band0", "band2"]
+
+
+def test_composite_missing_layers_empty_when_everything_present():
+    assert la.composite_missing_layers("base-grid", ["b0", "b1", "b2"]) == []
+
+
+def test_grid_to_decoded_uses_gx_y_row_major_convention():
+    import numpy as np
+    grid = np.array([[0, 1], [2, 3]])  # grid[y, x]
+    d = la.grid_to_decoded(grid)
+    assert d == {"g0_0": 0, "g1_0": 1, "g0_1": 2, "g1_1": 3}
+
+
+def test_clamp_state_default_cycle_is_unchanged():
+    cs = la.ClampState()
+    assert [cs.cycle(0, 0) for _ in range(4)] == [WATER, ROCK, GRASS, None]
+
+
+def test_clamp_state_custom_cycle_for_a_binary_overlay_layer():
+    cs = la.ClampState(cycle=(0, 1))
+    assert [cs.cycle(0, 0) for _ in range(3)] == [0, 1, None]
