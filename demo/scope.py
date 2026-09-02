@@ -179,6 +179,53 @@ def energy_histogram(series: Sequence[float], bins: int) -> tuple[list[float], l
     return [float(e) for e in edges], [int(c) for c in counts]
 
 
+def per_cell_occupancy(draws: Sequence[Sequence[int]], n_world_spins: int,
+                        spins_per_cell: int, grid_w: int) -> np.ndarray:
+    """Task 10: per-cell mean WORLD-spin occupancy across `draws` -- the
+    per-cell heatmap's own data source (demo/lattice_app.py's
+    render_heatmap_image). Only the first `n_world_spins` columns of each
+    draw are read (mediator spins, which follow the world spins in every
+    draw row -- see demo/lattice_app.py's spin_cell_position -- belong to
+    no cell and are excluded, never averaged in). Cell index -> (x, y) is
+    the SAME (cell % grid_w, cell // grid_w) convention spin_cell_position
+    already uses, so result[y, x] lines up directly with
+    cell_block_bounds(x, y, ...) with no re-derivation needed by the
+    caller. A draw contributes each cell's OWN spins_per_cell sub-spins'
+    raw 0/1 occupancy, averaged first within that one draw's cell, THEN
+    across draws -- RAW physical occupancy, valid or not (the same
+    "every draw, valid or not" convention magnetization/energy_of_draw
+    already use elsewhere in this app, not the conditional-valid subset
+    DECODED WORLD shows).
+
+    Zero draws returns an all-NaN (grid_h, grid_w) array -- honestly
+    "no data yet", never a fabricated 0.0 (mirrors local_field_response's
+    own NaN-for-insufficient-data convention). A grid_w/spins_per_cell
+    that does not evenly divide n_world_spins is a genuine shape mismatch,
+    not a "no data" case, and raises ValueError rather than silently
+    guessing a layout."""
+    if n_world_spins <= 0 or spins_per_cell <= 0 or grid_w <= 0:
+        raise ValueError(
+            f"n_world_spins ({n_world_spins}), spins_per_cell "
+            f"({spins_per_cell}) and grid_w ({grid_w}) must all be positive")
+    if n_world_spins % spins_per_cell != 0:
+        raise ValueError(
+            f"n_world_spins ({n_world_spins}) is not evenly divisible by "
+            f"spins_per_cell ({spins_per_cell}) -- cannot derive a cell "
+            f"count without guessing")
+    n_cells = n_world_spins // spins_per_cell
+    if n_cells % grid_w != 0:
+        raise ValueError(
+            f"cell count ({n_cells}) is not evenly divisible by grid_w "
+            f"({grid_w}) -- cannot derive a grid height without guessing")
+    grid_h = n_cells // grid_w
+    if not draws:
+        return np.full((grid_h, grid_w), np.nan)
+    arr = np.asarray(draws, dtype=float)[:, :n_world_spins]
+    per_draw_cell = arr.reshape(arr.shape[0], n_cells, spins_per_cell).mean(axis=2)
+    cell_mean = per_draw_cell.mean(axis=0)
+    return cell_mean.reshape(grid_h, grid_w)
+
+
 def sigmoid(x):
     """1/(1+exp(-x)), the analytic curve `local_field_response`'s
     empirical points are plotted alongside FOR REFERENCE (not as ground

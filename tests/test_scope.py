@@ -87,6 +87,77 @@ def test_energy_histogram_counts_sum_to_the_series_length():
 
 
 # ---------------------------------------------------------------------------
+# Task 10: per_cell_occupancy -- the per-cell heatmap's own data source
+# (demo/lattice_app.py's render_heatmap_image consumes this).
+# ---------------------------------------------------------------------------
+
+def test_per_cell_occupancy_of_an_all_on_draw_is_one_everywhere():
+    import numpy as np
+    from scope import per_cell_occupancy
+    draws = [[1, 1, 1, 1, 1, 1]]  # 2 cells x spins_per_cell=3, all on
+    out = per_cell_occupancy(draws, n_world_spins=6, spins_per_cell=3, grid_w=2)
+    assert out.shape == (1, 2)
+    assert np.allclose(out, 1.0)
+
+
+def test_per_cell_occupancy_of_an_all_off_draw_is_zero_everywhere():
+    import numpy as np
+    from scope import per_cell_occupancy
+    draws = [[0, 0, 0, 0, 0, 0]]
+    out = per_cell_occupancy(draws, n_world_spins=6, spins_per_cell=3, grid_w=2)
+    assert np.allclose(out, 0.0)
+
+
+def test_per_cell_occupancy_averages_within_a_cell_and_across_draws():
+    """cell 0 = spins[0:3], cell 1 = spins[3:6]. draw 1: cell0 all on
+    (1.0), cell1 all off (0.0). draw 2: the reverse. Mean across draws:
+    both cells -> 0.5 -- proves this averages WITHIN a cell's own
+    sub-spins first (a single draw's cell reading is 0.0 or 1.0 here,
+    never 0.5) and THEN across draws, not some other pooling order."""
+    import numpy as np
+    from scope import per_cell_occupancy
+    draws = [[1, 1, 1, 0, 0, 0], [0, 0, 0, 1, 1, 1]]
+    out = per_cell_occupancy(draws, n_world_spins=6, spins_per_cell=3, grid_w=2)
+    assert np.allclose(out, 0.5)
+
+
+def test_per_cell_occupancy_ignores_spins_past_n_world_spins():
+    """6 world spins (2 cells) + 4 trailing (mediator) spins -- the
+    trailing spins must not shift the reshape or pollute a cell mean."""
+    import numpy as np
+    from scope import per_cell_occupancy
+    draws = [[1, 1, 1, 0, 0, 0, 9, 9, 9, 9]]
+    out = per_cell_occupancy(draws, n_world_spins=6, spins_per_cell=3, grid_w=2)
+    assert np.allclose(out, [[1.0, 0.0]])
+
+
+def test_per_cell_occupancy_of_zero_draws_is_honestly_nan_not_zero():
+    """No draws is not the same claim as 'every cell is off' -- mirrors
+    local_field_response's own NaN-for-insufficient-data convention."""
+    import numpy as np
+    from scope import per_cell_occupancy
+    out = per_cell_occupancy([], n_world_spins=6, spins_per_cell=3, grid_w=2)
+    assert out.shape == (1, 2)
+    assert np.all(np.isnan(out))
+
+
+def test_per_cell_occupancy_rejects_a_grid_width_that_does_not_divide_the_cell_count():
+    import pytest
+    from scope import per_cell_occupancy
+    with pytest.raises(ValueError):
+        per_cell_occupancy([[1, 1, 1, 0, 0, 0]], n_world_spins=6,
+                            spins_per_cell=3, grid_w=4)
+
+
+def test_per_cell_occupancy_rejects_spins_per_cell_that_does_not_divide_n_world_spins():
+    import pytest
+    from scope import per_cell_occupancy
+    with pytest.raises(ValueError):
+        per_cell_occupancy([[1, 1, 1, 1, 1]], n_world_spins=5,
+                            spins_per_cell=3, grid_w=1)
+
+
+# ---------------------------------------------------------------------------
 # Task 6 step 6: local_field_response -- the measured sigmoid
 # ---------------------------------------------------------------------------
 

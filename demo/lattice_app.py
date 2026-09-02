@@ -49,7 +49,7 @@ from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageTk
@@ -75,7 +75,8 @@ import theme  # noqa: E402 -- Task 0: theme foundation, see theme.py's own docst
 from scope import (beta_to_temperature, temperature_control_state,  # noqa: E402
                     autocorrelation, magnetization,
                     energy_histogram, local_field_response, sigmoid,
-                    MIN_LOCAL_FIELD_BIN_COUNT)  # Task 5/6/8
+                    per_cell_occupancy,
+                    MIN_LOCAL_FIELD_BIN_COUNT)  # Task 5/6/8/10
 from tsu.ess import (integrated_autocorrelation_time,  # noqa: E402
                      RELIABILITY_MIN_N_OVER_TAU)  # SCOPE panel's tau readout
 from layers import FIELD_CAP, FieldCapExceeded, bias_patch  # noqa: E402 -- Task 7
@@ -256,6 +257,35 @@ SCOPE_REDRAW_EVERY_N_DRAWS = 5              # throttle: local_field_response
 # call, but recomputing on literally every one of many draws/sec is wasted
 # work the display rate (poll cadence, ~80ms) doesn't need.
 
+# --------------------------------------------------------------------------
+# Task 10: detached-plot windows. Title/window-size/plot-size per key --
+# static layout only, no statistics here. sigmoid's plot area is shorter
+# than its window because its caption is long BY REQUIREMENT (carries the
+# same reconstruction-vs-defect disclosure as the inline cell, see
+# render_sigmoid_plot); relaxation's window is wide-short (a filmstrip);
+# lattice_graph's is tall (grid + mediator strip + legend all stack).
+# --------------------------------------------------------------------------
+DETACH_WINDOW_SPECS: dict[str, dict] = {
+    "lattice_graph": {
+        "title": "LATTICE -- node-edge graph (role-coloured)",
+        "win": (560, 640), "plot": (520, 500)},
+    "relaxation": {
+        "title": "LATTICE -- relaxation strip (raw physical state, recent draws)",
+        "win": (820, 300), "plot": (780, 190)},
+    "heatmap": {
+        "title": "LATTICE -- per-cell occupancy heatmap",
+        "win": (440, 540), "plot": (400, 400)},
+    "sigmoid": {
+        "title": "LATTICE -- local field: empirical P(s=1) vs sigmoid (REFERENCE ONLY)",
+        "win": (620, 640), "plot": (580, 380)},
+    "hist": {
+        "title": "LATTICE -- energy histogram",
+        "win": (620, 460), "plot": (580, 340)},
+}
+DETACH_REFRESH_MS = 250   # detached windows redraw on their OWN timer,
+# independent of the inline SCOPE panel's message-driven redraw cadence --
+# see LatticeApp._open_detach's own docstring for why.
+
 
 def speed_level(idx: int) -> dict:
     """SPEED_LEVELS[idx], clamping idx into range -- pure, headlessly
@@ -378,6 +408,89 @@ def set_beta_override(layer_name: str, value: float,
         app_for_base.base_beta_override = value
     elif layer_name in bands:
         bands[layer_name].beta_override = value
+
+
+# --------------------------------------------------------------------------
+# Task 10: the detach registry -- which of the five DETACHABLE_PLOTS
+# (task-10-brief.md's own list: the node-and-edge lattice, the relaxation
+# strip, the per-cell heatmap, the sigmoid response, the energy histogram)
+# currently has its own open Toplevel, and how to shut each one down
+# cleanly. Pure Python -- no Tk import here at all, no Tk object is ever
+# touched by this class (see the "no Tk in pure logic" convention this
+# file's own module docstring/tests/test_lattice_app_logic.py's docstring
+# both state) -- it only holds an opaque `window` handle (a real
+# tk.Toplevel from LatticeApp._open_detach, or a fake stand-in in tests)
+# and an opaque `cancel` callable the CALLER supplies to stop whatever
+# live-update job that window's own host is running.
+#
+# The energy/valid-fraction/magnetization traces are explicitly NOT in
+# DETACHABLE_PLOTS -- the brief's own "stays inline" list -- there is no
+# detach path for them at all, so they can never leak one.
+#
+# This class exists specifically to make the brief's own leak scenario
+# structurally impossible rather than merely "handled by care": "a closed
+# window still receiving after() updates is a slow leak that only shows
+# up after a long session, which is exactly when a demo is being given."
+# `close(key)` is the ONLY place `cancel` is ever invoked, and it is
+# invoked EXACTLY ONCE no matter how many times close() is called for the
+# same key -- see test_closing_twice_cancels_the_callback_only_once.
+# --------------------------------------------------------------------------
+DETACHABLE_PLOTS = ("lattice_graph", "relaxation", "heatmap", "sigmoid", "hist")
+
+
+class DetachRegistry:
+    """At most one open window per key in DETACHABLE_PLOTS. See the block
+    comment above for why this is pure Python with no Tk dependency."""
+
+    def __init__(self, keys: tuple[str, ...] = DETACHABLE_PLOTS):
+        self._keys = frozenset(keys)
+        self._open: dict[str, tuple[object, Callable[[], None]]] = {}
+
+    def _check_key(self, key: str) -> None:
+        if key not in self._keys:
+            raise KeyError(
+                f"{key!r} is not a detachable plot -- must be one of "
+                f"{sorted(self._keys)}")
+
+    def is_open(self, key: str) -> bool:
+        self._check_key(key)
+        return key in self._open
+
+    def window_for(self, key: str) -> object | None:
+        """The open window handle for `key`, or None if not open -- the
+        caller (LatticeApp._open_detach) uses this to decide whether to
+        LIFT an existing window (the same singleton pattern
+        demo/explainer.py's own _on_show_explainer uses) rather than
+        opening a second one."""
+        self._check_key(key)
+        entry = self._open.get(key)
+        return entry[0] if entry is not None else None
+
+    def open_window(self, key: str, window: object, cancel) -> None:
+        """Registers `window` as `key`'s own open window, with `cancel`
+        as the ONE callable that will later stop its live-update job.
+        Refuses to reopen an already-open key (RuntimeError) -- the
+        caller must check is_open()/window_for() and LIFT the existing
+        window instead, never silently drop the first handle by
+        overwriting it here."""
+        self._check_key(key)
+        if key in self._open:
+            raise RuntimeError(
+                f"{key!r} is already open -- lift the existing window "
+                f"(window_for({key!r})) instead of reopening it")
+        self._open[key] = (window, cancel)
+
+    def close(self, key: str) -> None:
+        """Pops `key`'s entry (if any) and invokes its `cancel` callable
+        exactly once. A no-op, not an error, if `key` was never opened or
+        was already closed -- the caller (a WM_DELETE_WINDOW handler) must
+        be safe to invoke more than once without double-cancelling
+        whatever after() job `cancel` stops."""
+        self._check_key(key)
+        entry = self._open.pop(key, None)
+        if entry is not None:
+            _, cancel = entry
+            cancel()
 
 
 def temperature_value_frac(t: float, t_min: float, t_max: float) -> float:
@@ -1582,6 +1695,251 @@ def render_sigmoid_plot(w: int, h: int, draws: Sequence[Sequence[int]], ising,
     return img, caption
 
 
+# --------------------------------------------------------------------------
+# Task 10: the three plots that have NO existing inline host --
+# node-and-edge lattice, relaxation strip, per-cell heatmap. All three are
+# real, computed data (real topology / real raw draws), never a fabricated
+# illustration -- unlike demo/explainer.py's diagrams, which are
+# deliberately static concept art, these read this SESSION's own live
+# state and are meant to be reopened and watched update.
+# --------------------------------------------------------------------------
+
+def render_lattice_graph_image(w: int, h: int, im, world_idx: Sequence[int],
+                                mediator_idx: Sequence[int], spins_per_cell: int,
+                                grid_w: int) -> tuple[Image.Image, str]:
+    """Extropic Fig 3c analogue: nodes coloured by ROLE -- world spins
+    gold, mediator spins cold blue -- never by this session's live
+    on/off state (that is LIVE LATTICE's own job, the blocks panel next
+    to this button). World nodes are positioned by their own cell
+    (spin_cell_position -- the SAME single source of truth LIVE LATTICE
+    and DECODED WORLD both already key their own layout on), so this
+    diagram's grid reads congruently with those two panels; mediator
+    nodes sit in their own labelled strip below, laid out row-major, never
+    implied to belong to a cell. Edges are real topology, read straight
+    from `im.edges` -- at this program's degree, a few hundred thin
+    lines, cheap for PIL to draw once per redraw."""
+    img = Image.new("RGB", (w, h), _rgb(theme.INSET))
+    d = ImageDraw.Draw(img)
+    n_world = len(world_idx)
+    n_cells = (n_world // spins_per_cell) if spins_per_cell else 0
+    grid_h = (n_cells // grid_w) if grid_w else 0
+    if n_world == 0 or spins_per_cell <= 0 or grid_w <= 0 or grid_h <= 0:
+        d.text((10, h // 2 - 6), "(no topology to draw)", fill=_rgb(DIM))
+        return img, "unavailable: receipt carries no world spins to lay out"
+
+    pad = 14
+    legend_h = 32
+    med_count = len(mediator_idx)
+    med_cols = min(16, max(med_count, 1))
+    med_rows = -(-med_count // med_cols) if med_count else 0
+    strip_gap = 10 if med_count else 0
+    strip_h = med_rows * max(6, (w - 2 * pad) // med_cols) if med_count else 0
+    avail_w = w - 2 * pad
+    avail_h = h - 2 * pad - legend_h - strip_gap - strip_h
+    cell_px = max(6, int(min(avail_w / grid_w, max(avail_h, 1) / grid_h)))
+    grid_px_w, grid_px_h = grid_w * cell_px, grid_h * cell_px
+    ox = pad + max(avail_w - grid_px_w, 0) // 2
+    oy = pad
+
+    positions: dict[int, tuple[float, float]] = {}
+    for i in world_idx:
+        cx, cy, slot = spin_cell_position(i, n_world, spins_per_cell, grid_w)
+        slot_w = cell_px / spins_per_cell
+        positions[i] = (ox + cx * cell_px + (slot + 0.5) * slot_w,
+                        oy + cy * cell_px + cell_px / 2.0)
+
+    med_cw = max(6, grid_px_w // med_cols) if med_count else 0
+    strip_y0 = oy + grid_px_h + strip_gap
+    for k, i in enumerate(mediator_idx):
+        row, col = divmod(k, med_cols)
+        positions[i] = (ox + col * med_cw + med_cw / 2.0,
+                        strip_y0 + row * med_cw + med_cw / 2.0)
+
+    edge_color = _rgb(theme.RULE)
+    for u, v in im.edges:
+        if u in positions and v in positions:
+            d.line([positions[u], positions[v]], fill=edge_color, width=1)
+
+    gold = _rgb(theme.GOLD)
+    blue = _rgb(theme.BLUE)
+    r_world = max(2, cell_px // 6)
+    for i in world_idx:
+        x, y = positions[i]
+        d.ellipse([x - r_world, y - r_world, x + r_world, y + r_world], fill=gold)
+    r_med = max(2, (med_cw // 6)) if med_count else r_world
+    for i in mediator_idx:
+        x, y = positions[i]
+        d.ellipse([x - r_med, y - r_med, x + r_med, y + r_med], fill=blue)
+
+    ly = h - legend_h + 6
+    d.ellipse([pad, ly, pad + 10, ly + 10], fill=gold)
+    d.text((pad + 16, ly - 2), f"world spin (role) x{n_world}", fill=_rgb(DIM))
+    ly2 = ly + 14
+    d.ellipse([pad, ly2, pad + 10, ly2 + 10], fill=blue)
+    d.text((pad + 16, ly2 - 2),
+           f"mediator spin (cold, frozen helper) x{med_count}", fill=_rgb(DIM))
+
+    caption = (
+        f"Structural topology of the compiled program -- {n_world} world "
+        f"spins (gold) + {med_count} mediator spins (cold blue, frozen "
+        f"helpers, never terrain) and {len(im.edges)} coupling edges. "
+        f"Nodes are coloured by ROLE here, NOT by this session's live "
+        f"state -- see LIVE LATTICE for the per-sample on/off view of "
+        f"these same {n_world + med_count} spins.")
+    return img, caption
+
+
+def render_relaxation_strip_image(w: int, h: int, draws: Sequence[Sequence[int]],
+                                   n_frames: int, n_world_spins: int,
+                                   spins_per_cell: int, grid_w: int
+                                   ) -> tuple[Image.Image, str]:
+    """Extropic Fig 5a analogue: `n_frames` evenly-spaced snapshots of
+    this session's own raw physical draws (oldest -> newest, left to
+    right), each rendered as a small WORLD-spin occupancy thumbnail --
+    ONE PIL image (the tokens spec's own buildability rule: "one PNG
+    strip, not eight nested Frames of Labels"), never eight separate Tk
+    widgets. Each thumbnail's cell colour is gold-intensity = the
+    fraction of that cell's own spins_per_cell sub-spins reading 1 IN
+    THAT ONE DRAW -- exactly what LIVE LATTICE's own blocks would have
+    shown at that instant, RAW and valid-or-not (the same "every draw,
+    valid or not" convention the energy/magnetization traces already
+    use), never the decoded terrain DECODED WORLD shows and never an
+    average across draws (see the per-cell heatmap for that)."""
+    img = Image.new("RGB", (w, h), _rgb(theme.INSET))
+    d = ImageDraw.Draw(img)
+    if len(draws) < 2:
+        d.text((10, h // 2 - 6), "(no data yet)", fill=_rgb(DIM))
+        return img, "waiting for draws..."
+    n_cells = (n_world_spins // spins_per_cell) if spins_per_cell else 0
+    grid_h = (n_cells // grid_w) if grid_w else 0
+    if n_world_spins == 0 or spins_per_cell <= 0 or grid_w <= 0 or grid_h <= 0:
+        d.text((10, h // 2 - 6), "(no topology to draw)", fill=_rgb(DIM))
+        return img, "unavailable: receipt carries no world spins to lay out"
+
+    n = len(draws)
+    k = min(n_frames, n)
+    idxs = sorted(set(int(round(i * (n - 1) / max(k - 1, 1))) for i in range(k)))
+    pad, gap, label_h = 6, 6, 12
+    n_shown = len(idxs)
+    frame_w = (w - 2 * pad - gap * max(n_shown - 1, 0)) / n_shown
+    cell_px = max(2, int(min(frame_w / grid_w, (h - 2 * pad - label_h) / grid_h)))
+    cold = _rgb(theme.GOLD_GHOST)  # 0 -> dim gold, NOT blue: occupancy is not temperature
+    hot = _rgb(theme.GOLD)         # 1 -> full gold
+
+    x = float(pad)
+    for draw_i in idxs:
+        row = np.asarray(draws[draw_i], dtype=float)[:n_world_spins]
+        cell_frac = row.reshape(n_cells, spins_per_cell).mean(axis=1)
+        for cell in range(n_cells):
+            cx, cy = cell % grid_w, cell // grid_w
+            frac = float(cell_frac[cell])
+            color = tuple(int(round(cold[c] + (hot[c] - cold[c]) * frac)) for c in range(3))
+            x0 = int(round(x)) + cx * cell_px
+            y0 = pad + cy * cell_px
+            d.rectangle([x0, y0, x0 + cell_px - 1, y0 + cell_px - 1], fill=color)
+        d.text((int(round(x)), pad + grid_h * cell_px + 1), f"buf#{draw_i}", fill=_rgb(DIM))
+        x += frame_w + gap
+
+    caption = (
+        f"{n_shown} evenly-spaced raw physical draws from this session's "
+        f"own ring buffer ({n} held right now, oldest -> newest left to "
+        f"right; buf#N is a POSITION within that buffer, not a global "
+        f"sweep counter). Gold intensity = fraction of a cell's own "
+        f"{spins_per_cell} world sub-spin(s) reading 1 IN THAT draw, "
+        f"valid or not -- NOT the decoded terrain shown in DECODED "
+        f"WORLD, and not an average across draws.")
+    return img, caption
+
+
+def _thermal_ramp_rgb(frac: np.ndarray) -> np.ndarray:
+    """cold(blue_deep) -> gold(55%) -> hot(orange) -- verbatim the SAME
+    3-stop gradient render_temperature_track's ADJUSTABLE branch already
+    uses for beta/temperature (see that function's own docstring for why
+    those particular stops), factored out here as a reusable point
+    function so the per-cell heatmap below can share the identical
+    mapping rather than a second, hand-copied gradient that could drift
+    from it. `frac` is a 1-D array in [0, 1] (values outside are
+    clamped); returns uint8 RGB, shape (len(frac), 3)."""
+    frac = np.clip(np.asarray(frac, dtype=float), 0.0, 1.0)
+    cold = np.array(_rgb(theme.BLUE_DEEP), dtype=float)
+    gold = np.array(_rgb(theme.GOLD), dtype=float)
+    hot = np.array(_rgb(theme.ORANGE), dtype=float)
+    mid = 0.55  # verbatim the tokens spec's CSS gradient stop
+    out = np.empty(frac.shape + (3,), dtype=float)
+    left = frac <= mid
+    right = ~left
+    t_left = frac[left] / mid
+    out[left] = cold[None, :] * (1 - t_left[:, None]) + gold[None, :] * t_left[:, None]
+    t_right = (frac[right] - mid) / (1 - mid)
+    out[right] = gold[None, :] * (1 - t_right[:, None]) + hot[None, :] * t_right[:, None]
+    return out.clip(0, 255).astype(np.uint8)
+
+
+def render_heatmap_image(w: int, h: int, cell_values: np.ndarray) -> tuple[Image.Image, str]:
+    """Per-cell heatmap with a thermal ramp and legend, per the tokens
+    spec's own buildability note. `cell_values` is per_cell_occupancy's
+    own (grid_h, grid_w) array of [0, 1] fractions (or NaN -- no draws
+    yet, or a degenerate receipt); NaN cells are drawn GHOST-grey, never
+    a fabricated colour, and the legend says so whenever any appear.
+    Occupancy is not literally a temperature, but the tokens spec names
+    this ramp "thermal" and this app's own cold=rare/hot=frequent framing
+    is a real, non-decorative reading of the SAME blue/gold/orange
+    meaning used everywhere else in this app (a cell that is almost
+    never on reads cold; a cell that is almost always on reads hot)."""
+    img = Image.new("RGB", (w, h), _rgb(theme.INSET))
+    d = ImageDraw.Draw(img)
+    grid_h, grid_w = cell_values.shape
+    if grid_h == 0 or grid_w == 0 or not np.any(~np.isnan(cell_values)):
+        d.text((10, h // 2 - 6), "(no data yet)", fill=_rgb(DIM))
+        return img, "unavailable: no draws recorded yet this session"
+
+    pad = 10
+    legend_h = 30
+    avail_w = w - 2 * pad
+    avail_h = h - 2 * pad - legend_h - 8
+    cell_px = max(4, int(min(avail_w / grid_w, avail_h / grid_h)))
+    grid_px_w, grid_px_h = grid_w * cell_px, grid_h * cell_px
+    ox = pad + max(avail_w - grid_px_w, 0) // 2
+    oy = pad
+
+    valid = ~np.isnan(cell_values)
+    colors = np.zeros(cell_values.shape + (3,), dtype=np.uint8)
+    if valid.any():
+        colors[valid] = _thermal_ramp_rgb(cell_values[valid])
+    ghost = np.array(_rgb(theme.GHOST), dtype=np.uint8)
+    colors[~valid] = ghost
+    border = _rgb(theme.BEZEL)
+    for y in range(grid_h):
+        for x in range(grid_w):
+            x0, y0 = ox + x * cell_px, oy + y * cell_px
+            d.rectangle([x0, y0, x0 + cell_px - 1, y0 + cell_px - 1],
+                       fill=tuple(int(c) for c in colors[y, x]), outline=border, width=1)
+
+    leg_y0 = h - legend_h
+    leg_x0, leg_x1 = pad, w - pad
+    leg_w = max(leg_x1 - leg_x0, 1)
+    ramp = _thermal_ramp_rgb(np.linspace(0.0, 1.0, leg_w))
+    for i in range(leg_w):
+        d.line([(leg_x0 + i, leg_y0), (leg_x0 + i, leg_y0 + 10)],
+              fill=tuple(int(c) for c in ramp[i]))
+    d.rectangle([leg_x0, leg_y0, leg_x1 - 1, leg_y0 + 10], outline=border, width=1)
+    d.text((leg_x0, leg_y0 + 12), "0.0 cold (rarely on)", fill=_rgb(DIM))
+    d.text((leg_x1, leg_y0 + 12), "1.0 hot (almost always on)", fill=_rgb(DIM), anchor="ra")
+    n_nodata = int((~valid).sum())
+    if n_nodata:
+        d.rectangle([leg_x0, leg_y0 - 12, leg_x0 + 10, leg_y0 - 2], fill=tuple(ghost.tolist()))
+        d.text((leg_x0 + 14, leg_y0 - 12), "grey = no data", fill=_rgb(DIM))
+
+    caption = (
+        f"Per-cell mean WORLD-spin occupancy across this session's own "
+        f"raw draw buffer ({grid_h * grid_w} cells), thermal-ramp "
+        f"coloured (the same cold/gold/hot mapping the temperature "
+        f"control uses, reused here for a continuous [0, 1] fraction, "
+        f"NOT an actual temperature). {n_nodata} cell(s) have no data "
+        f"yet, drawn grey -- never given a fabricated colour.")
+    return img, caption
+
+
 def _fit_caption_height(label: tk.Label) -> None:
     """I3/I4 (fix-round-2): size `label`'s `height` (Tk's Label height is a
     LINE COUNT, not pixels) to what its CURRENTLY SET text actually needs
@@ -1671,6 +2029,8 @@ class LatticeApp(tk.Tk):
         self.world_photo = None  # keep a reference; Tk drops PhotoImages with none
         self.log_lines: deque = deque(maxlen=400)
         self.explainer_window = None  # Task 9: singleton "What is this?" Toplevel
+        self.detach_registry = DetachRegistry()  # Task 10: detached plot windows
+        self.spins_per_cell = None  # set in _populate_static_panels, before any detach is possible
 
         # click-to-pin state -- pure ClampState, no Tk in it (see the
         # headless tests). world_stale is True whenever the world currently
@@ -1700,6 +2060,7 @@ class LatticeApp(tk.Tk):
         self._scope_redraw_counter = 0
         # keep references so Tk doesn't garbage-collect the blitted images
         self.acf_photo = self.mag_photo = self.hist_photo = self.sigmoid_photo = None
+        self.heat_photo = None  # Task 10: per-cell heatmap's own inline SCOPE cell
 
         # Task 7: LAYERS panel state. `active_layer` selects what DECODED
         # WORLD/PINS show and act on -- "base" reuses every attribute
@@ -1821,17 +2182,38 @@ class LatticeApp(tk.Tk):
         # a row. Every plot is a PIL image blitted onto its own Canvas (see
         # render_acf_plot etc. above) -- Tk canvas primitives alone can't
         # do a log axis, filled bars, or an overlaid scatter+curve well.
+        # Task 10: a fifth sub-plot (per-cell heatmap) plus two Detach
+        # buttons (node-edge lattice graph, relaxation strip) with no
+        # inline canvas of their own -- see this method's own comments at
+        # each cell below, and DetachRegistry's own module-level docstring
+        # for why: "Plots that need their own render area pop out into
+        # small Toplevel windows" (task-10-brief.md).
         self.scope_panel = Panel(content, "SCOPE  (autocorrelation / magnetization / "
-                                          "energy histogram / local-field response)")
+                                          "energy histogram / local-field response / "
+                                          "per-cell heatmap -- ⧉ detaches a plot)")
         self.scope_panel.grid(row=1, column=0, columnspan=5, sticky="nsew", pady=(6, 0))
         scope_row = tk.Frame(self.scope_panel.body, bg=PANEL_BG)
         scope_row.pack(fill="both", expand=True)
 
-        def _scope_cell(title, caption_lines=4):
+        def _scope_cell(title, caption_lines=4, detach_key=None):
             cell = tk.Frame(scope_row, bg=PANEL_BG)
             cell.pack(side="left", fill="both", expand=True, padx=4)
-            tk.Label(cell, text=title, bg=PANEL_BG, fg=ACCENT,
-                      font=(MONO_FAMILY, 8, "bold"), anchor="w").pack(fill="x")
+            header = tk.Frame(cell, bg=PANEL_BG)
+            header.pack(fill="x")
+            tk.Label(header, text=title, bg=PANEL_BG, fg=ACCENT,
+                      font=(MONO_FAMILY, 8, "bold"), anchor="w", justify="left"
+                      ).pack(side="left", fill="x", expand=True)
+            # Task 10: this cell also has a detached, larger-size host --
+            # render_energy_histogram_plot/render_sigmoid_plot/
+            # render_heatmap_image are called from BOTH this inline canvas
+            # (below) AND the detached Toplevel this button opens (see
+            # LatticeApp._render_detached_plot) -- one renderer, two hosts,
+            # never a second implementation that could drift.
+            if detach_key is not None:
+                tk.Button(header, text="⧉", command=lambda k=detach_key: self._open_detach(k),
+                          bg=PANEL_BG, fg=FG, activebackground=BORDER,
+                          activeforeground=FG, relief="flat", padx=5, pady=0,
+                          bd=1, font=(MONO_FAMILY, 8)).pack(side="right")
             canvas = tk.Canvas(cell, width=SCOPE_PLOT_W, height=SCOPE_PLOT_H,
                                 bg=theme.INSET, highlightthickness=0)
             canvas.pack(pady=(2, 2))
@@ -1846,7 +2228,7 @@ class LatticeApp(tk.Tk):
         self.mag_canvas, self.mag_caption = _scope_cell(
             "MAGNETIZATION (order parameter, per draw)")
         self.hist_canvas, self.hist_caption = _scope_cell(
-            "ENERGY HISTOGRAM (over the session)")
+            "ENERGY HISTOGRAM (over the session)", detach_key="hist")
         # Task 6 fix-round 1: retitled from "measured P(s=1) vs analytic
         # sigmoid" -- that phrasing claimed the plot showed the sampler's
         # own conditional, which it does not (see render_sigmoid_plot's
@@ -1857,10 +2239,56 @@ class LatticeApp(tk.Tk):
         # room without touching any other cell's sizing.
         self.sigmoid_canvas, self.sigmoid_caption = _scope_cell(
             "LOCAL FIELD: EMPIRICAL P(s=1) vs SIGMOID (REFERENCE ONLY)",
-            caption_lines=11)
+            caption_lines=11, detach_key="sigmoid")
+        # Task 10: per-cell occupancy heatmap -- new sub-plot, same inline
+        # host pattern as hist/sigmoid above.
+        self.heat_canvas, self.heat_caption = _scope_cell(
+            "PER-CELL HEATMAP (occupancy, thermal ramp)", caption_lines=5,
+            detach_key="heatmap")
         for canvas in (self.acf_canvas, self.mag_canvas, self.hist_canvas,
-                      self.sigmoid_canvas):
+                      self.sigmoid_canvas, self.heat_canvas):
             canvas.create_image(0, 0, anchor="nw", tags="plot")
+
+        # Task 10: the node-edge lattice graph and the relaxation strip
+        # have NO inline host at all -- there is no compact spot in this
+        # row that does either justice (the graph needs real vertical
+        # room for grid + mediator strip + legend; the strip needs real
+        # horizontal room for several frames side by side). Both share ONE
+        # narrow button-only cell (stacked, not two separate cells) --
+        # opening its own Toplevel is the ONLY place either plot is ever
+        # rendered, which trivially satisfies "one renderer" (there is no
+        # second implementation to drift from). Measured narrow (not just
+        # guessed): the row's 5 existing canvas cells already request
+        # ~1794px against ~1726px actually available (see task-10-report.md
+        # -- a pre-existing few-dozen-px deficit this app has always run
+        # under without visible clipping, since Tk still lays out every
+        # OTHER cell at its full requested width first); this cell is kept
+        # to the width measured, by screenshot, to land inside what's left
+        # over, rather than adding to that deficit.
+        detach_only_cell = tk.Frame(scope_row, bg=PANEL_BG, width=92)
+        detach_only_cell.pack(side="left", fill="y", padx=(4, 0))
+        detach_only_cell.pack_propagate(False)
+
+        def _detach_only_row(title, key, note):
+            tk.Label(detach_only_cell, text=title, bg=PANEL_BG, fg=ACCENT,
+                      font=(MONO_FAMILY, 8, "bold"), anchor="w", justify="left",
+                      wraplength=86).pack(fill="x", pady=(2, 0))
+            tk.Button(detach_only_cell, text="Open ⧉",
+                      command=lambda k=key: self._open_detach(k),
+                      bg=PANEL_BG, fg=FG, activebackground=BORDER,
+                      activeforeground=FG, relief="flat", padx=4, pady=3,
+                      bd=1, font=(MONO_FAMILY, 8)).pack(anchor="w", pady=(4, 4))
+            tk.Label(detach_only_cell, text=note, bg=PANEL_BG, fg=DIM,
+                      font=(MONO_FAMILY, 7), anchor="w", justify="left",
+                      wraplength=86).pack(fill="x", pady=(0, 8))
+
+        _detach_only_row(
+            "NODE-EDGE LATTICE (role-coloured)", "lattice_graph",
+            "Detached view only. Real topology: world gold, mediator "
+            "cold blue.")
+        _detach_only_row(
+            "RELAXATION STRIP (raw state, sweeps)", "relaxation",
+            "Detached view only. Raw physical draws, one PNG filmstrip.")
 
         # Task 7: LAYERS panel -- a new row below SCOPE, same "new full-
         # width row" pattern Task 6 used for SCOPE itself. Selector / pins-
@@ -2133,6 +2561,11 @@ class LatticeApp(tk.Tk):
                 f"without guessing; this receipt's encoding doesn't match "
                 f"the assumption this panel is built on")
         spins_per_cell = n_world // n_cells
+        self.spins_per_cell = spins_per_cell  # Task 10: cached for the
+        # detach-only renderers (render_lattice_graph_image,
+        # render_relaxation_strip_image) and per_cell_occupancy, which all
+        # need it and have no other place to derive it from without
+        # duplicating this same divisibility check.
         cell_px = WORLD_CELL_PX  # same on-screen pitch as DECODED WORLD
 
         world_w, world_h = W * cell_px, H * cell_px
@@ -2612,6 +3045,18 @@ class LatticeApp(tk.Tk):
         self.sigmoid_canvas.itemconfig("plot", image=self.sigmoid_photo)
         self.sigmoid_caption.config(text=sigmoid_caption)
         _fit_caption_height(self.sigmoid_caption)  # I4: measured, not guessed
+
+        # Task 10: per-cell occupancy heatmap -- the SAME
+        # render_heatmap_image the detached "heatmap" window's own redraw
+        # loop calls (see _render_detached_plot), just at SCOPE_PLOT_W/H
+        # instead of its detached size.
+        occ = per_cell_occupancy(list(self.raw_draws), len(self.receipt.world_idx),
+                                  self.spins_per_cell, W)
+        heat_img, heat_caption = render_heatmap_image(SCOPE_PLOT_W, SCOPE_PLOT_H, occ)
+        self.heat_photo = ImageTk.PhotoImage(heat_img)
+        self.heat_canvas.itemconfig("plot", image=self.heat_photo)
+        self.heat_caption.config(text=heat_caption)
+        _fit_caption_height(self.heat_caption)
 
     def _swatch(self, master, color, text):
         row = tk.Frame(master, bg=PANEL_BG)
@@ -3275,6 +3720,121 @@ class LatticeApp(tk.Tk):
             self.explainer_window.focus_set()
             return
         self.explainer_window = explainer.open_explainer(self)
+
+    # -- Task 10: detachable plots ----------------------------------------
+    def _open_detach(self, key: str) -> None:
+        """Opens (or LIFTS) `key`'s own small Toplevel -- the same
+        singleton pattern _on_show_explainer above already uses,
+        generalised over DETACHABLE_PLOTS via self.detach_registry instead
+        of one dedicated attribute per window. Native window manager only
+        (resizable, minimizable, no overrideredirect -- the tokens spec's
+        own trap #1), CHROME + IMAGE per the tokens spec's own buildability
+        rule: a plain Canvas holding one PhotoImage, no drop shadow/blur/
+        rounded corners.
+
+        The Toplevel's own redraw loop calls _render_detached_plot, which
+        dispatches to THE SAME render_* function this plot's inline host
+        calls where one exists (hist/sigmoid/heatmap, see
+        _refresh_scope_panel) -- one renderer, two hosts, per the brief's
+        own framing; lattice_graph/relaxation have no inline host at all,
+        so their only call site IS this one.
+
+        The redraw loop is this window's OWN self.after() timer
+        (DETACH_REFRESH_MS), independent of the inline SCOPE panel's
+        message-driven cadence -- deliberately, so a detached window still
+        redraws even for a plot (lattice_graph, relaxation) that has no
+        inline host driving a refresh at all. WM_DELETE_WINDOW routes
+        through self.detach_registry.close(key), which is the ONLY place
+        the timer is ever cancelled -- see DetachRegistry's own docstring
+        for why that single choke point is what makes "closed window still
+        receiving updates" structurally impossible rather than merely
+        avoided by care."""
+        if self.detach_registry.is_open(key):
+            win = self.detach_registry.window_for(key)
+            if win is not None and win.winfo_exists():
+                win.deiconify()
+                win.lift()
+                win.focus_set()
+                return
+            self.detach_registry.close(key)  # stale handle -- rebuild below
+
+        spec = DETACH_WINDOW_SPECS[key]
+        top = tk.Toplevel(self)
+        top.title(spec["title"])
+        win_w, win_h = spec["win"]
+        top.geometry(f"{win_w}x{win_h}")
+        top.minsize(280, 220)
+        top.resizable(True, True)   # native WM handles drag/resize/minimize
+        top.configure(bg=theme.PAGE)
+
+        plot_w, plot_h = spec["plot"]
+        canvas = tk.Canvas(top, width=plot_w, height=plot_h, bg=theme.INSET,
+                            highlightthickness=0)
+        canvas.pack(padx=8, pady=(8, 4))
+        canvas.create_image(0, 0, anchor="nw", tags="plot")
+        caption = tk.Label(top, text="", bg=theme.PAGE, fg=theme.CREAM_DIM,
+                            font=(MONO_FAMILY, 8), justify="left", anchor="w",
+                            wraplength=win_w - 16)
+        caption.pack(fill="x", padx=8, pady=(0, 8))
+        photos: list = []  # keep a reference -- Tk drops a PhotoImage with none
+
+        def redraw():
+            img, caption_text = self._render_detached_plot(key, plot_w, plot_h)
+            photo = ImageTk.PhotoImage(img)
+            photos.clear()
+            photos.append(photo)
+            canvas.itemconfig("plot", image=photo)
+            caption.config(text=caption_text)
+            _fit_caption_height(caption)
+
+        job_id: dict[str, str | None] = {"id": None}
+
+        def tick():
+            redraw()
+            job_id["id"] = top.after(DETACH_REFRESH_MS, tick)
+
+        def cancel_job():
+            if job_id["id"] is not None:
+                top.after_cancel(job_id["id"])
+                job_id["id"] = None
+
+        def on_close():
+            self.detach_registry.close(key)  # invokes cancel_job() exactly once
+            top.destroy()
+
+        top.protocol("WM_DELETE_WINDOW", on_close)
+        self.detach_registry.open_window(key, top, cancel_job)
+        tick()
+
+    def _render_detached_plot(self, key: str, w: int, h: int) -> tuple[Image.Image, str]:
+        """Dispatch table for a detached window's own redraw loop -- see
+        _open_detach's own docstring for why this deliberately calls the
+        EXACT SAME render_* functions the inline hosts call rather than a
+        second, parallel drawing path."""
+        if key == "hist":
+            img = render_energy_histogram_plot(w, h, list(self.energy_trace.ys))
+            caption = (f"Distribution of the energy trace's own "
+                       f"{len(self.energy_trace.ys)} value(s) so far this "
+                       f"session -- the SAME render_energy_histogram_plot "
+                       f"the inline SCOPE cell uses, at a larger size (one "
+                       f"renderer, two hosts).")
+            return img, caption
+        if key == "sigmoid":
+            return render_sigmoid_plot(w, h, list(self.raw_draws), self.receipt.im)
+        if key == "heatmap":
+            occ = per_cell_occupancy(list(self.raw_draws), len(self.receipt.world_idx),
+                                     self.spins_per_cell, W)
+            return render_heatmap_image(w, h, occ)
+        if key == "lattice_graph":
+            return render_lattice_graph_image(
+                w, h, self.receipt.im, self.receipt.world_idx,
+                self.receipt.mediator_idx, self.spins_per_cell, W)
+        if key == "relaxation":
+            return render_relaxation_strip_image(
+                w, h, list(self.raw_draws), n_frames=8,
+                n_world_spins=len(self.receipt.world_idx),
+                spins_per_cell=self.spins_per_cell, grid_w=W)
+        raise KeyError(key)
 
     # -- Task 7: per-layer regenerate ------------------------------------
     def _on_regenerate_layer(self):

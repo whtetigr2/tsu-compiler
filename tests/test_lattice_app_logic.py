@@ -725,3 +725,187 @@ def test_temperature_value_frac_rejects_a_degenerate_range():
     import pytest
     with pytest.raises(ValueError):
         la.temperature_value_frac(1.0, 1.0, 1.0)
+
+
+# ---------------------------------------------------------------------------
+# Task 10: DetachRegistry -- detaching a plot into its own Toplevel then
+# closing that window must leave no orphaned window and no live-update
+# callback still scheduled (task-10-brief.md's own leak scenario: "a closed
+# window still receiving after() updates is a slow leak that only shows up
+# after a long session, which is exactly when a demo is being given").
+# Pure Python here -- no real tk.Toplevel is constructed; a fake window/
+# cancel stand-in is enough to exercise the registry's own bookkeeping
+# (same "no Tk in pure logic" convention this file's own module docstring
+# states). The Tk-layer wiring itself (LatticeApp._open_detach, which
+# builds a real Toplevel and schedules real self.after() jobs) is not
+# unit-tested -- it is checked by hand, launching the real app (see
+# task-10-report.md), the same way every other geometry/Tk-wiring concern
+# in this app already is.
+# ---------------------------------------------------------------------------
+
+class _FakeDetachWindow:
+    """Stand-in for a real tk.Toplevel -- just enough surface for
+    DetachRegistry's own contract (which never calls a Tk method itself)."""
+
+    def __init__(self):
+        self.destroyed = False
+
+    def destroy(self):
+        self.destroyed = True
+
+
+def test_detachable_plots_lists_exactly_the_five_named_in_the_brief():
+    """node-and-edge lattice, relaxation strip, per-cell heatmap, sigmoid
+    response, energy histogram -- task-10-brief.md's own "Detachable"
+    list, no more, no fewer. The energy/valid-fraction/magnetization
+    traces are explicitly "stays inline" in the same brief and must NOT
+    appear here."""
+    assert set(la.DETACHABLE_PLOTS) == {
+        "lattice_graph", "relaxation", "heatmap", "sigmoid", "hist"}
+    assert len(la.DETACHABLE_PLOTS) == 5
+
+
+def test_detach_registry_starts_with_nothing_open():
+    reg = la.DetachRegistry()
+    for key in la.DETACHABLE_PLOTS:
+        assert not reg.is_open(key)
+        assert reg.window_for(key) is None
+
+
+def test_detaching_then_closing_leaves_no_orphaned_window_and_cancels_the_callback():
+    reg = la.DetachRegistry()
+    window = _FakeDetachWindow()
+    cancelled = {"n": 0}
+    reg.open_window("sigmoid", window,
+                     lambda: cancelled.__setitem__("n", cancelled["n"] + 1))
+    assert reg.is_open("sigmoid")
+    assert reg.window_for("sigmoid") is window
+
+    reg.close("sigmoid")
+
+    assert not reg.is_open("sigmoid")
+    assert reg.window_for("sigmoid") is None
+    # the live update callback was cancelled -- exactly once, not zero:
+    assert cancelled["n"] == 1
+
+
+def test_closing_twice_cancels_the_callback_only_once():
+    """A second close() on an already-closed key must be a harmless
+    no-op, not a double-cancel -- Tk's own after_cancel is not documented
+    as side-effect-free on an id that's already been cancelled, so the
+    registry itself (not luck) is what makes double-cancel impossible."""
+    reg = la.DetachRegistry()
+    cancelled = {"n": 0}
+    reg.open_window("hist", _FakeDetachWindow(),
+                     lambda: cancelled.__setitem__("n", cancelled["n"] + 1))
+    reg.close("hist")
+    reg.close("hist")
+    assert cancelled["n"] == 1
+
+
+def test_close_on_a_never_opened_key_is_a_harmless_noop():
+    reg = la.DetachRegistry()
+    reg.close("heatmap")  # never opened -- must not raise, must not call anything
+    assert not reg.is_open("heatmap")
+
+
+def test_detach_registry_rejects_reopening_an_already_open_key():
+    """The Tk layer is responsible for LIFTING an existing window (the
+    same singleton pattern demo/explainer.py's own _on_show_explainer
+    already uses) -- the registry itself refuses a second open_window for
+    an already-open key, so that path can never silently leak the first
+    window's own handle/cancel callable."""
+    import pytest
+    reg = la.DetachRegistry()
+    reg.open_window("lattice_graph", _FakeDetachWindow(), lambda: None)
+    with pytest.raises(RuntimeError):
+        reg.open_window("lattice_graph", _FakeDetachWindow(), lambda: None)
+
+
+def test_detach_registry_rejects_unknown_plot_keys():
+    import pytest
+    reg = la.DetachRegistry()
+    with pytest.raises(KeyError):
+        reg.is_open("not_a_real_plot")
+    with pytest.raises(KeyError):
+        reg.open_window("not_a_real_plot", _FakeDetachWindow(), lambda: None)
+    with pytest.raises(KeyError):
+        reg.close("not_a_real_plot")
+
+
+# ---------------------------------------------------------------------------
+# Task 10: the three PIL renderers with no pre-existing test coverage
+# (render_lattice_graph_image, render_relaxation_strip_image,
+# render_heatmap_image / _thermal_ramp_rgb) -- pure PIL, no Tk, so
+# headlessly testable the same way render_acf_plot etc. already are
+# (indirectly, via the app) though this file adds the first DIRECT tests
+# of the render_* functions themselves. Smoke-level: correct image size,
+# and the honest "not enough data" / "no topology" fallback text, not a
+# pixel-exact rendering check (this app's own convention per
+# task-10-brief.md: "Geometry is not meaningfully unit-testable ...
+# every geometry bug ... found by eye").
+# ---------------------------------------------------------------------------
+
+class _FakeIsingForGraph:
+    """Just enough surface for render_lattice_graph_image (edges only)."""
+
+    def __init__(self, edges):
+        self.edges = edges
+
+
+def test_render_lattice_graph_image_is_the_requested_size():
+    im = _FakeIsingForGraph(edges=[(0, 1), (1, 2), (2, 3)])
+    img, caption = la.render_lattice_graph_image(
+        300, 300, im, world_idx=[0, 1, 2, 3], mediator_idx=[4, 5],
+        spins_per_cell=2, grid_w=2)
+    assert img.size == (300, 300)
+    assert "4" in caption and "world" in caption.lower()
+    assert "2" in caption and "mediator" in caption.lower()
+
+
+def test_render_lattice_graph_image_handles_no_world_spins_honestly():
+    im = _FakeIsingForGraph(edges=[])
+    img, caption = la.render_lattice_graph_image(
+        200, 200, im, world_idx=[], mediator_idx=[], spins_per_cell=2, grid_w=2)
+    assert img.size == (200, 200)
+    assert "unavailable" in caption.lower()
+
+
+def test_render_relaxation_strip_image_is_the_requested_size():
+    draws = [[1, 1, 0, 0]] * 3 + [[0, 0, 1, 1]] * 3
+    img, caption = la.render_relaxation_strip_image(
+        400, 150, draws, n_frames=4, n_world_spins=4, spins_per_cell=2, grid_w=2)
+    assert img.size == (400, 150)
+    assert "buffer" in caption.lower()
+
+
+def test_render_relaxation_strip_image_handles_too_few_draws_honestly():
+    img, caption = la.render_relaxation_strip_image(
+        300, 100, [[1, 0]], n_frames=4, n_world_spins=2, spins_per_cell=2, grid_w=1)
+    assert img.size == (300, 100)
+    assert "no data" in caption.lower() or "waiting" in caption.lower()
+
+
+def test_thermal_ramp_rgb_endpoints_match_blue_deep_and_orange():
+    import numpy as np
+    out = la._thermal_ramp_rgb(np.array([0.0, 1.0]))
+    assert tuple(int(c) for c in out[0]) == la._rgb(la.theme.BLUE_DEEP)
+    assert tuple(int(c) for c in out[1]) == la._rgb(la.theme.ORANGE)
+
+
+def test_render_heatmap_image_is_the_requested_size():
+    import numpy as np
+    from scope import per_cell_occupancy
+    draws = [[1, 1, 1, 0, 0, 0], [0, 0, 0, 1, 1, 1]]
+    occ = per_cell_occupancy(draws, n_world_spins=6, spins_per_cell=3, grid_w=2)
+    img, caption = la.render_heatmap_image(250, 250, occ)
+    assert img.size == (250, 250)
+    assert "occupancy" in caption.lower()
+
+
+def test_render_heatmap_image_handles_all_nan_honestly():
+    import numpy as np
+    occ = np.full((1, 2), np.nan)
+    img, caption = la.render_heatmap_image(200, 200, occ)
+    assert img.size == (200, 200)
+    assert "unavailable" in caption.lower()
