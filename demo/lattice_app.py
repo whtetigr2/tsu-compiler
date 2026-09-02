@@ -1999,13 +1999,41 @@ def _fit_caption_height(label: tk.Label) -> None:
     guess. Call this after every `.config(text=...)` that can change a
     caption's content, not just once at construction, since the safety
     net must hold for text that changes at runtime, not just today's
-    wording."""
-    label.config(height=0)  # let Tk report its OWN unclipped natural size
-    label.update_idletasks()
-    req_h = label.winfo_reqheight()
+    wording.
+
+    Jitter fix (see jitter-fix-report.md): the ORIGINAL implementation
+    measured by mutating `label` ITSELF -- config(height=0), then
+    update_idletasks() to force Tk to lay out the new text at its natural
+    (unclamped) size before reading winfo_reqheight(). That update_idletasks()
+    call is a REAL, PAINTED relayout of the live, on-screen label, and the
+    following config(height=n_lines) that corrects it to the safe,
+    clip-proof height was never itself flushed the same way -- so on
+    screen the caption visibly shrank to its natural size and then, on
+    whatever later idle pass Tk got around to it, grew back. Measured live
+    (winfo_height() polled independently every tick): this is not a one-
+    time settle, it repeats on every single re-fit, for ANY caption whose
+    natural height doesn't happen to land exactly on a whole-line boundary
+    -- which is most of them, sooner or later (a caption embedding a
+    growing count, e.g. the energy histogram's "N value(s) so far", drifts
+    across that boundary constantly while N is still climbing). That
+    on-screen shrink/regrow is what the bug report saw as boxes
+    'vibrating'.
+    Fix: measure on a throwaway PROBE label -- same master, font, wraplength
+    and text, but never packed/gridded, so it has no on-screen presence and
+    mutating IT never relayouts or repaints anything real. The live `label`
+    then gets exactly ONE height mutation, straight from its old correct
+    value to its new correct one; nothing observable is ever set to the
+    too-short intermediate size. Still real Tk layout (same font object,
+    same winfo_reqheight call), never a guessed line count -- only the
+    widget being measured changed, not the measurement itself."""
+    probe = tk.Label(label.master, text=label.cget("text"),
+                      font=label.cget("font"), wraplength=label.cget("wraplength"))
+    probe.update_idletasks()  # flush the PROBE's own layout only; it is never mapped, so nothing paints
+    req_h = probe.winfo_reqheight()
+    probe.destroy()
     line_h = tkfont.Font(font=label.cget("font")).metrics("linespace")
     n_lines = max(1, -(-req_h // max(line_h, 1)))  # ceil division
-    label.config(height=n_lines)
+    label.config(height=n_lines)  # the ONLY height mutation the real, visible label ever sees
 
 
 class Panel(tk.Frame):
@@ -3047,6 +3075,23 @@ class LatticeApp(tk.Tk):
         PhotoImage with no surviving Python reference -- same pattern
         _update_world already uses for world_photo)."""
         energy_ys = list(self.energy_trace.ys)
+
+        # Jitter fix (see jitter-fix-report.md): the real fix for the
+        # reported "boxes vibrating" bug is inside _fit_caption_height
+        # itself (it now measures on an unmapped probe widget instead of
+        # mutating the live caption, so the caption's own height is never
+        # observably set to a wrong intermediate value -- see that
+        # function's own docstring). This helper is a secondary, purely
+        # cost-saving guard on top of that: skip the measure/resize call
+        # entirely when `text` hasn't changed from what the label already
+        # shows, since re-measuring identical content is wasted work
+        # regardless of whether the underlying resize is now flash-free.
+        def _set_caption(label: tk.Label, text: str) -> None:
+            if label.cget("text") == text:
+                return
+            label.config(text=text)
+            _fit_caption_height(label)
+
         # Minor #7 (fix-round-2): tsu.ess.autocorrelation (reached via
         # integrated_autocorrelation_time, called inside render_acf_plot)
         # raises ValueError on an exactly-constant series (zero variance --
@@ -3062,32 +3107,29 @@ class LatticeApp(tk.Tk):
             acf_caption = f"unavailable: {exc}"
         self.acf_photo = ImageTk.PhotoImage(acf_img)
         self.acf_canvas.itemconfig("plot", image=self.acf_photo)
-        self.acf_caption.config(text=acf_caption)
-        _fit_caption_height(self.acf_caption)  # I3: measured, not guessed
+        _set_caption(self.acf_caption, acf_caption)  # I3: measured, not guessed
 
         mag_img = render_line_plot(
             SCOPE_PLOT_W, SCOPE_PLOT_H, list(self.magnetization_trace.xs),
             list(self.magnetization_trace.ys), "draw", "M", y_range=(-1.0, 1.0))
         self.mag_photo = ImageTk.PhotoImage(mag_img)
         self.mag_canvas.itemconfig("plot", image=self.mag_photo)
-        self.mag_caption.config(
-            text="Mean spin per draw (s=2*occupancy-1), fixed axis [-1, 1] "
-                 "-- the order parameter's own physical bounds.")
-        _fit_caption_height(self.mag_caption)
+        _set_caption(
+            self.mag_caption,
+            "Mean spin per draw (s=2*occupancy-1), fixed axis [-1, 1] "
+            "-- the order parameter's own physical bounds.")
 
         hist_img, hist_caption = render_energy_histogram_plot(
             SCOPE_PLOT_W, SCOPE_PLOT_H, energy_ys)
         self.hist_photo = ImageTk.PhotoImage(hist_img)
         self.hist_canvas.itemconfig("plot", image=self.hist_photo)
-        self.hist_caption.config(text=hist_caption)
-        _fit_caption_height(self.hist_caption)
+        _set_caption(self.hist_caption, hist_caption)
 
         sigmoid_img, sigmoid_caption = render_sigmoid_plot(
             SCOPE_PLOT_W, SCOPE_PLOT_H, list(self.raw_draws), self.receipt.im)
         self.sigmoid_photo = ImageTk.PhotoImage(sigmoid_img)
         self.sigmoid_canvas.itemconfig("plot", image=self.sigmoid_photo)
-        self.sigmoid_caption.config(text=sigmoid_caption)
-        _fit_caption_height(self.sigmoid_caption)  # I4: measured, not guessed
+        _set_caption(self.sigmoid_caption, sigmoid_caption)  # I4: measured, not guessed
 
         # Task 10: per-cell occupancy heatmap -- the SAME
         # render_heatmap_image the detached "heatmap" window's own redraw
@@ -3098,8 +3140,7 @@ class LatticeApp(tk.Tk):
         heat_img, heat_caption = render_heatmap_image(SCOPE_PLOT_W, SCOPE_PLOT_H, occ)
         self.heat_photo = ImageTk.PhotoImage(heat_img)
         self.heat_canvas.itemconfig("plot", image=self.heat_photo)
-        self.heat_caption.config(text=heat_caption)
-        _fit_caption_height(self.heat_caption)
+        _set_caption(self.heat_caption, heat_caption)
 
     def _swatch(self, master, color, text):
         row = tk.Frame(master, bg=PANEL_BG)
