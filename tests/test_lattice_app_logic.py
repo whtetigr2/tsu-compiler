@@ -396,19 +396,12 @@ def test_worker_request_step_sets_the_event():
 
 
 # ---------------------------------------------------------------------------
-# Task 7: LAYERS panel pure logic -- layer_supports_temperature,
-# band_index_from_name, overlay_pin_patch, composite_missing_layers,
-# grid_to_decoded, and ClampState's per-instance `cycle` override. No Tk.
+# Task 7: LAYERS panel pure logic -- band_index_from_name, overlay_pin_patch,
+# composite_missing_layers, grid_to_decoded, and ClampState's per-instance
+# `cycle` override. No Tk. (layer_supports_temperature, formerly tested
+# here, was removed as dead code -- superseded by demo/scope.py's
+# temperature_control_state, see Task 8; nothing in the app called it.)
 # ---------------------------------------------------------------------------
-
-def test_layer_supports_temperature_true_for_no_mediators():
-    assert la.layer_supports_temperature(()) is True
-    assert la.layer_supports_temperature([]) is True
-
-
-def test_layer_supports_temperature_false_when_mediators_present():
-    assert la.layer_supports_temperature((1, 2, 3)) is False
-
 
 def test_band_index_from_name_parses_the_trailing_digit():
     assert la.band_index_from_name("band0") == 0
@@ -475,3 +468,436 @@ def test_clamp_state_custom_cycle_for_a_binary_overlay_layer():
 def test_receipt_loads_cleanly_for_an_unmediated_bipartite_overlay():
     r = la.Receipt(la.OVERLAY_RECEIPT_DIR)
     assert r.mediator_count == 0
+
+
+# ---------------------------------------------------------------------------
+# Task 0: lattice_app's own palette constants must trace back to
+# demo/theme.py's tokens, applied per the SEMANTIC rule (blue = cold /
+# locked / mediator ONLY, never decorative) -- not a second, hand-copied
+# palette that can drift from theme.py. The pre-Task-0 palette was flat
+# grey/cyan and, worse, used blue DECORATIVELY for WORLD_ON/WORLD_OFF (the
+# LIVE LATTICE panel's own live/lit world p-bit colour) while a separate
+# purple pair (MEDIATOR_ON/OFF) stood in for the mediator (cold) channel --
+# exactly backwards from the mockup's own construction note ("Lit gold
+# nodes are world p-bits in state 1. Cold-blue nodes are hidden mediators
+# -- frozen helpers, not terrain."). These tests pin the corrected mapping.
+# ---------------------------------------------------------------------------
+
+def test_window_and_panel_grounds_use_theme_tokens():
+    import theme
+    assert la.BG == theme.PAGE
+    assert la.PANEL_BG == theme.PANEL
+    assert la.BORDER == theme.BEZEL
+    assert la.FG == theme.CREAM
+    assert la.DIM == theme.CREAM_DIM
+
+
+def test_status_colours_stay_off_the_decorative_accent_channel():
+    """PASS/FAIL/WARN are semantic status colour, kept distinct from the
+    gold/orange/blue 'this is live/hot/cold data' accent channel (olive
+    PASS / orange warn / red FAIL, per the mockup's own legend)."""
+    import theme
+    assert la.GOOD == theme.STATUS_PASS == theme.OLIVE
+    assert la.BAD == theme.STATUS_FAIL == theme.RED
+    assert la.WARN == theme.STATUS_WARN == theme.ORANGE
+    assert la.GOOD != theme.GOLD  # PASS must never read as "live data"
+
+
+def test_accent_label_colour_is_gold_not_decorative_blue():
+    import theme
+    assert la.ACCENT == theme.GOLD
+    assert la.ACCENT != theme.BLUE
+
+
+def test_world_pbits_are_gold_lit_never_blue():
+    """THE fix: world p-bits (LIVE LATTICE's own live/lit channel) must be
+    gold when on, never blue -- blue is reserved for cold/mediator/locked
+    only. Before Task 0, WORLD_ON was "#6fb3ff" (blue) -- a stray
+    decorative blue the tokens spec calls out by name as the exact mistake
+    that destroys the scheme's learnability."""
+    import theme
+    assert la.WORLD_ON == theme.GOLD
+    assert la.WORLD_OFF == theme.GOLD_GHOST
+    assert la.WORLD_ON != theme.BLUE
+    assert la.WORLD_OFF != theme.BLUE
+    assert la.WORLD_OFF != theme.BLUE_DEEP
+
+
+def test_mediator_spins_are_the_cold_blue_channel():
+    """Mediator spins are COLD by definition (spec: 'mediator spins' is one
+    of the three things blue means) -- lit and unlit mediator both stay in
+    the blue family, never purple/violet as before Task 0."""
+    import theme
+    assert la.MEDIATOR_ON == theme.BLUE_LIT
+    assert la.MEDIATOR_OFF == theme.BLUE_DEEP
+
+
+def test_terrain_palette_matches_the_tokens_spec_verbatim():
+    import theme
+    expected = [theme.WATER, theme.ROCK, theme.GRASS]
+    for (r, g, b), hexval in zip(la.PAL, expected):
+        h = hexval.lstrip("#")
+        assert (int(r), int(g), int(b)) == (
+            int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+
+
+def test_inset_recessed_areas_use_the_inset_token():
+    """The old hand-picked "#111218" (log box / frontier box / SCOPE plot
+    canvases / PLOT_BG) must become theme.INSET -- one recessed-area colour,
+    not a second literal copied by hand into 6 call sites."""
+    import theme
+    assert la.PLOT_BG == tuple(
+        int(theme.INSET.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
+
+
+# ---------------------------------------------------------------------------
+# Task 8: render_temperature_track -- the beta slider TRACK, drawn on a
+# PIL image (numpy/PIL blitted to a Canvas) rather than a native tk.Scale.
+# The tokens spec calls this out by name as a trap: a native Scale cannot
+# be gold, and in the locked state it always LOOKS disabled -- exactly the
+# wrong message for a control that is refusing a change on purpose, not
+# broken. These tests check actual pixel content: the adjustable state's
+# thermal ramp (cold -> gold -> hot) and the locked state's solid cold
+# field with a fixed-centre thumb that does NOT move with value_frac.
+# ---------------------------------------------------------------------------
+
+def _hexrgb(h):
+    h = h.lstrip("#")
+    return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def _close(a, b, tol=24):
+    return all(abs(x - y) <= tol for x, y in zip(a, b))
+
+
+def test_temperature_track_is_the_requested_size():
+    import theme
+    img = la.render_temperature_track(240, 28, adjustable=True, value_frac=0.5)
+    assert img.size == (240, 28)
+
+
+def test_adjustable_track_is_a_cold_to_hot_thermal_ramp():
+    """Verbatim the tokens spec's own 3-stop gradient: blue_deep -> gold
+    at 55% -> orange. value_frac=0.5 puts the thumb at CENTRE, so both
+    edges and the 55% stop are sampled well clear of it -- the thumb
+    overlay never contaminates the ramp-colour check."""
+    import theme
+    img = la.render_temperature_track(240, 28, adjustable=True, value_frac=0.5)
+    w, h = img.size
+    mid_y = h // 2
+    cold_px = img.getpixel((2, mid_y))
+    gold_px = img.getpixel((int(0.55 * (w - 1)), mid_y))
+    hot_px = img.getpixel((w - 3, mid_y))
+    assert _close(cold_px, _hexrgb(theme.BLUE_DEEP))
+    assert _close(gold_px, _hexrgb(theme.GOLD))
+    assert _close(hot_px, _hexrgb(theme.ORANGE))
+
+
+def test_adjustable_thumb_tracks_value_frac():
+    import theme
+    img_cold = la.render_temperature_track(240, 28, adjustable=True, value_frac=0.0)
+    img_hot = la.render_temperature_track(240, 28, adjustable=True, value_frac=1.0)
+    mid_y = 28 // 2
+    # A thumb at value_frac=0.0 puts gold-thumb pixels near x=0; at
+    # value_frac=1.0 the SAME near-x=0 region is instead cold ramp colour
+    # (no thumb there any more) -- proof the thumb actually moved.
+    assert _close(img_cold.getpixel((2, mid_y)), _hexrgb(theme.GOLD))
+    assert not _close(img_hot.getpixel((2, mid_y)), _hexrgb(theme.GOLD))
+
+
+def test_locked_track_is_a_solid_cold_field_never_the_live_ramp():
+    """No 'useful window' exists when locked -- the whole track is one
+    solid blue_deep field, not a greyed-out copy of the gradient."""
+    import theme
+    img = la.render_temperature_track(240, 28, adjustable=False, value_frac=0.9)
+    w, h = img.size
+    mid_y = h // 2
+    # Sample away from both the thumb (frozen at centre) and the lock-bar
+    # (drawn across the middle row) -- e.g. near the left edge, one row
+    # off centre.
+    bg_px = img.getpixel((6, mid_y - 4))
+    assert _close(bg_px, _hexrgb(theme.BLUE_DEEP))
+
+
+def test_locked_thumb_is_frozen_at_centre_regardless_of_value_frac():
+    """This is the whole point of Task 8's locked state: the thumb does
+    NOT read `value_frac` (there is nothing to show a live position of).
+    A value_frac near 0 or 1 must not move it -- it must stay at 50%."""
+    import theme
+    w = 240
+    center_x = w // 2
+    mid_y = 28 // 2
+    for value_frac in (0.0, 0.5, 1.0):
+        img = la.render_temperature_track(w, 28, adjustable=False, value_frac=value_frac)
+        assert _close(img.getpixel((center_x, mid_y)), _hexrgb(theme.BLUE_LIT))
+
+
+def test_locked_and_adjustable_tracks_are_visually_distinct_at_the_same_value():
+    """The two states must be distinguishable at a glance -- same
+    value_frac, different pixels, at a point on the track away from the
+    thumb (the thumb colour alone already differs, but the TRACK itself
+    must too: solid blue vs. a gradient)."""
+    import theme
+    live = la.render_temperature_track(240, 28, adjustable=True, value_frac=0.5)
+    locked = la.render_temperature_track(240, 28, adjustable=False, value_frac=0.5)
+    # Near the left edge (well clear of either state's thumb/lock-bar
+    # geometry): live shows the cold end of the ramp, locked shows the
+    # solid field -- both nominally "blue_deep-ish" at x=2, so instead
+    # compare a point further right where live has visibly warmed toward
+    # gold but locked is still flat blue_deep.
+    x = int(0.35 * 240)
+    mid_y = 28 // 2
+    live_px = live.getpixel((x, mid_y))
+    locked_px = locked.getpixel((x, mid_y))
+    assert not _close(live_px, locked_px, tol=10)
+
+
+# ---------------------------------------------------------------------------
+# Task 8: get_beta_override / set_beta_override -- WHERE a layer's chosen
+# beta override lives, generalised over base and bands. A prior review
+# flagged `_refresh_temperature_control` reaching straight into
+# `self.bands[self.active_layer]`, which raises KeyError the instant
+# "base" is the active layer, because base has no LayerState. These pure
+# functions replace that direct indexing everywhere in the app.
+# ---------------------------------------------------------------------------
+
+class _FakeAppForBase:
+    def __init__(self, base_beta_override=None):
+        self.base_beta_override = base_beta_override
+
+
+def test_get_beta_override_reads_the_base_slot_for_base():
+    app = _FakeAppForBase(base_beta_override=2.5)
+    assert la.get_beta_override("base", app.base_beta_override, {}) == 2.5
+
+
+def test_get_beta_override_does_not_keyerror_when_base_has_no_bands_entry():
+    """THE fix: before this task, the equivalent inline code indexed
+    `self.bands["base"]` directly and raised KeyError -- base is
+    deliberately absent from `bands` (see LayerState's own docstring).
+    This must return cleanly instead."""
+    bands = {"band0": la.LayerState("band0", la.ClampState(cycle=(0, 1)))}
+    result = la.get_beta_override("base", None, bands)
+    assert result is None  # no exception
+
+
+def test_get_beta_override_reads_a_bands_layer_state():
+    band = la.LayerState("band0", la.ClampState(cycle=(0, 1)))
+    band.beta_override = 1.75
+    assert la.get_beta_override("band0", None, {"band0": band}) == 1.75
+
+
+def test_get_beta_override_returns_none_for_an_unknown_layer():
+    assert la.get_beta_override("composite", None, {}) is None
+
+
+def test_set_beta_override_writes_the_base_slot_for_base():
+    app = _FakeAppForBase()
+    la.set_beta_override("base", 3.0, app, {})
+    assert app.base_beta_override == 3.0
+
+
+def test_set_beta_override_writes_a_bands_layer_state_not_the_base_slot():
+    app = _FakeAppForBase(base_beta_override=None)
+    band = la.LayerState("band0", la.ClampState(cycle=(0, 1)))
+    la.set_beta_override("band0", 0.6, app, {"band0": band})
+    assert band.beta_override == 0.6
+    assert app.base_beta_override is None  # untouched
+
+
+def test_temperature_value_frac_clamps_into_zero_one():
+    assert la.temperature_value_frac(0.3, 0.3, 3.0) == 0.0
+    assert la.temperature_value_frac(3.0, 0.3, 3.0) == 1.0
+    assert la.temperature_value_frac(-10.0, 0.3, 3.0) == 0.0   # clamped, not negative
+    assert la.temperature_value_frac(999.0, 0.3, 3.0) == 1.0   # clamped, not >1
+    mid = la.temperature_value_frac(1.65, 0.3, 3.0)
+    assert 0.0 < mid < 1.0
+
+
+def test_temperature_value_frac_rejects_a_degenerate_range():
+    import pytest
+    with pytest.raises(ValueError):
+        la.temperature_value_frac(1.0, 1.0, 1.0)
+
+
+# ---------------------------------------------------------------------------
+# Task 10: DetachRegistry -- detaching a plot into its own Toplevel then
+# closing that window must leave no orphaned window and no live-update
+# callback still scheduled (task-10-brief.md's own leak scenario: "a closed
+# window still receiving after() updates is a slow leak that only shows up
+# after a long session, which is exactly when a demo is being given").
+# Pure Python here -- no real tk.Toplevel is constructed; a fake window/
+# cancel stand-in is enough to exercise the registry's own bookkeeping
+# (same "no Tk in pure logic" convention this file's own module docstring
+# states). The Tk-layer wiring itself (LatticeApp._open_detach, which
+# builds a real Toplevel and schedules real self.after() jobs) is not
+# unit-tested -- it is checked by hand, launching the real app, the same
+# way every other geometry/Tk-wiring concern in this app already is.
+# ---------------------------------------------------------------------------
+
+class _FakeDetachWindow:
+    """Stand-in for a real tk.Toplevel -- just enough surface for
+    DetachRegistry's own contract (which never calls a Tk method itself)."""
+
+    def __init__(self):
+        self.destroyed = False
+
+    def destroy(self):
+        self.destroyed = True
+
+
+def test_detachable_plots_lists_exactly_the_five_named_in_the_brief():
+    """node-and-edge lattice, relaxation strip, per-cell heatmap, sigmoid
+    response, energy histogram -- task-10-brief.md's own "Detachable"
+    list, no more, no fewer. The energy/valid-fraction/magnetization
+    traces are explicitly "stays inline" in the same brief and must NOT
+    appear here."""
+    assert set(la.DETACHABLE_PLOTS) == {
+        "lattice_graph", "relaxation", "heatmap", "sigmoid", "hist"}
+    assert len(la.DETACHABLE_PLOTS) == 5
+
+
+def test_detach_registry_starts_with_nothing_open():
+    reg = la.DetachRegistry()
+    for key in la.DETACHABLE_PLOTS:
+        assert not reg.is_open(key)
+        assert reg.window_for(key) is None
+
+
+def test_detaching_then_closing_leaves_no_orphaned_window_and_cancels_the_callback():
+    reg = la.DetachRegistry()
+    window = _FakeDetachWindow()
+    cancelled = {"n": 0}
+    reg.open_window("sigmoid", window,
+                     lambda: cancelled.__setitem__("n", cancelled["n"] + 1))
+    assert reg.is_open("sigmoid")
+    assert reg.window_for("sigmoid") is window
+
+    reg.close("sigmoid")
+
+    assert not reg.is_open("sigmoid")
+    assert reg.window_for("sigmoid") is None
+    # the live update callback was cancelled -- exactly once, not zero:
+    assert cancelled["n"] == 1
+
+
+def test_closing_twice_cancels_the_callback_only_once():
+    """A second close() on an already-closed key must be a harmless
+    no-op, not a double-cancel -- Tk's own after_cancel is not documented
+    as side-effect-free on an id that's already been cancelled, so the
+    registry itself (not luck) is what makes double-cancel impossible."""
+    reg = la.DetachRegistry()
+    cancelled = {"n": 0}
+    reg.open_window("hist", _FakeDetachWindow(),
+                     lambda: cancelled.__setitem__("n", cancelled["n"] + 1))
+    reg.close("hist")
+    reg.close("hist")
+    assert cancelled["n"] == 1
+
+
+def test_close_on_a_never_opened_key_is_a_harmless_noop():
+    reg = la.DetachRegistry()
+    reg.close("heatmap")  # never opened -- must not raise, must not call anything
+    assert not reg.is_open("heatmap")
+
+
+def test_detach_registry_rejects_reopening_an_already_open_key():
+    """The Tk layer is responsible for LIFTING an existing window (the
+    same singleton pattern demo/explainer.py's own _on_show_explainer
+    already uses) -- the registry itself refuses a second open_window for
+    an already-open key, so that path can never silently leak the first
+    window's own handle/cancel callable."""
+    import pytest
+    reg = la.DetachRegistry()
+    reg.open_window("lattice_graph", _FakeDetachWindow(), lambda: None)
+    with pytest.raises(RuntimeError):
+        reg.open_window("lattice_graph", _FakeDetachWindow(), lambda: None)
+
+
+def test_detach_registry_rejects_unknown_plot_keys():
+    import pytest
+    reg = la.DetachRegistry()
+    with pytest.raises(KeyError):
+        reg.is_open("not_a_real_plot")
+    with pytest.raises(KeyError):
+        reg.open_window("not_a_real_plot", _FakeDetachWindow(), lambda: None)
+    with pytest.raises(KeyError):
+        reg.close("not_a_real_plot")
+
+
+# ---------------------------------------------------------------------------
+# Task 10: the three PIL renderers with no pre-existing test coverage
+# (render_lattice_graph_image, render_relaxation_strip_image,
+# render_heatmap_image / _thermal_ramp_rgb) -- pure PIL, no Tk, so
+# headlessly testable the same way render_acf_plot etc. already are
+# (indirectly, via the app) though this file adds the first DIRECT tests
+# of the render_* functions themselves. Smoke-level: correct image size,
+# and the honest "not enough data" / "no topology" fallback text, not a
+# pixel-exact rendering check (this app's own convention per
+# task-10-brief.md: "Geometry is not meaningfully unit-testable ...
+# every geometry bug ... found by eye").
+# ---------------------------------------------------------------------------
+
+class _FakeIsingForGraph:
+    """Just enough surface for render_lattice_graph_image (edges only)."""
+
+    def __init__(self, edges):
+        self.edges = edges
+
+
+def test_render_lattice_graph_image_is_the_requested_size():
+    im = _FakeIsingForGraph(edges=[(0, 1), (1, 2), (2, 3)])
+    img, caption = la.render_lattice_graph_image(
+        300, 300, im, world_idx=[0, 1, 2, 3], mediator_idx=[4, 5],
+        spins_per_cell=2, grid_w=2)
+    assert img.size == (300, 300)
+    assert "4" in caption and "world" in caption.lower()
+    assert "2" in caption and "mediator" in caption.lower()
+
+
+def test_render_lattice_graph_image_handles_no_world_spins_honestly():
+    im = _FakeIsingForGraph(edges=[])
+    img, caption = la.render_lattice_graph_image(
+        200, 200, im, world_idx=[], mediator_idx=[], spins_per_cell=2, grid_w=2)
+    assert img.size == (200, 200)
+    assert "unavailable" in caption.lower()
+
+
+def test_render_relaxation_strip_image_is_the_requested_size():
+    draws = [[1, 1, 0, 0]] * 3 + [[0, 0, 1, 1]] * 3
+    img, caption = la.render_relaxation_strip_image(
+        400, 150, draws, n_frames=4, n_world_spins=4, spins_per_cell=2, grid_w=2)
+    assert img.size == (400, 150)
+    assert "buffer" in caption.lower()
+
+
+def test_render_relaxation_strip_image_handles_too_few_draws_honestly():
+    img, caption = la.render_relaxation_strip_image(
+        300, 100, [[1, 0]], n_frames=4, n_world_spins=2, spins_per_cell=2, grid_w=1)
+    assert img.size == (300, 100)
+    assert "no data" in caption.lower() or "waiting" in caption.lower()
+
+
+def test_thermal_ramp_rgb_endpoints_match_blue_deep_and_orange():
+    import numpy as np
+    out = la._thermal_ramp_rgb(np.array([0.0, 1.0]))
+    assert tuple(int(c) for c in out[0]) == la._rgb(la.theme.BLUE_DEEP)
+    assert tuple(int(c) for c in out[1]) == la._rgb(la.theme.ORANGE)
+
+
+def test_render_heatmap_image_is_the_requested_size():
+    import numpy as np
+    from scope import per_cell_occupancy
+    draws = [[1, 1, 1, 0, 0, 0], [0, 0, 0, 1, 1, 1]]
+    occ = per_cell_occupancy(draws, n_world_spins=6, spins_per_cell=3, grid_w=2)
+    img, caption = la.render_heatmap_image(250, 250, occ)
+    assert img.size == (250, 250)
+    assert "occupancy" in caption.lower()
+
+
+def test_render_heatmap_image_handles_all_nan_honestly():
+    import numpy as np
+    occ = np.full((1, 2), np.nan)
+    img, caption = la.render_heatmap_image(200, 200, occ)
+    assert img.size == (200, 200)
+    assert "unavailable" in caption.lower()

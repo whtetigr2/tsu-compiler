@@ -87,6 +87,77 @@ def test_energy_histogram_counts_sum_to_the_series_length():
 
 
 # ---------------------------------------------------------------------------
+# Task 10: per_cell_occupancy -- the per-cell heatmap's own data source
+# (demo/lattice_app.py's render_heatmap_image consumes this).
+# ---------------------------------------------------------------------------
+
+def test_per_cell_occupancy_of_an_all_on_draw_is_one_everywhere():
+    import numpy as np
+    from scope import per_cell_occupancy
+    draws = [[1, 1, 1, 1, 1, 1]]  # 2 cells x spins_per_cell=3, all on
+    out = per_cell_occupancy(draws, n_world_spins=6, spins_per_cell=3, grid_w=2)
+    assert out.shape == (1, 2)
+    assert np.allclose(out, 1.0)
+
+
+def test_per_cell_occupancy_of_an_all_off_draw_is_zero_everywhere():
+    import numpy as np
+    from scope import per_cell_occupancy
+    draws = [[0, 0, 0, 0, 0, 0]]
+    out = per_cell_occupancy(draws, n_world_spins=6, spins_per_cell=3, grid_w=2)
+    assert np.allclose(out, 0.0)
+
+
+def test_per_cell_occupancy_averages_within_a_cell_and_across_draws():
+    """cell 0 = spins[0:3], cell 1 = spins[3:6]. draw 1: cell0 all on
+    (1.0), cell1 all off (0.0). draw 2: the reverse. Mean across draws:
+    both cells -> 0.5 -- proves this averages WITHIN a cell's own
+    sub-spins first (a single draw's cell reading is 0.0 or 1.0 here,
+    never 0.5) and THEN across draws, not some other pooling order."""
+    import numpy as np
+    from scope import per_cell_occupancy
+    draws = [[1, 1, 1, 0, 0, 0], [0, 0, 0, 1, 1, 1]]
+    out = per_cell_occupancy(draws, n_world_spins=6, spins_per_cell=3, grid_w=2)
+    assert np.allclose(out, 0.5)
+
+
+def test_per_cell_occupancy_ignores_spins_past_n_world_spins():
+    """6 world spins (2 cells) + 4 trailing (mediator) spins -- the
+    trailing spins must not shift the reshape or pollute a cell mean."""
+    import numpy as np
+    from scope import per_cell_occupancy
+    draws = [[1, 1, 1, 0, 0, 0, 9, 9, 9, 9]]
+    out = per_cell_occupancy(draws, n_world_spins=6, spins_per_cell=3, grid_w=2)
+    assert np.allclose(out, [[1.0, 0.0]])
+
+
+def test_per_cell_occupancy_of_zero_draws_is_honestly_nan_not_zero():
+    """No draws is not the same claim as 'every cell is off' -- mirrors
+    local_field_response's own NaN-for-insufficient-data convention."""
+    import numpy as np
+    from scope import per_cell_occupancy
+    out = per_cell_occupancy([], n_world_spins=6, spins_per_cell=3, grid_w=2)
+    assert out.shape == (1, 2)
+    assert np.all(np.isnan(out))
+
+
+def test_per_cell_occupancy_rejects_a_grid_width_that_does_not_divide_the_cell_count():
+    import pytest
+    from scope import per_cell_occupancy
+    with pytest.raises(ValueError):
+        per_cell_occupancy([[1, 1, 1, 0, 0, 0]], n_world_spins=6,
+                            spins_per_cell=3, grid_w=4)
+
+
+def test_per_cell_occupancy_rejects_spins_per_cell_that_does_not_divide_n_world_spins():
+    import pytest
+    from scope import per_cell_occupancy
+    with pytest.raises(ValueError):
+        per_cell_occupancy([[1, 1, 1, 1, 1]], n_world_spins=5,
+                            spins_per_cell=3, grid_w=1)
+
+
+# ---------------------------------------------------------------------------
 # Task 6 step 6: local_field_response -- the measured sigmoid
 # ---------------------------------------------------------------------------
 
@@ -165,3 +236,88 @@ def test_local_field_response_reports_a_low_count_bin_as_unavailable_not_a_numbe
     centers, probs, counts = local_field_response(draws, ising, bins=1)
     assert counts == [5]
     assert math.isnan(probs[0])
+
+
+# ---------------------------------------------------------------------------
+# Task 8: temperature_control_state -- the temperature control's two
+# explicit states, keyed on the SAME fact tsu.passes.route.
+# assert_beta_consistent gates sampling on (whether `ising.mediator_nodes`
+# is empty), never a hardcoded "base is locked" flag -- see
+# assert_beta_consistent's own docstring: "A model with no mediator spins
+# (mediator_nodes empty) has nothing temperature-dependent baked into its
+# couplings, so any beta is fine for it." A fake carrying only
+# mediator_nodes/beta is used rather than the full IsingModel dataclass --
+# those are the only two fields this function reads.
+# ---------------------------------------------------------------------------
+
+class _FakeMediatedIsing:
+    """Minimal stand-in carrying only what temperature_control_state
+    reads: mediator_nodes and beta."""
+
+    def __init__(self, mediator_nodes, beta):
+        self.mediator_nodes = mediator_nodes
+        self.beta = beta
+
+
+def test_temperature_control_state_is_adjustable_with_no_mediator_nodes():
+    from scope import temperature_control_state
+    ising = _FakeMediatedIsing(mediator_nodes=(), beta=1.0)
+    state, reason = temperature_control_state(ising)
+    assert state == "adjustable"
+    assert reason is None
+
+
+def test_temperature_control_state_is_fixed_when_mediator_nodes_present():
+    from scope import temperature_control_state
+    ising = _FakeMediatedIsing(mediator_nodes=tuple(range(64)), beta=1.0)
+    state, reason = temperature_control_state(ising)
+    assert state == "fixed"
+    assert isinstance(reason, str) and reason
+
+
+def test_temperature_control_state_reason_names_the_count_and_beta_but_not_a_layer():
+    """The reason must be a fact about THIS model (mediator count, beta,
+    assert_beta_consistent) -- never a hardcoded layer name like "base".
+    A prior review flagged exactly this: the reason text hardcoded the
+    word "base", which would be a lie the moment any OTHER layer ever
+    compiled with mediator spins. This function takes no layer name at
+    all, so there is nothing to hardcode."""
+    from scope import temperature_control_state
+    ising = _FakeMediatedIsing(mediator_nodes=tuple(range(64)), beta=1.0)
+    _, reason = temperature_control_state(ising)
+    assert "64" in reason
+    # Tight, not "any digit '1' anywhere" (which would pass regardless of
+    # whether beta is actually rendered correctly): the exact formatted
+    # substring `beta={ising.beta:.4g}` that temperature_control_state's
+    # own f-string produces.
+    assert f"beta={ising.beta:.4g}" in reason
+    assert "base" not in reason.lower()
+    assert "assert_beta_consistent" in reason
+
+
+def test_temperature_control_state_reason_varies_with_a_different_mediator_count_and_beta():
+    """Not a static string -- must actually reflect the model passed in."""
+    from scope import temperature_control_state
+    ising = _FakeMediatedIsing(mediator_nodes=tuple(range(12)), beta=2.5)
+    _, reason = temperature_control_state(ising)
+    assert "12" in reason
+    assert "2.5" in reason
+
+
+def test_temperature_control_state_keys_on_the_same_fact_assert_beta_consistent_uses():
+    """assert_beta_consistent is a no-op (accepts ANY beta) exactly when
+    mediator_nodes is empty -- this test pins that BOTH functions agree for
+    a range of mediator-node shapes, so they cannot silently drift apart."""
+    import math
+    from scope import temperature_control_state
+    from tsu.passes.route import assert_beta_consistent
+
+    for mediator_nodes in [(), (1,), (1, 2, 3), tuple(range(64))]:
+        ising = _FakeMediatedIsing(mediator_nodes=mediator_nodes, beta=1.0)
+        state, _ = temperature_control_state(ising)
+        try:
+            assert_beta_consistent(ising, requested_beta=999.0)
+            asserted_a_noop = True
+        except Exception:
+            asserted_a_noop = False
+        assert (state == "adjustable") == asserted_a_noop

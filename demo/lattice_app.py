@@ -49,7 +49,7 @@ from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageTk
@@ -71,14 +71,29 @@ from tsu.backends.thrml_backend import sample as thrml_sample  # noqa: E402
 from tsu.passes.route import assert_beta_consistent, BetaMismatchError  # noqa: E402 -- Task 7
 from worldfile import save_world  # noqa: E402 -- A2: save/load provenance-carrying worlds
 import frontier as frontier_mod  # noqa: E402 -- B1: capacity frontier panel
-from scope import (beta_to_temperature, autocorrelation, magnetization,  # noqa: E402
+import theme  # noqa: E402 -- Task 0: theme foundation, see theme.py's own docstring
+from scope import (beta_to_temperature, temperature_control_state,  # noqa: E402
+                    autocorrelation, magnetization,
                     energy_histogram, local_field_response, sigmoid,
-                    MIN_LOCAL_FIELD_BIN_COUNT)  # Task 5/6
+                    per_cell_occupancy,
+                    MIN_LOCAL_FIELD_BIN_COUNT)  # Task 5/6/8/10
 from tsu.ess import (integrated_autocorrelation_time,  # noqa: E402
                      RELIABILITY_MIN_N_OVER_TAU)  # SCOPE panel's tau readout
 from layers import FIELD_CAP, FieldCapExceeded, bias_patch  # noqa: E402 -- Task 7
 from elevation import band_patch, thermometer_level, monotonicity_violations  # noqa: E402
 from elevation_world import render_elevation_world_image  # noqa: E402 -- composite view, reused verbatim
+import explainer  # noqa: E402 -- Task 9: "What is this?" explainer window
+
+
+def _rgb(hex_str: str) -> tuple[int, int, int]:
+    """'#rrggbb' -> (r, g, b) ints -- so terrain/plot colours below share
+    demo/theme.py's own tokens instead of a second, hand-copied palette
+    that could drift from it. Moved up here (Task 0) so PAL, below, can use
+    it too -- it used to live only just above the SCOPE panel's PLOT_*
+    constants, too late for PAL's own definition."""
+    h = hex_str.lstrip("#")
+    return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+
 
 # --------------------------------------------------------------------------
 # constants shared by the raw-lattice grid and the decode/render path
@@ -87,7 +102,9 @@ W = H = 8                      # decoded world is an 8x8 grid
 WATER, ROCK, GRASS = 0, 1, 2
 TERRAIN_NAMES = {WATER: "water", ROCK: "rock", GRASS: "grass"}
 TERRAIN_ORDER = (WATER, ROCK, GRASS)
-PAL = np.array([[46, 92, 132], [124, 116, 106], [126, 158, 84]], float)
+# Task 0: terrain palette verbatim from theme.py (water/rock/grass tokens),
+# not a second hand-picked set of RGB triples.
+PAL = np.array([_rgb(theme.WATER), _rgb(theme.ROCK), _rgb(theme.GRASS)], float)
 CELL_UP = 32                    # px per grid cell in the rendered world image (render_world.py uses 64; halved here so a redraw fits inside one animation tick)
 WORLD_DISPLAY_PX = 320          # DECODED WORLD canvas is square, this many px/side
 WORLD_CELL_PX = WORLD_DISPLAY_PX // W   # px per grid cell ON SCREEN (for clicks + pin markers)
@@ -218,6 +235,11 @@ DEFAULT_SPEED_IDX = len(SPEED_LEVELS) - 1  # Full speed -- matches pre-UI2 behav
 # how often it redraws.
 # --------------------------------------------------------------------------
 SCOPE_PLOT_W, SCOPE_PLOT_H = 300, 150       # px, one sub-plot's image size
+# Task 8: temperature control -- the on-screen T range (unchanged from the
+# tk.Scale this replaces: from_=0.3, to=3.0), and the Canvas track's own
+# pixel size.
+TEMP_T_MIN, TEMP_T_MAX = 0.3, 3.0
+TEMP_TRACK_W, TEMP_TRACK_H = 240, 20
 SCOPE_ENERGY_TRACE_MAXLEN = 400             # same ring-buffer length B2's
 # energy_trace already used before this task; named here so the ACF plot's
 # own caption can state it rather than hardcoding a second "400" that could
@@ -234,6 +256,35 @@ SCOPE_REDRAW_EVERY_N_DRAWS = 5              # throttle: local_field_response
 # pools SCOPE_RAW_DRAWS_MAXLEN draws * every spin each redraw -- cheap per
 # call, but recomputing on literally every one of many draws/sec is wasted
 # work the display rate (poll cadence, ~80ms) doesn't need.
+
+# --------------------------------------------------------------------------
+# Task 10: detached-plot windows. Title/window-size/plot-size per key --
+# static layout only, no statistics here. sigmoid's plot area is shorter
+# than its window because its caption is long BY REQUIREMENT (carries the
+# same reconstruction-vs-defect disclosure as the inline cell, see
+# render_sigmoid_plot); relaxation's window is wide-short (a filmstrip);
+# lattice_graph's is tall (grid + mediator strip + legend all stack).
+# --------------------------------------------------------------------------
+DETACH_WINDOW_SPECS: dict[str, dict] = {
+    "lattice_graph": {
+        "title": "LATTICE -- node-edge graph (role-coloured)",
+        "win": (560, 640), "plot": (520, 500)},
+    "relaxation": {
+        "title": "LATTICE -- relaxation strip (raw physical state, recent draws)",
+        "win": (820, 300), "plot": (780, 190)},
+    "heatmap": {
+        "title": "LATTICE -- per-cell occupancy heatmap",
+        "win": (440, 540), "plot": (400, 400)},
+    "sigmoid": {
+        "title": "LATTICE -- local field: empirical P(s=1) vs sigmoid (REFERENCE ONLY)",
+        "win": (620, 640), "plot": (580, 380)},
+    "hist": {
+        "title": "LATTICE -- energy histogram",
+        "win": (620, 460), "plot": (580, 340)},
+}
+DETACH_REFRESH_MS = 250   # detached windows redraw on their OWN timer,
+# independent of the inline SCOPE panel's message-driven redraw cadence --
+# see LatticeApp._open_detach's own docstring for why.
 
 
 def speed_level(idx: int) -> dict:
@@ -316,15 +367,483 @@ class ClampState:
 # tests/test_lattice_app_logic.py's own "no Tk in pure logic" convention.
 # --------------------------------------------------------------------------
 
-def layer_supports_temperature(mediator_nodes: Sequence) -> bool:
-    """True iff a program carrying `mediator_nodes` (an IsingModel's own
-    field) is free to sample at any beta -- the SAME fact
-    `tsu.passes.route.assert_beta_consistent` gates on (empty
-    `mediator_nodes` -> that function is a no-op for ANY requested beta).
-    DERIVED here, not hardcoded per layer name, so this stays correct if a
-    future layer's own topology changes (see task 7's own brief: key the
-    control on this fact, not on "base is always locked")."""
-    return not bool(mediator_nodes)
+def get_beta_override(layer_name: str, base_override: float | None,
+                       bands: "dict[str, LayerState]") -> float | None:
+    """Task 8 structural fix: WHERE a layer's chosen beta override lives,
+    generalised over base AND bands -- a prior review flagged
+    `_refresh_temperature_control`/`_on_temperature_change` reaching
+    straight into `self.bands[self.active_layer]`, which raises KeyError
+    the moment "base" is the active layer (base has no LayerState -- see
+    LayerState's own docstring). That never fired in practice only because
+    base has always compiled WITH mediator spins (locked, no override
+    settable) -- a defect waiting for the day base ever compiles
+    unmediated, not a hardcoded-safe path. `base_override` is threaded in
+    explicitly (LatticeApp.base_beta_override) rather than assuming
+    `bands["base"]` exists."""
+    if layer_name == "base":
+        return base_override
+    if layer_name in bands:
+        return bands[layer_name].beta_override
+    return None
+
+
+def set_beta_override(layer_name: str, value: float,
+                       app_for_base, bands: "dict[str, LayerState]") -> None:
+    """Setter counterpart to get_beta_override -- see its docstring. Base
+    has no LayerState to hold a per-layer override, so its slot lives on
+    the app itself (`app_for_base.base_beta_override`); a band's lives on
+    its own LayerState, unchanged from before this task."""
+    if layer_name == "base":
+        app_for_base.base_beta_override = value
+    elif layer_name in bands:
+        bands[layer_name].beta_override = value
+
+
+# --------------------------------------------------------------------------
+# Task 10: the detach registry -- which of the five DETACHABLE_PLOTS
+# (task-10-brief.md's own list: the node-and-edge lattice, the relaxation
+# strip, the per-cell heatmap, the sigmoid response, the energy histogram)
+# currently has its own open Toplevel, and how to shut each one down
+# cleanly. Pure Python -- no Tk import here at all, no Tk object is ever
+# touched by this class (see the "no Tk in pure logic" convention this
+# file's own module docstring/tests/test_lattice_app_logic.py's docstring
+# both state) -- it only holds an opaque `window` handle (a real
+# tk.Toplevel from LatticeApp._open_detach, or a fake stand-in in tests)
+# and an opaque `cancel` callable the CALLER supplies to stop whatever
+# live-update job that window's own host is running.
+#
+# The energy/valid-fraction/magnetization traces are explicitly NOT in
+# DETACHABLE_PLOTS -- the brief's own "stays inline" list -- there is no
+# detach path for them at all, so they can never leak one.
+#
+# This class exists specifically to make the brief's own leak scenario
+# structurally impossible rather than merely "handled by care": "a closed
+# window still receiving after() updates is a slow leak that only shows
+# up after a long session, which is exactly when a demo is being given."
+# `close(key)` is the ONLY place `cancel` is ever invoked, and it is
+# invoked EXACTLY ONCE no matter how many times close() is called for the
+# same key -- see test_closing_twice_cancels_the_callback_only_once.
+# --------------------------------------------------------------------------
+DETACHABLE_PLOTS = ("lattice_graph", "relaxation", "heatmap", "sigmoid", "hist")
+
+
+class DetachRegistry:
+    """At most one open window per key in DETACHABLE_PLOTS. See the block
+    comment above for why this is pure Python with no Tk dependency."""
+
+    def __init__(self, keys: tuple[str, ...] = DETACHABLE_PLOTS):
+        self._keys = frozenset(keys)
+        self._open: dict[str, tuple[object, Callable[[], None]]] = {}
+
+    def _check_key(self, key: str) -> None:
+        if key not in self._keys:
+            raise KeyError(
+                f"{key!r} is not a detachable plot -- must be one of "
+                f"{sorted(self._keys)}")
+
+    def is_open(self, key: str) -> bool:
+        self._check_key(key)
+        return key in self._open
+
+    def window_for(self, key: str) -> object | None:
+        """The open window handle for `key`, or None if not open -- the
+        caller (LatticeApp._open_detach) uses this to decide whether to
+        LIFT an existing window (the same singleton pattern
+        demo/explainer.py's own _on_show_explainer uses) rather than
+        opening a second one."""
+        self._check_key(key)
+        entry = self._open.get(key)
+        return entry[0] if entry is not None else None
+
+    def open_window(self, key: str, window: object, cancel) -> None:
+        """Registers `window` as `key`'s own open window, with `cancel`
+        as the ONE callable that will later stop its live-update job.
+        Refuses to reopen an already-open key (RuntimeError) -- the
+        caller must check is_open()/window_for() and LIFT the existing
+        window instead, never silently drop the first handle by
+        overwriting it here."""
+        self._check_key(key)
+        if key in self._open:
+            raise RuntimeError(
+                f"{key!r} is already open -- lift the existing window "
+                f"(window_for({key!r})) instead of reopening it")
+        self._open[key] = (window, cancel)
+
+    def close(self, key: str) -> None:
+        """Pops `key`'s entry (if any) and invokes its `cancel` callable
+        exactly once. A no-op, not an error, if `key` was never opened or
+        was already closed -- the caller (a WM_DELETE_WINDOW handler) must
+        be safe to invoke more than once without double-cancelling
+        whatever after() job `cancel` stops."""
+        self._check_key(key)
+        entry = self._open.pop(key, None)
+        if entry is not None:
+            _, cancel = entry
+            cancel()
+
+
+def temperature_value_frac(t: float, t_min: float, t_max: float) -> float:
+    """Map a temperature T (T=1/beta) to [0, 1] for the slider track's
+    thumb position -- clamped, since a caller can hold a value outside
+    [t_min, t_max] (e.g. a receipt's own compiled beta) that the on-screen
+    range doesn't span."""
+    if t_max <= t_min:
+        raise ValueError(f"t_max ({t_max!r}) must exceed t_min ({t_min!r})")
+    frac = (t - t_min) / (t_max - t_min)
+    return min(1.0, max(0.0, frac))
+
+
+def render_temperature_track(width: int, height: int, adjustable: bool,
+                              value_frac: float = 0.5) -> Image.Image:
+    """Task 8: the beta-temperature slider TRACK, IMAGE per the tokens
+    spec (numpy/PIL blitted to a Canvas), not a native Scale -- the spec
+    calls this out by name as a trap: a native Scale (`ttk.Scale`, and the
+    plain `tk.Scale` this app used before Task 8) cannot be gold, and in
+    the LOCKED state it always LOOKS disabled -- exactly the wrong message
+    for a control that is refusing a change ON PURPOSE, not broken.
+
+    ADJUSTABLE (the useful window a viewer can move through): a cold ->
+    gold -> hot thermal ramp, verbatim the tokens spec's own 3-stop
+    gradient (blue_deep -> gold at 55% -> orange), with a gold thumb at
+    `value_frac` (0 = coldest, 1 = hottest).
+
+    FIXED (the "lock plate"): a SOLID cold-blue field -- never a copy of
+    the live ramp, greyed or otherwise, since there IS no useful window to
+    show (the model has exactly one valid beta) -- with a blue_lit
+    lock-bar across the middle and a blue_lit thumb FROZEN at the centre
+    regardless of `value_frac`. Deliberate and authoritative, per the
+    brief's own framing: a point of pride, not an apology.
+
+    Buildability: flat rectangles only, 1px outlines, zero corner radius,
+    no shadow/blur/glow -- see the tokens spec's own buildability rules.
+    """
+    def hexrgb(h):
+        h = h.lstrip("#")
+        return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+
+    img = Image.new("RGB", (width, height), hexrgb(theme.PANEL))
+    draw = ImageDraw.Draw(img)
+    track_top, track_bot = 3, height - 4
+    track_h = max(track_bot - track_top, 1)
+
+    if adjustable:
+        cold = np.array(hexrgb(theme.BLUE_DEEP), dtype=float)
+        gold = np.array(hexrgb(theme.GOLD), dtype=float)
+        hot = np.array(hexrgb(theme.ORANGE), dtype=float)
+        mid = 0.55  # verbatim the tokens spec's CSS gradient stop
+        xs = np.arange(width, dtype=float)
+        frac = xs / max(width - 1, 1)
+        colors = np.empty((width, 3), dtype=float)
+        left = frac <= mid
+        t_left = frac[left] / mid if mid > 0 else np.zeros(left.sum())
+        colors[left] = cold[None, :] * (1 - t_left[:, None]) + gold[None, :] * t_left[:, None]
+        right = ~left
+        t_right = (frac[right] - mid) / max(1 - mid, 1e-9)
+        colors[right] = gold[None, :] * (1 - t_right[:, None]) + hot[None, :] * t_right[:, None]
+        colors = colors.clip(0, 255).astype(np.uint8)
+        row = np.tile(colors[None, :, :], (track_h, 1, 1))
+        img.paste(Image.fromarray(row, "RGB"), (0, track_top))
+        draw.rectangle([0, track_top, width - 1, track_bot - 1],
+                       outline=hexrgb(theme.GOLD_DIM), width=1)
+        thumb_color = hexrgb(theme.GOLD)
+        thumb_x = int(round(value_frac * (width - 1)))
+    else:
+        draw.rectangle([0, track_top, width - 1, track_bot - 1],
+                       fill=hexrgb(theme.BLUE_DEEP), outline=hexrgb(theme.BLUE), width=1)
+        mid_y = (track_top + track_bot) // 2
+        draw.line([(2, mid_y), (width - 3, mid_y)], fill=hexrgb(theme.BLUE_LIT), width=1)
+        thumb_color = hexrgb(theme.BLUE_LIT)
+        thumb_x = width // 2  # frozen -- does NOT read value_frac, see docstring
+
+    thumb_w = 6
+    x0 = max(thumb_x - thumb_w // 2, 0)
+    x1 = min(x0 + thumb_w, width - 1)
+    draw.rectangle([x0, 1, x1, height - 2], fill=thumb_color, outline=hexrgb(theme.CREAM), width=1)
+    return img
+
+
+# ==========================================================================
+# Task 11: FRONTIER redesign -- load gauges, not a wall of monospace.
+#
+# PRESENTATION ONLY. Every number below is read verbatim from a
+# frontier_mod.FrontierReport that demo/frontier.py already computed (same
+# object `frontier_mod.render_text` renders to the plain-text panel this
+# replaces) -- nothing here re-derives a prediction or a measurement.
+# frontier_gauge_specs performs exactly ONE interpretive step beyond
+# copying fields: which gate is "highest current utilisation" (argmax of
+# already-computed pct_used) and which gate frontier_mod's own
+# BindingForecast headline names as binding FIRST (an exact substring
+# match against that SAME string, via _binding_gate_name -- never a
+# re-walk of the law). Both are SELECTIONS among numbers frontier.py
+# already produced, not new arithmetic.
+#
+# Every predicted value stays labelled with its source law in
+# GaugeSpec.predicted_law/predicted_label -- the tokens spec's own
+# requirement that a prediction never be presented as a measurement.
+# ==========================================================================
+
+FRONTIER_GAUGE_LABELS = {
+    "degree": "DEGREE",
+    "coupling_cap": "COUPLING CAP",
+    "field_cap": "FIELD CAP",
+    "node_budget": "NODE BUDGET",
+}
+
+# Verbatim FOOTER_TEXT's own assumed-cap disclosure (not a second, drifting
+# phrasing of the same fact) -- |J| and |b| are project assumptions, not
+# sourced Extropic figures, and every gauge that shows one says so.
+ASSUMED_CAP_NOTE = ("assumed project limit -- |J| and |b| caps are assumed "
+                     "project values, not sourced Extropic figures")
+
+# When a gate's predicted next value sits PAST its own cap, the track is
+# compressed to this fraction of the gauge's width (0..cap) and a hatched
+# red region fills the remainder -- verbatim the tokens spec's own
+# buildability note ("FRONTIER gauges with hatched overrun... Predicted
+# hairline and hatched overrun are the design. Do not flatten to a
+# progressbar.").
+GAUGE_OVERRUN_TRACK_FRAC = 0.62
+
+
+@dataclass(frozen=True)
+class GaugeSpec:
+    """One FRONTIER load gauge's presentation data -- everything a renderer
+    needs to draw one gate's row, with no further arithmetic required of
+    the renderer. See the module section docstring above for what "tag" and
+    "predicted_*" are derived from."""
+    gate: str
+    label: str
+    measured: float
+    limit: float
+    pct_used: float | None
+    tag_kind: str | None       # "bind_first" | "highest_util" | "ok" | None
+                               # (Minor #5, final review: renamed from
+                               # "over"/"bind" -- those names were inverted
+                               # relative to their own meaning, a trap for
+                               # the next editor. "bind_first" tags PREDICTED
+                               # TO BIND FIRST; "highest_util" tags HIGHEST
+                               # CURRENT UTILISATION.)
+    tag_text: str | None
+    predicted_value: float | None
+    predicted_label: str | None   # e.g. "predicted degree 11 after k -> 4"
+    predicted_law: str | None     # e.g. "one-hot law, spec section 4.2"
+    predicted_exceeds_cap: bool
+    foot_text: str
+
+    @property
+    def frac_current(self) -> float:
+        return _safe_frac(self.measured, self.limit)
+
+    @property
+    def frac_predicted(self) -> float | None:
+        if self.predicted_value is None:
+            return None
+        return _safe_frac(self.predicted_value, self.limit)
+
+
+def _safe_frac(value: float, limit: float) -> float:
+    """value/limit, clamped to [0, 1] -- never raises on a zero/inf/NaN
+    limit (headroom_from_receipt already refuses to compute a PERCENTAGE
+    for those, see GateHeadroom.pct_used; this is the same guard applied to
+    a gauge's fill fraction, which the renderer needs even when pct_used
+    is None)."""
+    if not isinstance(limit, (int, float)):
+        return 0.0
+    if limit in (0, float("inf")) or limit != limit:  # zero, inf, NaN
+        return 0.0
+    return min(max(float(value) / float(limit), 0.0), 1.0)
+
+
+def _binding_gate_name(headline: str, headroom: Sequence[Any]) -> str | None:
+    """Which headroom gate frontier_mod.BindingForecast's own headline names
+    as binding FIRST -- an EXACT substring match against the same string
+    predict_first_binding_gate generated (".../ {gate} is predicted to bind
+    FIRST, ..."), never a re-derivation of the forecast. Returns None for
+    the "no gate is predicted to bind" headline, or if the headline's
+    phrasing ever changes out from under this match (fails safe to "no
+    tag" rather than guessing)."""
+    for h in headroom:
+        if f"{h.gate} is predicted to bind FIRST" in headline:
+            return h.gate
+    return None
+
+
+def frontier_gauge_specs(report: Any) -> list[GaugeSpec]:
+    """Build one GaugeSpec per report.headroom entry (degree, coupling_cap,
+    field_cap, node_budget -- headroom_from_receipt's own fixed order).
+    `report` is a frontier_mod.FrontierReport; every field read below
+    already exists on it (see demo/frontier.py) -- this function only
+    selects and labels, never computes a new prediction."""
+    headroom = report.headroom
+    bind_first = _binding_gate_name(report.binding.headline, headroom)
+    ranked = [h for h in headroom if h.pct_used is not None]
+    highest = max(ranked, key=lambda h: h.pct_used) if ranked else None
+
+    # C1 (final review, fix round): report.verified[0] is ALWAYS
+    # verify_k_increment run against THIS receipt's own SELECTED encoding
+    # (build_frontier_report's first `verified` entry, unconditionally --
+    # see demo/frontier.py). Every predicted hairline above is a one-hot-law
+    # prediction; when the selected encoding isn't one_hot, that prediction
+    # can DIVERGE from what this model's own encoding actually does (the
+    # domain_wall case named in report.encoding_note). That divergence must
+    # sit beside the prediction it refutes, not several lines below a fold.
+    selected_verified = report.verified[0] if report.verified else None
+
+    specs = []
+    for h in headroom:
+        # Minor #5 (final review): this used to be if/elif, which silently
+        # DROPPED the "HIGHEST CURRENT UTILISATION" tag whenever a single
+        # gate happened to also be the one predicted to bind first --
+        # neither test receipt exercises that overlap, so it went unnoticed.
+        # Both tags are now kept when both apply, joined into one label;
+        # tag_kind (which only selects a colour) follows whichever is the
+        # more urgent signal.
+        tag_kind = tag_text = None
+        tag_labels = []
+        if h.gate == bind_first:
+            tag_labels.append("PREDICTED TO BIND FIRST")
+        if highest is not None and h.gate == highest.gate:
+            tag_labels.append("HIGHEST CURRENT UTILISATION")
+        if tag_labels:
+            tag_kind = "bind_first" if h.gate == bind_first else "highest_util"
+            tag_text = "  +  ".join(tag_labels)
+        elif h.gate == "node_budget" and h.pct_used is not None and h.pct_used < 5.0:
+            tag_kind, tag_text = "ok", "UNBOUND ON Z1-CLASS"
+
+        predicted_value = predicted_label = predicted_law = None
+        predicted_exceeds_cap = False
+        if h.gate == "degree":
+            predicted_value = report.law_predicted_degree_next_k
+            predicted_label = (f"predicted degree {predicted_value} after "
+                               f"k -> {report.shape.k + 1}")
+            predicted_law = "one-hot law, spec section 4.2"
+            predicted_exceeds_cap = predicted_value > h.limit
+        elif h.gate == "field_cap":
+            predicted_value = report.law_predicted_field_floor_next_k
+            predicted_label = (f"predicted |b| floor {predicted_value:.2f} "
+                               f"after k -> {report.shape.k + 1}")
+            predicted_law = "one-hot law, spec section 4.8"
+            predicted_exceeds_cap = predicted_value > h.limit
+
+        foot_parts = []
+        if h.gate == "degree":
+            ticks = ", ".join(str(int(round(h.limit * f)))
+                              for f in (0, 0.25, 0.5, 0.75, 1.0))
+            foot_parts.append(f"ticks at {ticks}")
+        if predicted_value is not None:
+            over_note = "OVER CAP" if predicted_exceeds_cap else "still under cap"
+            foot_parts.append(f"dashed/hatch = {predicted_label} "
+                              f"({predicted_law}) -- {over_note}")
+            # C1: the observed value for THIS receipt's own selected
+            # encoding, named beside the prediction it either confirms or
+            # refutes -- never left for the Text box alone to carry.
+            if selected_verified is not None and h.gate == "degree":
+                match = ("MATCHES" if selected_verified.degree_matches
+                         else "DIVERGES")
+                foot_parts.append(
+                    f"OBSERVED ({report.encoding}): degree "
+                    f"{selected_verified.observed_degree} ({match} the law)")
+            elif (selected_verified is not None and h.gate == "field_cap"
+                  and selected_verified.predicted_field_floor is not None):
+                floor_ok = ("at/above floor"
+                            if selected_verified.field_at_or_above_floor
+                            else "BELOW floor")
+                foot_parts.append(
+                    f"OBSERVED ({report.encoding}): |b|max "
+                    f"{selected_verified.observed_field:.2f} ({floor_ok})")
+        if h.gate in ("coupling_cap", "field_cap"):
+            foot_parts.append(ASSUMED_CAP_NOTE)
+        if h.gate == "node_budget":
+            if tag_kind == "ok":
+                foot_parts.append("p-bits are not the constraint here")
+            elif h.pct_used is not None:
+                foot_parts.append(f"{h.pct_used:.2f}% of node budget used")
+            else:
+                foot_parts.append("unavailable: node budget percentage "
+                                  "could not be computed")
+        foot_text = "  |  ".join(foot_parts)
+
+        specs.append(GaugeSpec(
+            gate=h.gate, label=FRONTIER_GAUGE_LABELS[h.gate],
+            measured=h.measured, limit=h.limit, pct_used=h.pct_used,
+            tag_kind=tag_kind, tag_text=tag_text,
+            predicted_value=predicted_value, predicted_label=predicted_label,
+            predicted_law=predicted_law,
+            predicted_exceeds_cap=predicted_exceeds_cap, foot_text=foot_text))
+    return specs
+
+
+def _dashed_vline(draw: "ImageDraw.ImageDraw", x: int, height: int,
+                  color: tuple[int, int, int], dash: int = 3, gap: int = 2) -> None:
+    y = 0
+    while y < height:
+        y2 = min(y + dash, height)
+        draw.line([(x, y), (x, y2)], fill=color, width=1)
+        y = y2 + gap
+
+
+def _hatch_fill(draw: "ImageDraw.ImageDraw", x0: int, y0: int, x1: int, y1: int,
+                fg: tuple[int, int, int], bg: tuple[int, int, int],
+                spacing: int = 6, stripe_w: int = 2) -> None:
+    """Diagonal hatch inside [x0,x1]x[y0,y1] -- the tokens spec's own
+    "hatched overrun" treatment, drawn as repeated 45-degree stripes (PIL
+    has no repeating-pattern fill primitive)."""
+    draw.rectangle([x0, y0, x1, y1], fill=bg)
+    h = y1 - y0
+    offset = -h
+    while offset < (x1 - x0) + h:
+        draw.line([(x0 + offset, y1), (x0 + offset + h, y0)], fill=fg, width=stripe_w)
+        offset += spacing
+
+
+def render_frontier_gauge_track(width: int, height: int, frac_current: float,
+                                frac_predicted: float | None = None,
+                                overrun_ratio: float | None = None) -> Image.Image:
+    """Task 11: one FRONTIER gauge's track, IMAGE per the tokens spec's own
+    buildability table ("FRONTIER gauges with hatched overrun" is listed
+    IMAGE, PhotoImage/Canvas). Draws only what GaugeSpec already computed --
+    frac_current/frac_predicted are measured/limit and predicted/limit,
+    already-safe fractions (see _safe_frac); this function never reads a
+    report or a limit itself.
+
+    overrun_ratio is None: a plain track, full width, gold_dim fill to
+    frac_current, plus an optional gold DASHED hairline at frac_predicted
+    (predicted <= cap in this branch, so it fits inside the track).
+
+    overrun_ratio is not None (predicted_value / limit for a gate whose
+    prediction EXCEEDS its cap): the track compresses to
+    GAUGE_OVERRUN_TRACK_FRAC of the image width (still 0..cap, same fill
+    scale as the plain branch) and a hatched red region fills the rest,
+    its own width scaled by how far past 1.0 overrun_ratio sits (clamped
+    so a very large overrun still fits the image) -- visually distinct
+    from the measured gold fill, never a second gold bar."""
+    def hexrgb(h):
+        h = h.lstrip("#")
+        return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+
+    img = Image.new("RGB", (width, height), hexrgb(theme.INSET))
+    draw = ImageDraw.Draw(img)
+
+    track_frac = GAUGE_OVERRUN_TRACK_FRAC if overrun_ratio is not None else 1.0
+    track_w = max(int(round(width * track_frac)), 2)
+
+    draw.rectangle([0, 0, track_w - 1, height - 1], outline=hexrgb(theme.GOLD_GHOST), width=1)
+    fill_w = int(round(track_w * min(max(frac_current, 0.0), 1.0)))
+    if fill_w > 1:
+        draw.rectangle([1, 1, max(fill_w - 1, 1), height - 2], fill=hexrgb(theme.GOLD_DIM))
+
+    if overrun_ratio is None:
+        if frac_predicted is not None:
+            x = int(round(min(max(frac_predicted, 0.0), 1.0) * (track_w - 1)))
+            _dashed_vline(draw, x, height, hexrgb(theme.GOLD))
+    else:
+        over_span = min(max(overrun_ratio - 1.0, 0.05), 1.5)
+        avail = max(width - track_w, 6)
+        hatch_w = max(int(round(avail * min(over_span / 0.5, 1.0))), 6)
+        hatch_w = min(hatch_w, avail)
+        x0, x1 = track_w, min(track_w + hatch_w, width - 1)
+        _hatch_fill(draw, x0, 0, x1, height - 1, hexrgb(theme.RED), hexrgb(theme.RED_DEEP))
+        draw.rectangle([x0, 0, x1, height - 1], outline=hexrgb(theme.RED), width=1)
+    return img
 
 
 def band_index_from_name(layer_name: str) -> int:
@@ -936,36 +1455,47 @@ class SampleWorker(threading.Thread):
 
 
 # --------------------------------------------------------------------------
-# UI
+# UI -- Task 0: every colour below is a NAME from demo/theme.py, never a
+# hand-copied hex literal (see theme.py's own docstring for the semantic
+# rule this must honour: blue means COLD -- mediator spins, a locked
+# control -- and NOTHING else; gold is the live/active-data channel; PASS/
+# FAIL/WARN stay off that accent channel entirely, per the mockup's own
+# "olive PASS / orange warn / red FAIL / ice lock" legend).
+#
+# WORLD_ON/WORLD_OFF (the LIVE LATTICE panel's live/lit p-bit colour) were,
+# before this task, blue ("#6fb3ff") -- a stray DECORATIVE blue, exactly
+# backwards from the mockup's own construction note ("Lit gold nodes are
+# world p-bits in state 1. Cold-blue nodes are hidden mediators -- frozen
+# helpers, not terrain."). MEDIATOR_ON/OFF were a separate purple pair with
+# no relation to "cold" at all. Both are corrected here: world p-bits are
+# gold (the live/active channel they actually are), mediator spins are
+# blue (the cold channel they actually are).
 # --------------------------------------------------------------------------
-BG = "#1a1b22"
-PANEL_BG = "#22242e"
-BORDER = "#3a3d4d"
-FG = "#e7e7ee"
-DIM = "#9497a8"
-GOOD = "#5ed38a"
-BAD = "#e0667a"
-WARN = "#e0b155"
-ACCENT = "#6fb3ff"
-MEDIATOR_ON = "#c98cff"
-MEDIATOR_OFF = "#3c2f4d"
-WORLD_ON = "#6fb3ff"
-WORLD_OFF = "#243149"
-MONO = ("Consolas", 9)
-MONO_B = ("Consolas", 9, "bold")
-
-
-def _rgb(hex_str: str) -> tuple[int, int, int]:
-    """'#rrggbb' -> (r, g, b) ints -- so the SCOPE panel's PIL-rendered
-    plots (below) can share this file's own colour palette instead of a
-    second, hand-copied one that could drift from it."""
-    h = hex_str.lstrip("#")
-    return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+BG = theme.PAGE
+PANEL_BG = theme.PANEL
+BORDER = theme.BEZEL
+FG = theme.CREAM
+DIM = theme.CREAM_DIM
+GOOD = theme.STATUS_PASS      # PASS -- olive, never gold (gold means "live data", not "this passed")
+BAD = theme.STATUS_FAIL       # FAIL -- red, critical only
+WARN = theme.STATUS_WARN      # warning -- orange
+ACCENT = theme.GOLD           # panel titles / active labels -- the live/useful-window channel
+MEDIATOR_ON = theme.BLUE_LIT  # mediator spins are COLD, full stop -- lit is still cold
+MEDIATOR_OFF = theme.BLUE_DEEP
+WORLD_ON = theme.GOLD         # world p-bits are the LIVE channel, never blue -- see block comment above
+WORLD_OFF = theme.GOLD_GHOST
+MONO_FAMILY = theme.resolve_mono_family()  # Consolas-fallback pre-Tk-root (headless-safe); re-resolved once a real Tk root exists, see LatticeApp.__init__
+MONO = (MONO_FAMILY, 9)
+MONO_B = (MONO_FAMILY, 9, "bold")
 
 
 # Task 6: colours for the SCOPE panel's PIL-rendered plots, derived from
 # this file's own palette above (never a second literal set of colours).
-PLOT_BG = _rgb("#111218")      # same canvas background _draw_trace uses
+# Task 0: PLOT_BG was the hand-picked "#111218", now theme.INSET -- one
+# recessed-area colour, matching every other recessed widget below
+# (log box, frontier box, energy/valid-frac canvases) instead of a second
+# literal only PLOT_BG used.
+PLOT_BG = _rgb(theme.INSET)
 PLOT_FG = _rgb(FG)
 PLOT_DIM = _rgb(DIM)
 PLOT_ACCENT = _rgb(ACCENT)
@@ -1088,14 +1618,25 @@ def render_line_plot(w: int, h: int, xs: Sequence[float], ys: Sequence[float],
 
 
 def render_energy_histogram_plot(w: int, h: int, series: Sequence[float],
-                                 bins: int = SCOPE_ENERGY_HIST_BINS) -> Image.Image:
+                                 bins: int = SCOPE_ENERGY_HIST_BINS
+                                 ) -> tuple[Image.Image, str]:
     """Filled-bar histogram of `series` (the energy trace's own values) --
-    the distribution the trace only samples one point of at a time."""
+    the distribution the trace only samples one point of at a time. Returns
+    (image, caption) like every OTHER detachable plot's own render_*
+    function (render_sigmoid_plot, render_heatmap_image) -- I2, final
+    review: this used to return only the image, with the caption's actual
+    substance hand-written TWICE, once at each of its two call sites (the
+    inline SCOPE cell in _refresh_scope_panel, and the detached window in
+    _render_detached_plot), and the two had already drifted apart -- the
+    detached copy dropped the substantive "the trace itself only samples
+    one point of this at a time" sentence in favour of implementation
+    meta-commentary about which function was called. One caption, computed
+    once, used by both hosts -- there is no second copy left to drift."""
     img = Image.new("RGB", (w, h), PLOT_BG)
     d = ImageDraw.Draw(img)
     if len(series) < 4:
         d.text((10, h // 2 - 6), "(no data yet)", fill=PLOT_DIM)
-        return img
+        return img, "waiting for at least 4 energy trace values..."
     edges, counts = energy_histogram(list(series), bins=bins)
     pad_l, pad_r, pad_t, pad_b = 40, 8, 8, 16
     pw, ph = w - pad_l - pad_r, h - pad_t - pad_b
@@ -1113,7 +1654,10 @@ def render_energy_histogram_plot(w: int, h: int, series: Sequence[float],
     d.text((pad_l, h - 4), f"E={edges[0]:.3g}", fill=PLOT_DIM, anchor="ls")
     d.text((w - pad_r, h - 4), f"{edges[-1]:.3g}", fill=PLOT_DIM, anchor="rs")
     d.text((w - pad_r, pad_t), "count", fill=PLOT_DIM, anchor="ra")
-    return img
+    caption = (f"Distribution of the energy trace's own {len(series)} "
+              f"value(s) so far this session -- the trace itself only "
+              f"samples one point of this at a time.")
+    return img, caption
 
 
 def render_sigmoid_plot(w: int, h: int, draws: Sequence[Sequence[int]], ising,
@@ -1198,6 +1742,251 @@ def render_sigmoid_plot(w: int, h: int, draws: Sequence[Sequence[int]], ising,
     return img, caption
 
 
+# --------------------------------------------------------------------------
+# Task 10: the three plots that have NO existing inline host --
+# node-and-edge lattice, relaxation strip, per-cell heatmap. All three are
+# real, computed data (real topology / real raw draws), never a fabricated
+# illustration -- unlike demo/explainer.py's diagrams, which are
+# deliberately static concept art, these read this SESSION's own live
+# state and are meant to be reopened and watched update.
+# --------------------------------------------------------------------------
+
+def render_lattice_graph_image(w: int, h: int, im, world_idx: Sequence[int],
+                                mediator_idx: Sequence[int], spins_per_cell: int,
+                                grid_w: int) -> tuple[Image.Image, str]:
+    """Extropic Fig 3c analogue: nodes coloured by ROLE -- world spins
+    gold, mediator spins cold blue -- never by this session's live
+    on/off state (that is LIVE LATTICE's own job, the blocks panel next
+    to this button). World nodes are positioned by their own cell
+    (spin_cell_position -- the SAME single source of truth LIVE LATTICE
+    and DECODED WORLD both already key their own layout on), so this
+    diagram's grid reads congruently with those two panels; mediator
+    nodes sit in their own labelled strip below, laid out row-major, never
+    implied to belong to a cell. Edges are real topology, read straight
+    from `im.edges` -- at this program's degree, a few hundred thin
+    lines, cheap for PIL to draw once per redraw."""
+    img = Image.new("RGB", (w, h), _rgb(theme.INSET))
+    d = ImageDraw.Draw(img)
+    n_world = len(world_idx)
+    n_cells = (n_world // spins_per_cell) if spins_per_cell else 0
+    grid_h = (n_cells // grid_w) if grid_w else 0
+    if n_world == 0 or spins_per_cell <= 0 or grid_w <= 0 or grid_h <= 0:
+        d.text((10, h // 2 - 6), "(no topology to draw)", fill=_rgb(DIM))
+        return img, "unavailable: receipt carries no world spins to lay out"
+
+    pad = 14
+    legend_h = 32
+    med_count = len(mediator_idx)
+    med_cols = min(16, max(med_count, 1))
+    med_rows = -(-med_count // med_cols) if med_count else 0
+    strip_gap = 10 if med_count else 0
+    strip_h = med_rows * max(6, (w - 2 * pad) // med_cols) if med_count else 0
+    avail_w = w - 2 * pad
+    avail_h = h - 2 * pad - legend_h - strip_gap - strip_h
+    cell_px = max(6, int(min(avail_w / grid_w, max(avail_h, 1) / grid_h)))
+    grid_px_w, grid_px_h = grid_w * cell_px, grid_h * cell_px
+    ox = pad + max(avail_w - grid_px_w, 0) // 2
+    oy = pad
+
+    positions: dict[int, tuple[float, float]] = {}
+    for i in world_idx:
+        cx, cy, slot = spin_cell_position(i, n_world, spins_per_cell, grid_w)
+        slot_w = cell_px / spins_per_cell
+        positions[i] = (ox + cx * cell_px + (slot + 0.5) * slot_w,
+                        oy + cy * cell_px + cell_px / 2.0)
+
+    med_cw = max(6, grid_px_w // med_cols) if med_count else 0
+    strip_y0 = oy + grid_px_h + strip_gap
+    for k, i in enumerate(mediator_idx):
+        row, col = divmod(k, med_cols)
+        positions[i] = (ox + col * med_cw + med_cw / 2.0,
+                        strip_y0 + row * med_cw + med_cw / 2.0)
+
+    edge_color = _rgb(theme.RULE)
+    for u, v in im.edges:
+        if u in positions and v in positions:
+            d.line([positions[u], positions[v]], fill=edge_color, width=1)
+
+    gold = _rgb(theme.GOLD)
+    blue = _rgb(theme.BLUE)
+    r_world = max(2, cell_px // 6)
+    for i in world_idx:
+        x, y = positions[i]
+        d.ellipse([x - r_world, y - r_world, x + r_world, y + r_world], fill=gold)
+    r_med = max(2, (med_cw // 6)) if med_count else r_world
+    for i in mediator_idx:
+        x, y = positions[i]
+        d.ellipse([x - r_med, y - r_med, x + r_med, y + r_med], fill=blue)
+
+    ly = h - legend_h + 6
+    d.ellipse([pad, ly, pad + 10, ly + 10], fill=gold)
+    d.text((pad + 16, ly - 2), f"world spin (role) x{n_world}", fill=_rgb(DIM))
+    ly2 = ly + 14
+    d.ellipse([pad, ly2, pad + 10, ly2 + 10], fill=blue)
+    d.text((pad + 16, ly2 - 2),
+           f"mediator spin (cold, frozen helper) x{med_count}", fill=_rgb(DIM))
+
+    caption = (
+        f"Structural topology of the compiled program -- {n_world} world "
+        f"spins (gold) + {med_count} mediator spins (cold blue, frozen "
+        f"helpers, never terrain) and {len(im.edges)} coupling edges. "
+        f"Nodes are coloured by ROLE here, NOT by this session's live "
+        f"state -- see LIVE LATTICE for the per-sample on/off view of "
+        f"these same {n_world + med_count} spins.")
+    return img, caption
+
+
+def render_relaxation_strip_image(w: int, h: int, draws: Sequence[Sequence[int]],
+                                   n_frames: int, n_world_spins: int,
+                                   spins_per_cell: int, grid_w: int
+                                   ) -> tuple[Image.Image, str]:
+    """Extropic Fig 5a analogue: `n_frames` evenly-spaced snapshots of
+    this session's own raw physical draws (oldest -> newest, left to
+    right), each rendered as a small WORLD-spin occupancy thumbnail --
+    ONE PIL image (the tokens spec's own buildability rule: "one PNG
+    strip, not eight nested Frames of Labels"), never eight separate Tk
+    widgets. Each thumbnail's cell colour is gold-intensity = the
+    fraction of that cell's own spins_per_cell sub-spins reading 1 IN
+    THAT ONE DRAW -- exactly what LIVE LATTICE's own blocks would have
+    shown at that instant, RAW and valid-or-not (the same "every draw,
+    valid or not" convention the energy/magnetization traces already
+    use), never the decoded terrain DECODED WORLD shows and never an
+    average across draws (see the per-cell heatmap for that)."""
+    img = Image.new("RGB", (w, h), _rgb(theme.INSET))
+    d = ImageDraw.Draw(img)
+    if len(draws) < 2:
+        d.text((10, h // 2 - 6), "(no data yet)", fill=_rgb(DIM))
+        return img, "waiting for draws..."
+    n_cells = (n_world_spins // spins_per_cell) if spins_per_cell else 0
+    grid_h = (n_cells // grid_w) if grid_w else 0
+    if n_world_spins == 0 or spins_per_cell <= 0 or grid_w <= 0 or grid_h <= 0:
+        d.text((10, h // 2 - 6), "(no topology to draw)", fill=_rgb(DIM))
+        return img, "unavailable: receipt carries no world spins to lay out"
+
+    n = len(draws)
+    k = min(n_frames, n)
+    idxs = sorted(set(int(round(i * (n - 1) / max(k - 1, 1))) for i in range(k)))
+    pad, gap, label_h = 6, 6, 12
+    n_shown = len(idxs)
+    frame_w = (w - 2 * pad - gap * max(n_shown - 1, 0)) / n_shown
+    cell_px = max(2, int(min(frame_w / grid_w, (h - 2 * pad - label_h) / grid_h)))
+    cold = _rgb(theme.GOLD_GHOST)  # 0 -> dim gold, NOT blue: occupancy is not temperature
+    hot = _rgb(theme.GOLD)         # 1 -> full gold
+
+    x = float(pad)
+    for draw_i in idxs:
+        row = np.asarray(draws[draw_i], dtype=float)[:n_world_spins]
+        cell_frac = row.reshape(n_cells, spins_per_cell).mean(axis=1)
+        for cell in range(n_cells):
+            cx, cy = cell % grid_w, cell // grid_w
+            frac = float(cell_frac[cell])
+            color = tuple(int(round(cold[c] + (hot[c] - cold[c]) * frac)) for c in range(3))
+            x0 = int(round(x)) + cx * cell_px
+            y0 = pad + cy * cell_px
+            d.rectangle([x0, y0, x0 + cell_px - 1, y0 + cell_px - 1], fill=color)
+        d.text((int(round(x)), pad + grid_h * cell_px + 1), f"buf#{draw_i}", fill=_rgb(DIM))
+        x += frame_w + gap
+
+    caption = (
+        f"{n_shown} evenly-spaced raw physical draws from this session's "
+        f"own ring buffer ({n} held right now, oldest -> newest left to "
+        f"right; buf#N is a POSITION within that buffer, not a global "
+        f"sweep counter). Gold intensity = fraction of a cell's own "
+        f"{spins_per_cell} world sub-spin(s) reading 1 IN THAT draw, "
+        f"valid or not -- NOT the decoded terrain shown in DECODED "
+        f"WORLD, and not an average across draws.")
+    return img, caption
+
+
+def _thermal_ramp_rgb(frac: np.ndarray) -> np.ndarray:
+    """cold(blue_deep) -> gold(55%) -> hot(orange) -- verbatim the SAME
+    3-stop gradient render_temperature_track's ADJUSTABLE branch already
+    uses for beta/temperature (see that function's own docstring for why
+    those particular stops), factored out here as a reusable point
+    function so the per-cell heatmap below can share the identical
+    mapping rather than a second, hand-copied gradient that could drift
+    from it. `frac` is a 1-D array in [0, 1] (values outside are
+    clamped); returns uint8 RGB, shape (len(frac), 3)."""
+    frac = np.clip(np.asarray(frac, dtype=float), 0.0, 1.0)
+    cold = np.array(_rgb(theme.BLUE_DEEP), dtype=float)
+    gold = np.array(_rgb(theme.GOLD), dtype=float)
+    hot = np.array(_rgb(theme.ORANGE), dtype=float)
+    mid = 0.55  # verbatim the tokens spec's CSS gradient stop
+    out = np.empty(frac.shape + (3,), dtype=float)
+    left = frac <= mid
+    right = ~left
+    t_left = frac[left] / mid
+    out[left] = cold[None, :] * (1 - t_left[:, None]) + gold[None, :] * t_left[:, None]
+    t_right = (frac[right] - mid) / (1 - mid)
+    out[right] = gold[None, :] * (1 - t_right[:, None]) + hot[None, :] * t_right[:, None]
+    return out.clip(0, 255).astype(np.uint8)
+
+
+def render_heatmap_image(w: int, h: int, cell_values: np.ndarray) -> tuple[Image.Image, str]:
+    """Per-cell heatmap with a thermal ramp and legend, per the tokens
+    spec's own buildability note. `cell_values` is per_cell_occupancy's
+    own (grid_h, grid_w) array of [0, 1] fractions (or NaN -- no draws
+    yet, or a degenerate receipt); NaN cells are drawn GHOST-grey, never
+    a fabricated colour, and the legend says so whenever any appear.
+    Occupancy is not literally a temperature, but the tokens spec names
+    this ramp "thermal" and this app's own cold=rare/hot=frequent framing
+    is a real, non-decorative reading of the SAME blue/gold/orange
+    meaning used everywhere else in this app (a cell that is almost
+    never on reads cold; a cell that is almost always on reads hot)."""
+    img = Image.new("RGB", (w, h), _rgb(theme.INSET))
+    d = ImageDraw.Draw(img)
+    grid_h, grid_w = cell_values.shape
+    if grid_h == 0 or grid_w == 0 or not np.any(~np.isnan(cell_values)):
+        d.text((10, h // 2 - 6), "(no data yet)", fill=_rgb(DIM))
+        return img, "unavailable: no draws recorded yet this session"
+
+    pad = 10
+    legend_h = 30
+    avail_w = w - 2 * pad
+    avail_h = h - 2 * pad - legend_h - 8
+    cell_px = max(4, int(min(avail_w / grid_w, avail_h / grid_h)))
+    grid_px_w, grid_px_h = grid_w * cell_px, grid_h * cell_px
+    ox = pad + max(avail_w - grid_px_w, 0) // 2
+    oy = pad
+
+    valid = ~np.isnan(cell_values)
+    colors = np.zeros(cell_values.shape + (3,), dtype=np.uint8)
+    if valid.any():
+        colors[valid] = _thermal_ramp_rgb(cell_values[valid])
+    ghost = np.array(_rgb(theme.GHOST), dtype=np.uint8)
+    colors[~valid] = ghost
+    border = _rgb(theme.BEZEL)
+    for y in range(grid_h):
+        for x in range(grid_w):
+            x0, y0 = ox + x * cell_px, oy + y * cell_px
+            d.rectangle([x0, y0, x0 + cell_px - 1, y0 + cell_px - 1],
+                       fill=tuple(int(c) for c in colors[y, x]), outline=border, width=1)
+
+    leg_y0 = h - legend_h
+    leg_x0, leg_x1 = pad, w - pad
+    leg_w = max(leg_x1 - leg_x0, 1)
+    ramp = _thermal_ramp_rgb(np.linspace(0.0, 1.0, leg_w))
+    for i in range(leg_w):
+        d.line([(leg_x0 + i, leg_y0), (leg_x0 + i, leg_y0 + 10)],
+              fill=tuple(int(c) for c in ramp[i]))
+    d.rectangle([leg_x0, leg_y0, leg_x1 - 1, leg_y0 + 10], outline=border, width=1)
+    d.text((leg_x0, leg_y0 + 12), "0.0 cold (rarely on)", fill=_rgb(DIM))
+    d.text((leg_x1, leg_y0 + 12), "1.0 hot (almost always on)", fill=_rgb(DIM), anchor="ra")
+    n_nodata = int((~valid).sum())
+    if n_nodata:
+        d.rectangle([leg_x0, leg_y0 - 12, leg_x0 + 10, leg_y0 - 2], fill=tuple(ghost.tolist()))
+        d.text((leg_x0 + 14, leg_y0 - 12), "grey = no data", fill=_rgb(DIM))
+
+    caption = (
+        f"Per-cell mean WORLD-spin occupancy across this session's own "
+        f"raw draw buffer ({grid_h * grid_w} cells), thermal-ramp "
+        f"coloured (the same cold/gold/hot mapping the temperature "
+        f"control uses, reused here for a continuous [0, 1] fraction, "
+        f"NOT an actual temperature). {n_nodata} cell(s) have no data "
+        f"yet, drawn grey -- never given a fabricated colour.")
+    return img, caption
+
+
 def _fit_caption_height(label: tk.Label) -> None:
     """I3/I4 (fix-round-2): size `label`'s `height` (Tk's Label height is a
     LINE COUNT, not pixels) to what its CURRENTLY SET text actually needs
@@ -1224,7 +2013,7 @@ class Panel(tk.Frame):
         super().__init__(master, bg=PANEL_BG, highlightbackground=BORDER,
                           highlightthickness=1, **kw)
         tk.Label(self, text=title, bg=PANEL_BG, fg=ACCENT,
-                  font=("Consolas", 10, "bold"), anchor="w"
+                  font=(MONO_FAMILY, 10, "bold"), anchor="w"
                   ).pack(fill="x", padx=8, pady=(6, 2))
         self.body = tk.Frame(self, bg=PANEL_BG)
         self.body.pack(fill="both", expand=True, padx=8, pady=(0, 8))
@@ -1233,6 +2022,21 @@ class Panel(tk.Frame):
 class LatticeApp(tk.Tk):
     def __init__(self, receipt: Receipt, overlay_receipt: Receipt):
         super().__init__()
+        # Task 0: MONO_FAMILY was resolved once at import time (module
+        # scope, before ANY Tk root existed -- lattice_app.py must stay
+        # safe to import headlessly, see the "no Tk in pure logic" test
+        # convention), so it could only ever see theme.py's own
+        # no-root fallback ("Consolas"). Re-resolve now that `self` IS a
+        # live Tk root (LatticeApp subclasses tk.Tk) -- this is the first
+        # point "Cascadia Mono" can actually be detected as installed.
+        # Every widget built below (in _build_layout /
+        # _populate_static_panels, both called later in this __init__)
+        # reads the MONO_FAMILY global at call time, so rebinding it here,
+        # before either runs, is sufficient -- no widget needs rebuilding.
+        global MONO_FAMILY, MONO, MONO_B
+        MONO_FAMILY = theme.resolve_mono_family()
+        MONO = (MONO_FAMILY, 9)
+        MONO_B = (MONO_FAMILY, 9, "bold")
         self.receipt = receipt
         self.overlay_receipt = overlay_receipt   # Task 7: demo/receipts/elev_band, compiled once at load, same as `receipt`
         self.title("tsu lattice demo -- live sampling of a compiled receipt")
@@ -1242,9 +2046,19 @@ class LatticeApp(tk.Tk):
         # fix-round 1 (1160 -> 1240) when the sigmoid cell's caption grew
         # from 4 to 11 lines to carry the reconstruction-vs-defect
         # disclosure on screen. Task 7: grew again (1240 -> 1380) for the
-        # new LAYERS row -- every other panel's own size/position is again
-        # unchanged.
-        self.geometry("1760x1380")
+        # new LAYERS row. Task 8: grew again (1380 -> 1420) -- the
+        # Canvas-drawn temperature control (state label + track + axis
+        # labels + SEAL header + reason) needs more vertical room than the
+        # single-line tk.Scale it replaced (measured: 208px natural content
+        # in a row that previously budgeted 190px, so the reason/seal text
+        # was silently clipped off the bottom of the window -- caught only
+        # by launching the real app and looking, not by any unit test; see
+        # task-0-8-report.md). Kept the temp control itself tight (13pt not
+        # 16pt readout, a 20px not 28px track) and grew the window by only
+        # 40px rather than more, because 1440px is this screen's own
+        # height and a taller request gets silently clamped by the OS --
+        # verified 1420 is NOT clamped here, leaving ~20px margin.
+        self.geometry("1760x1420")
         self.configure(bg=BG)
 
         self.in_q: "queue.Queue[dict]" = queue.Queue(maxsize=64)
@@ -1261,6 +2075,9 @@ class LatticeApp(tk.Tk):
         self.last_valid_sampler_params = None  # UI2: what actually drew it
         self.world_photo = None  # keep a reference; Tk drops PhotoImages with none
         self.log_lines: deque = deque(maxlen=400)
+        self.explainer_window = None  # Task 9: singleton "What is this?" Toplevel
+        self.detach_registry = DetachRegistry()  # Task 10: detached plot windows
+        self.spins_per_cell = None  # set in _populate_static_panels, before any detach is possible
 
         # click-to-pin state -- pure ClampState, no Tk in it (see the
         # headless tests). world_stale is True whenever the world currently
@@ -1290,6 +2107,7 @@ class LatticeApp(tk.Tk):
         self._scope_redraw_counter = 0
         # keep references so Tk doesn't garbage-collect the blitted images
         self.acf_photo = self.mag_photo = self.hist_photo = self.sigmoid_photo = None
+        self.heat_photo = None  # Task 10: per-cell heatmap's own inline SCOPE cell
 
         # Task 7: LAYERS panel state. `active_layer` selects what DECODED
         # WORLD/PINS show and act on -- "base" reuses every attribute
@@ -1300,6 +2118,14 @@ class LatticeApp(tk.Tk):
         # no entry here (it is derived, never stored).
         self.active_layer = "base"
         self.alpha = 1.0   # demo/elevation.band_patch's own `strength` -- see DOSE_RESPONSE_NOTE
+        # Task 8: base's own beta-override slot. Base has no LayerState (see
+        # LayerState's own docstring), so this is where a base beta
+        # override would live IF base ever compiled unmediated and became
+        # adjustable -- see get_beta_override/set_beta_override, which read
+        # and write this exact attribute for layer_name=="base" instead of
+        # indexing self.bands["base"] (which would KeyError -- the fix a
+        # prior review flagged).
+        self.base_beta_override: float | None = None
         self.bands: dict[str, LayerState] = {
             name: LayerState(name, ClampState(cycle=(0, 1))) for name in BAND_NAMES}
         self.layer_photo = None  # DECODED WORLD's blitted image when a band/composite is active
@@ -1403,22 +2229,43 @@ class LatticeApp(tk.Tk):
         # a row. Every plot is a PIL image blitted onto its own Canvas (see
         # render_acf_plot etc. above) -- Tk canvas primitives alone can't
         # do a log axis, filled bars, or an overlaid scatter+curve well.
+        # Task 10: a fifth sub-plot (per-cell heatmap) plus two Detach
+        # buttons (node-edge lattice graph, relaxation strip) with no
+        # inline canvas of their own -- see this method's own comments at
+        # each cell below, and DetachRegistry's own module-level docstring
+        # for why: "Plots that need their own render area pop out into
+        # small Toplevel windows" (task-10-brief.md).
         self.scope_panel = Panel(content, "SCOPE  (autocorrelation / magnetization / "
-                                          "energy histogram / local-field response)")
+                                          "energy histogram / local-field response / "
+                                          "per-cell heatmap -- ⧉ detaches a plot)")
         self.scope_panel.grid(row=1, column=0, columnspan=5, sticky="nsew", pady=(6, 0))
         scope_row = tk.Frame(self.scope_panel.body, bg=PANEL_BG)
         scope_row.pack(fill="both", expand=True)
 
-        def _scope_cell(title, caption_lines=4):
+        def _scope_cell(title, caption_lines=4, detach_key=None):
             cell = tk.Frame(scope_row, bg=PANEL_BG)
             cell.pack(side="left", fill="both", expand=True, padx=4)
-            tk.Label(cell, text=title, bg=PANEL_BG, fg=ACCENT,
-                      font=("Consolas", 8, "bold"), anchor="w").pack(fill="x")
+            header = tk.Frame(cell, bg=PANEL_BG)
+            header.pack(fill="x")
+            tk.Label(header, text=title, bg=PANEL_BG, fg=ACCENT,
+                      font=(MONO_FAMILY, 8, "bold"), anchor="w", justify="left"
+                      ).pack(side="left", fill="x", expand=True)
+            # Task 10: this cell also has a detached, larger-size host --
+            # render_energy_histogram_plot/render_sigmoid_plot/
+            # render_heatmap_image are called from BOTH this inline canvas
+            # (below) AND the detached Toplevel this button opens (see
+            # LatticeApp._render_detached_plot) -- one renderer, two hosts,
+            # never a second implementation that could drift.
+            if detach_key is not None:
+                tk.Button(header, text="⧉", command=lambda k=detach_key: self._open_detach(k),
+                          bg=PANEL_BG, fg=FG, activebackground=BORDER,
+                          activeforeground=FG, relief="flat", padx=5, pady=0,
+                          bd=1, font=(MONO_FAMILY, 8)).pack(side="right")
             canvas = tk.Canvas(cell, width=SCOPE_PLOT_W, height=SCOPE_PLOT_H,
-                                bg="#111218", highlightthickness=0)
+                                bg=theme.INSET, highlightthickness=0)
             canvas.pack(pady=(2, 2))
             caption = tk.Label(cell, text="", bg=PANEL_BG, fg=DIM,
-                                font=("Consolas", 7), anchor="w", justify="left",
+                                font=(MONO_FAMILY, 7), anchor="w", justify="left",
                                 wraplength=SCOPE_PLOT_W, height=caption_lines)
             caption.pack(fill="x")
             return canvas, caption
@@ -1428,7 +2275,7 @@ class LatticeApp(tk.Tk):
         self.mag_canvas, self.mag_caption = _scope_cell(
             "MAGNETIZATION (order parameter, per draw)")
         self.hist_canvas, self.hist_caption = _scope_cell(
-            "ENERGY HISTOGRAM (over the session)")
+            "ENERGY HISTOGRAM (over the session)", detach_key="hist")
         # Task 6 fix-round 1: retitled from "measured P(s=1) vs analytic
         # sigmoid" -- that phrasing claimed the plot showed the sampler's
         # own conditional, which it does not (see render_sigmoid_plot's
@@ -1439,10 +2286,54 @@ class LatticeApp(tk.Tk):
         # room without touching any other cell's sizing.
         self.sigmoid_canvas, self.sigmoid_caption = _scope_cell(
             "LOCAL FIELD: EMPIRICAL P(s=1) vs SIGMOID (REFERENCE ONLY)",
-            caption_lines=11)
+            caption_lines=11, detach_key="sigmoid")
+        # Task 10: per-cell occupancy heatmap -- new sub-plot, same inline
+        # host pattern as hist/sigmoid above.
+        self.heat_canvas, self.heat_caption = _scope_cell(
+            "PER-CELL HEATMAP (occupancy, thermal ramp)", caption_lines=5,
+            detach_key="heatmap")
         for canvas in (self.acf_canvas, self.mag_canvas, self.hist_canvas,
-                      self.sigmoid_canvas):
+                      self.sigmoid_canvas, self.heat_canvas):
             canvas.create_image(0, 0, anchor="nw", tags="plot")
+
+        # Task 10: the node-edge lattice graph and the relaxation strip
+        # have NO inline host at all -- there is no compact spot in this
+        # row that does either justice (the graph needs real vertical
+        # room for grid + mediator strip + legend; the strip needs real
+        # horizontal room for several frames side by side). Both share ONE
+        # narrow button-only cell (stacked, not two separate cells) --
+        # opening its own Toplevel is the ONLY place either plot is ever
+        # rendered, which trivially satisfies "one renderer" (there is no
+        # second implementation to drift from). Measured narrow (not just
+        # guessed): the row's 5 existing canvas cells request ~1712px
+        # against ~1726px actually available -- no deficit, this row has
+        # always fit; this cell is kept to the width measured, by
+        # screenshot, to land inside what's left over rather than
+        # introducing one.
+        detach_only_cell = tk.Frame(scope_row, bg=PANEL_BG, width=92)
+        detach_only_cell.pack(side="left", fill="y", padx=(4, 0))
+        detach_only_cell.pack_propagate(False)
+
+        def _detach_only_row(title, key, note):
+            tk.Label(detach_only_cell, text=title, bg=PANEL_BG, fg=ACCENT,
+                      font=(MONO_FAMILY, 8, "bold"), anchor="w", justify="left",
+                      wraplength=86).pack(fill="x", pady=(2, 0))
+            tk.Button(detach_only_cell, text="Open ⧉",
+                      command=lambda k=key: self._open_detach(k),
+                      bg=PANEL_BG, fg=FG, activebackground=BORDER,
+                      activeforeground=FG, relief="flat", padx=4, pady=3,
+                      bd=1, font=(MONO_FAMILY, 8)).pack(anchor="w", pady=(4, 4))
+            tk.Label(detach_only_cell, text=note, bg=PANEL_BG, fg=DIM,
+                      font=(MONO_FAMILY, 7), anchor="w", justify="left",
+                      wraplength=86).pack(fill="x", pady=(0, 8))
+
+        _detach_only_row(
+            "NODE-EDGE LATTICE (role-coloured)", "lattice_graph",
+            "Detached view only. Real topology: world gold, mediator "
+            "cold blue.")
+        _detach_only_row(
+            "RELAXATION STRIP (raw state, sweeps)", "relaxation",
+            "Detached view only. Raw physical draws, one PNG filmstrip.")
 
         # Task 7: LAYERS panel -- a new row below SCOPE, same "new full-
         # width row" pattern Task 6 used for SCOPE itself. Selector / pins-
@@ -1450,7 +2341,7 @@ class LatticeApp(tk.Tk):
         # per-layer regenerate / temperature (overlay-only) / composite
         # validation readout -- see the brief's own 6 steps, one widget
         # group per step, left to right.
-        content.grid_rowconfigure(2, weight=0, minsize=190)
+        content.grid_rowconfigure(2, weight=0, minsize=230)  # Task 8: 190 -> 230, see self.geometry's own comment above
         self.layers_panel = Panel(content, "LAYERS  (base / band0.."
                                           f"band{N_BANDS - 1} / composite)")
         self.layers_panel.grid(row=2, column=0, columnspan=5, sticky="nsew", pady=(6, 0))
@@ -1463,7 +2354,7 @@ class LatticeApp(tk.Tk):
             if width is not None:
                 cell.pack_propagate(False)
             tk.Label(cell, text=title, bg=PANEL_BG, fg=ACCENT,
-                      font=("Consolas", 8, "bold"), anchor="w").pack(fill="x")
+                      font=(MONO_FAMILY, 8, "bold"), anchor="w").pack(fill="x")
             return cell
 
         # Step 1: layer selector.
@@ -1477,7 +2368,7 @@ class LatticeApp(tk.Tk):
                             highlightthickness=0).pack(fill="x")
         tk.Label(sel_cell, text="Pins apply to the SELECTED layer only "
                                  "(see PINS list, tagged by layer).",
-                  bg=PANEL_BG, fg=DIM, font=("Consolas", 7), anchor="w",
+                  bg=PANEL_BG, fg=DIM, font=(MONO_FAMILY, 7), anchor="w",
                   justify="left", wraplength=180).pack(fill="x", pady=(4, 0))
         # C1 (fix-round-2): the code comment above OVERLAY_PIN_STRENGTH
         # claims "the UI states this" (that an overlay pin is a strong
@@ -1488,7 +2379,7 @@ class LatticeApp(tk.Tk):
                                  "a guarantee -- CONDITIONING STRENGTH can "
                                  "outvote them and the pinned cell can "
                                  "still render the other value.",
-                  bg=PANEL_BG, fg=WARN, font=("Consolas", 7), anchor="w",
+                  bg=PANEL_BG, fg=WARN, font=(MONO_FAMILY, 7), anchor="w",
                   justify="left", wraplength=180).pack(fill="x", pady=(4, 0))
 
         # Step 3: conditioning strength + dose-response reference table.
@@ -1509,10 +2400,10 @@ class LatticeApp(tk.Tk):
         self.alpha_scale.pack(fill="x")
         table_txt = "  ".join(f"a={a:.2f}->{r:.1f}%" for a, r in DOSE_RESPONSE_TABLE)
         tk.Label(alpha_cell, text=f"dose-response reference: {table_txt}",
-                  bg=PANEL_BG, fg=WARN, font=("Consolas", 7), anchor="w",
+                  bg=PANEL_BG, fg=WARN, font=(MONO_FAMILY, 7), anchor="w",
                   justify="left", wraplength=320).pack(fill="x", pady=(2, 0))
         tk.Label(alpha_cell, text=DOSE_RESPONSE_NOTE, bg=PANEL_BG, fg=DIM,
-                  font=("Consolas", 7), anchor="w", justify="left",
+                  font=(MONO_FAMILY, 7), anchor="w", justify="left",
                   wraplength=320).pack(fill="x", pady=(2, 0))
 
         # Step 4: per-layer regenerate.
@@ -1523,32 +2414,70 @@ class LatticeApp(tk.Tk):
             relief="flat", padx=8, pady=4, wraplength=170)
         self.regenerate_btn.pack(fill="x", pady=(4, 0))
         self.regenerate_status = tk.Label(regen_cell, text="", bg=PANEL_BG, fg=DIM,
-                                           font=("Consolas", 7), anchor="w",
+                                           font=(MONO_FAMILY, 7), anchor="w",
                                            justify="left", wraplength=180)
         self.regenerate_status.pack(fill="x", pady=(4, 0))
 
-        # Step 5: temperature control -- overlays only, derived from
-        # whether the ACTIVE layer's program carries mediator spins.
-        temp_cell = _layers_cell("TEMPERATURE (overlay layers only)", width=260)
+        # Step 5: temperature control -- Task 8's two explicit states,
+        # ADJUSTABLE (overlay layers, a live slider) or FIXED (base today,
+        # any layer carrying mediator spins in general -- see
+        # temperature_control_state), drawn entirely on a Canvas (see
+        # render_temperature_track's own docstring for why: a native Scale
+        # cannot be gold, and in the locked state it always looks disabled
+        # -- the opposite of "a point of pride, not an apology"). `temp_cell`
+        # itself is the state's outer frame -- its 1px border colour is
+        # reconfigured per state in _refresh_temperature_control (gold_dim
+        # live / blue locked), matching the mockup's own temp-box treatment.
+        temp_cell = _layers_cell("TEMPERATURE", width=260)
+        self.temp_cell = temp_cell
+        temp_cell.config(highlightthickness=1, highlightbackground=theme.GOLD_DIM,
+                         highlightcolor=theme.GOLD_DIM)
+        # I1 (visual pass): the first cut of this layout measured 236px
+        # natural content height for a 190px-tall row -- silently clipping
+        # the SEAL/reason text off the bottom of the actual window (caught
+        # by launching the real app and looking, not by a unit test: see
+        # task-0-8-report.md). Tightened below (13pt not 16pt readout, a
+        # 20px not 28px track, tighter pady throughout) instead of growing
+        # the window further, since the window height is already
+        # screen-height-limited on a 1440px-tall display.
         self.temp_label = tk.Label(temp_cell, text="", bg=PANEL_BG, fg=FG,
-                                    font=MONO, anchor="w")
-        self.temp_label.pack(fill="x", pady=(2, 0))
-        self.temp_scale = tk.Scale(
-            temp_cell, from_=0.3, to=3.0, resolution=0.05, orient="horizontal",
-            showvalue=0, length=240, bg=PANEL_BG, fg=FG, troughcolor=BG,
-            highlightthickness=0, bd=0, command=self._on_temperature_change)
-        self.temp_scale.set(1.0)
-        self.temp_scale.pack(fill="x")
+                                    font=(MONO_FAMILY, 13, "bold"), anchor="w")
+        self.temp_label.pack(fill="x", pady=(2, 0), padx=4)
+        self.temp_state_label = tk.Label(temp_cell, text="", bg=PANEL_BG, fg=FG,
+                                          font=(MONO_FAMILY, 8), anchor="w")
+        self.temp_state_label.pack(fill="x", padx=4)
+        self.temp_canvas = tk.Canvas(temp_cell, width=TEMP_TRACK_W, height=TEMP_TRACK_H,
+                                     bg=PANEL_BG, highlightthickness=0)
+        self.temp_canvas.pack(pady=(4, 1), padx=4)
+        self.temp_canvas.create_image(0, 0, anchor="nw", tags="track")
+        self.temp_photo = None
+        self.temp_canvas.bind("<Button-1>", self._on_temp_canvas_interact)
+        self.temp_canvas.bind("<B1-Motion>", self._on_temp_canvas_interact)
+        temp_labels_row = tk.Frame(temp_cell, bg=PANEL_BG)
+        temp_labels_row.pack(fill="x", padx=4)
+        tk.Label(temp_labels_row, text=f"cold {TEMP_T_MIN:.1f}", bg=PANEL_BG, fg=DIM,
+                  font=(MONO_FAMILY, 7)).pack(side="left")
+        tk.Label(temp_labels_row, text="", bg=PANEL_BG, fg=DIM,
+                  font=(MONO_FAMILY, 7)).pack(side="left", expand=True)
+        tk.Label(temp_labels_row, text=f"hot {TEMP_T_MAX:.1f}", bg=PANEL_BG, fg=DIM,
+                  font=(MONO_FAMILY, 7)).pack(side="right")
+        # I1 (visual pass, round 2): a separate "SEAL / SPEC 5.3.5" header
+        # Label cost a whole extra line's worth of height for a fact the
+        # reason text below can carry as its own opening words just as
+        # legibly -- folded together so the disclosure text itself has
+        # room to render in full instead of being clipped by the row's
+        # fixed height. See _refresh_temperature_control for the merged
+        # text this produces.
         self.temp_reason = tk.Label(temp_cell, text="", bg=PANEL_BG, fg=WARN,
-                                     font=("Consolas", 7), anchor="w",
+                                     font=(MONO_FAMILY, 7), anchor="w",
                                      justify="left", wraplength=250)
-        self.temp_reason.pack(fill="x", pady=(2, 0))
+        self.temp_reason.pack(fill="x", pady=(3, 2), padx=4)
 
         # Step 6: composite validation readout.
         comp_cell = _layers_cell("COMPOSITE VALIDATION  (cross-layer, separate "
                                   "from each layer's own contract validity)")
         self.composite_label = tk.Label(comp_cell, text="", bg=PANEL_BG, fg=FG,
-                                         font=("Consolas", 8), anchor="w",
+                                         font=(MONO_FAMILY, 8), anchor="w",
                                          justify="left", wraplength=340)
         self.composite_label.pack(fill="x", pady=(2, 0))
 
@@ -1581,6 +2510,13 @@ class LatticeApp(tk.Tk):
                                    bg=PANEL_BG, fg=FG, activebackground=BORDER,
                                    activeforeground=FG, relief="flat", padx=12, pady=4)
         self.step_btn.pack(side="left", padx=(6, 0))
+        # Task 9: "What is this?" -- a newcomer's tour, in its own Toplevel.
+        self.explainer_btn = tk.Button(bottom, text="What is this?",
+                                        command=self._on_show_explainer,
+                                        bg=PANEL_BG, fg=ACCENT, activebackground=BORDER,
+                                        activeforeground=ACCENT, relief="flat",
+                                        padx=12, pady=4)
+        self.explainer_btn.pack(side="left", padx=(6, 0))
 
         # UI2: speed control -- a stepped selector (Scale in integer,
         # snap-to-level mode) over SPEED_LEVELS, DISPLAY RATE ONLY. Says so
@@ -1591,13 +2527,13 @@ class LatticeApp(tk.Tk):
         speed_frame = tk.Frame(bottom, bg=BG)
         speed_frame.pack(side="left", padx=(16, 0))
         tk.Label(speed_frame, text="speed:", bg=BG, fg=DIM,
-                  font=("Consolas", 8)).pack(side="left")
+                  font=(MONO_FAMILY, 8)).pack(side="left")
         # speed_label is created BEFORE the Scale's initial .set() below --
         # tk.Scale.set() can invoke -command synchronously even for a
         # programmatic change, and _on_speed_change/_refresh_speed_label
         # both write to self.speed_label, so it must already exist.
         self.speed_label = tk.Label(speed_frame, text="", bg=BG, fg=DIM,
-                                      font=("Consolas", 8), justify="left")
+                                      font=(MONO_FAMILY, 8), justify="left")
         self.speed_scale = tk.Scale(
             speed_frame, from_=0, to=len(SPEED_LEVELS) - 1, orient="horizontal",
             resolution=1, showvalue=0, length=140, bg=BG, fg=FG,
@@ -1609,7 +2545,7 @@ class LatticeApp(tk.Tk):
         self._refresh_speed_label()
 
         tk.Label(bottom, text=FOOTER_TEXT, bg=BG, fg=DIM,
-                  font=("Consolas", 8), wraplength=900, justify="left"
+                  font=(MONO_FAMILY, 8), wraplength=900, justify="left"
                   ).pack(side="left", padx=(16, 0))
 
     # -- static (receipt-only) panel content --------------------------
@@ -1636,7 +2572,7 @@ class LatticeApp(tk.Tk):
                            "that one run's own numbers, read from passes.json.\n"
                            "Only SAMPLING re-runs per world; the pipeline\n"
                            "itself is not re-executing.",
-                  bg=PANEL_BG, fg=DIM, font=("Consolas", 8), anchor="w", justify="left"
+                  bg=PANEL_BG, fg=DIM, font=(MONO_FAMILY, 8), anchor="w", justify="left"
                   ).pack(fill="x", pady=(4, 0))
 
         # LIVE LATTICE ----------------------------------------------------
@@ -1670,6 +2606,11 @@ class LatticeApp(tk.Tk):
                 f"without guessing; this receipt's encoding doesn't match "
                 f"the assumption this panel is built on")
         spins_per_cell = n_world // n_cells
+        self.spins_per_cell = spins_per_cell  # Task 10: cached for the
+        # detach-only renderers (render_lattice_graph_image,
+        # render_relaxation_strip_image) and per_cell_occupancy, which all
+        # need it and have no other place to derive it from without
+        # duplicating this same divisibility check.
         cell_px = WORLD_CELL_PX  # same on-screen pitch as DECODED WORLD
 
         world_w, world_h = W * cell_px, H * cell_px
@@ -1712,7 +2653,7 @@ class LatticeApp(tk.Tk):
 
         self.lattice_canvas.create_text(
             4, world_h + gap + label_h / 2, anchor="w", fill=DIM,
-            font=("Consolas", 8),
+            font=(MONO_FAMILY, 8),
             text=f"MEDIATOR SPINS ({med_count}) -- hidden spins from edge "
                  f"subdivision; belong to no cell")
 
@@ -1725,7 +2666,7 @@ class LatticeApp(tk.Tk):
                            "terrain meaning until enc.decode succeeds. Each\n"
                            "bordered block above is one DECODED WORLD cell, at\n"
                            "the same grid position and pitch as that panel.",
-                  bg=PANEL_BG, fg=DIM, font=("Consolas", 8), justify="left", anchor="w"
+                  bg=PANEL_BG, fg=DIM, font=(MONO_FAMILY, 8), justify="left", anchor="w"
                   ).pack(fill="x", pady=(6, 0))
 
         # DECODED WORLD ---------------------------------------------------
@@ -1742,7 +2683,7 @@ class LatticeApp(tk.Tk):
         self.world_image_item = self.world_canvas.create_image(0, 0, anchor="nw")
         self.world_canvas.bind("<Button-1>", self._on_world_click)
         self.world_status_label = tk.Label(wf, text="", bg=PANEL_BG, fg=DIM,
-                                             font=("Consolas", 8), justify="left", anchor="w",
+                                             font=(MONO_FAMILY, 8), justify="left", anchor="w",
                                              wraplength=WORLD_DISPLAY_PX - 8)
         self.world_status_label.pack(fill="x")
         self.infeasible_label = tk.Label(wf, text="", bg=PANEL_BG, fg=BAD,
@@ -1753,7 +2694,7 @@ class LatticeApp(tk.Tk):
         pf = tk.Frame(wf, bg=PANEL_BG, highlightbackground=BORDER, highlightthickness=1)
         pf.pack(fill="x", pady=(8, 0))
         tk.Label(pf, text="PINS  (click a cell above to add/cycle/remove one)",
-                  bg=PANEL_BG, fg=ACCENT, font=("Consolas", 9, "bold"), anchor="w"
+                  bg=PANEL_BG, fg=ACCENT, font=(MONO_FAMILY, 9, "bold"), anchor="w"
                   ).pack(fill="x", padx=6, pady=(4, 2))
         self.pins_list_label = tk.Label(pf, text="(none)", bg=PANEL_BG, fg=DIM,
                                           font=MONO, justify="left", anchor="w")
@@ -1785,7 +2726,7 @@ class LatticeApp(tk.Tk):
             else:
                 detail = "verdict recorded; measurement not stored in receipt"
             tk.Label(vf, text=f"{status:<4} {g['gate']:<13} {detail}{extra_s}",
-                      bg=PANEL_BG, fg=color, font=("Consolas", 8), anchor="w"
+                      bg=PANEL_BG, fg=color, font=(MONO_FAMILY, 8), anchor="w"
                       ).pack(fill="x")
         tk.Label(vf, text="", bg=PANEL_BG).pack()
         v = r.verification
@@ -1796,7 +2737,7 @@ class LatticeApp(tk.Tk):
             text = fmt_value(val) if key in v else "unavailable: field absent from receipt"
             fg = DIM if isinstance(val, str) else FG
             tk.Label(vf, text=f"{key}: {text}", bg=PANEL_BG, fg=fg,
-                      font=("Consolas", 8), anchor="w", justify="left", wraplength=395
+                      font=(MONO_FAMILY, 8), anchor="w", justify="left", wraplength=395
                       ).pack(fill="x")
 
         # SAMPLER -------------------------------------------------------
@@ -1814,37 +2755,37 @@ class LatticeApp(tk.Tk):
             f"beta_used={fmt_value(r.beta_used)}",
         ]
         for t in rows_txt:
-            tk.Label(sf, text=t, bg=PANEL_BG, fg=FG, font=("Consolas", 8),
+            tk.Label(sf, text=t, bg=PANEL_BG, fg=FG, font=(MONO_FAMILY, 8),
                       anchor="w", justify="left", wraplength=395).pack(fill="x")
         tk.Label(sf, text=f"no beta slider: {r.mediator_count} mediator spin(s) were "
                            f"coupled at beta={r.beta_used!r}; tsu.passes.route."
                            f"assert_beta_consistent refuses any other beta for this "
                            f"model (BetaMismatchError, spec 5.3.5) -- shown fixed, "
                            f"not hidden.",
-                  bg=PANEL_BG, fg=WARN, font=("Consolas", 8), anchor="w",
+                  bg=PANEL_BG, fg=WARN, font=(MONO_FAMILY, 8), anchor="w",
                   justify="left", wraplength=395).pack(fill="x", pady=(4, 0))
         tk.Label(sf, text=f"live sampler settings (this app, not the receipt) -- "
                            f"UNPINNED at Full speed: n_chains/call={BATCH_CHAINS}, "
                            f"n_warmup={N_WARMUP}, n_samples/call={N_SAMPLES_PER_CALL}",
-                  bg=PANEL_BG, fg=DIM, font=("Consolas", 8), anchor="w",
+                  bg=PANEL_BG, fg=DIM, font=(MONO_FAMILY, 8), anchor="w",
                   justify="left", wraplength=395).pack(fill="x", pady=(4, 0))
         tk.Label(sf, text=f"PINNED at Full speed (via simulate(clamp=...), one batch "
                            f"per pin change): n_chains/call={CLAMP_N_CHAINS}, "
                            f"n_warmup={CLAMP_N_WARMUP}, n_samples/call={CLAMP_N_SAMPLES}",
-                  bg=PANEL_BG, fg=DIM, font=("Consolas", 8), anchor="w",
+                  bg=PANEL_BG, fg=DIM, font=(MONO_FAMILY, 8), anchor="w",
                   justify="left", wraplength=395).pack(fill="x", pady=(2, 0))
         tk.Label(sf, text=f"both: steps_per_sample(thinning)={STEPS_PER_SAMPLE} -- "
                            f"n_warmup and steps_per_sample are FIXED at every speed "
                            f"(see speed control in the bottom bar): only n_chains/call "
                            f"and n_samples/call scale down below Full, which changes "
                            f"batch size/display rate, never the sampled distribution.",
-                  bg=PANEL_BG, fg=DIM, font=("Consolas", 8), anchor="w",
+                  bg=PANEL_BG, fg=DIM, font=(MONO_FAMILY, 8), anchor="w",
                   justify="left", wraplength=395).pack(fill="x", pady=(2, 0))
 
         # DECODED MIX ---------------------------------------------------
         mf = self.mix_panel.body
         self.mix_label = tk.Label(mf, text="unavailable: no valid sample drawn yet this session",
-                                    bg=PANEL_BG, fg=DIM, font=("Consolas", 9), justify="left", anchor="w")
+                                    bg=PANEL_BG, fg=DIM, font=(MONO_FAMILY, 9), justify="left", anchor="w")
         self.mix_label.pack(fill="x")
 
         # SAMPLE LOG ------------------------------------------------------
@@ -1856,7 +2797,7 @@ class LatticeApp(tk.Tk):
                             "NOT p(x): only valid draws are ever rendered,\n"
                             "so this mix and the world panel reflect the\n"
                             "conditional distribution, not the raw sampler.",
-                  bg=PANEL_BG, fg=DIM, font=("Consolas", 8), justify="left", anchor="w"
+                  bg=PANEL_BG, fg=DIM, font=(MONO_FAMILY, 8), justify="left", anchor="w"
                   ).pack(fill="x", pady=(2, 4))
         log_frame = tk.Frame(lgf, bg=PANEL_BG)
         log_frame.pack(fill="both", expand=True)
@@ -1867,7 +2808,7 @@ class LatticeApp(tk.Tk):
         # violation text names the offending edge and is worth reading in full.
         sbx = tk.Scrollbar(log_frame, orient="horizontal")
         sbx.pack(side="bottom", fill="x")
-        self.log_box = tk.Listbox(log_frame, bg="#111218", fg=FG, font=("Consolas", 8),
+        self.log_box = tk.Listbox(log_frame, bg=theme.INSET, fg=FG, font=(MONO_FAMILY, 8),
                                     highlightthickness=0, relief="flat",
                                     yscrollcommand=sb.set, xscrollcommand=sbx.set)
         self.log_box.pack(side="left", fill="both", expand=True)
@@ -1882,17 +2823,61 @@ class LatticeApp(tk.Tk):
         # above): the frontier is a property of the compiled receipt, not
         # of anything sampled live.
         ff = self.frontier_panel.body
+        report = None
         try:
             report = frontier_mod.build_frontier_report(r.path)
             frontier_text = frontier_mod.render_text(report)
         except Exception as exc:  # never crash the app over a display panel
             frontier_text = f"unavailable: frontier report failed: {exc}"
+
+        GAUGE_W = 300  # panel body's own usable width (left col 340px minus
+                        # Panel's border/padding) -- the gauges' fixed drawing
+                        # width; re-verified by screenshot, see task report.
+
+        if report is not None:
+            # Task 11: load gauges -- one per hardware limit, the binding
+            # limit visually dominant, the predicted cost of one more
+            # terrain value (k -> k+1) shown against them so a viewer can
+            # see which one breaks first. Presentation only: every number
+            # below comes straight from `report` (frontier_gauge_specs),
+            # never recomputed here.
+            tk.Label(ff, text=(f"HEADROOM THIS COMPILED MODEL -- "
+                               f"{report.encoding.upper()} -- K={report.shape.k} "
+                               f"P={report.shape.worst_partners}"),
+                     bg=PANEL_BG, fg=ACCENT, font=(MONO_FAMILY, 8, "bold"),
+                     anchor="w", justify="left", wraplength=GAUGE_W
+                     ).pack(fill="x", pady=(0, 6))
+
+            gauges_frame = tk.Frame(ff, bg=PANEL_BG)
+            gauges_frame.pack(fill="x")
+            for spec in frontier_gauge_specs(report):
+                self._build_frontier_gauge_row(gauges_frame, spec, GAUGE_W)
+
+            # The bind-first conclusion, called out on its own (verbatim
+            # report.binding.headline -- not a paraphrase, so it can never
+            # drift from the Text box below or from `python demo/frontier.py`).
+            bind_box = tk.Frame(ff, bg=theme.PANEL_2, highlightbackground=theme.RED,
+                                highlightthickness=1)
+            bind_box.pack(fill="x", pady=(4, 6))
+            tk.Label(bind_box, text="FIRST TO BIND", bg=theme.PANEL_2, fg=theme.RED_HOT,
+                     font=(MONO_FAMILY, 8, "bold"), anchor="w"
+                     ).pack(fill="x", padx=6, pady=(4, 0))
+            tk.Label(bind_box, text=report.binding.headline, bg=theme.PANEL_2, fg=FG,
+                     font=(MONO_FAMILY, 8), anchor="w", justify="left",
+                     wraplength=GAUGE_W).pack(fill="x", padx=6, pady=(0, 4))
+
+        # Full detail (model shape, both next-increment axes, the verified
+        # predicted-vs-observed rows, the |J|/|b| assumed-value disclaimer)
+        # stays the UNCHANGED frontier_mod.render_text output, in a
+        # scrollable Text box below the gauges -- nothing the old panel
+        # showed is dropped, only the headroom section is now ALSO a gauge
+        # above rather than shown solely as text.
         frontier_frame = tk.Frame(ff, bg=PANEL_BG)
         frontier_frame.pack(fill="both", expand=True)
         fsb = tk.Scrollbar(frontier_frame)
         fsb.pack(side="right", fill="y")
-        frontier_box = tk.Text(frontier_frame, bg="#111218", fg=FG, width=38,
-                                font=("Consolas", 8), wrap="word", relief="flat",
+        frontier_box = tk.Text(frontier_frame, bg=theme.INSET, fg=FG, width=38,
+                                font=(MONO_FAMILY, 8), wrap="word", relief="flat",
                                 highlightthickness=0, yscrollcommand=fsb.set)
         frontier_box.insert("1.0", frontier_text)
         frontier_box.config(state="disabled")
@@ -1913,11 +2898,11 @@ class LatticeApp(tk.Tk):
             regime = None
             regime_line = f"unavailable: {exc}"
         tk.Label(gf, text=f"|J|max (this program) = {j_max:.4g}", bg=PANEL_BG,
-                  fg=FG, font=("Consolas", 8), anchor="w").pack(fill="x")
+                  fg=FG, font=(MONO_FAMILY, 8), anchor="w").pack(fill="x")
         tk.Label(gf, text=regime_line, bg=PANEL_BG, fg=FG, font=MONO_B,
                   anchor="w", wraplength=260, justify="left").pack(fill="x", pady=(2, 4))
         tk.Label(gf, text=ONSAGER_ASSUMPTION_NOTE, bg=PANEL_BG, fg=WARN,
-                  font=("Consolas", 8), anchor="w", justify="left",
+                  font=(MONO_FAMILY, 8), anchor="w", justify="left",
                   wraplength=260).pack(fill="x", pady=(0, 8))
 
         # Task 5: temperature alongside beta -- "everything being inverted
@@ -1938,24 +2923,24 @@ class LatticeApp(tk.Tk):
         tk.Label(gf, text="Higher T = hotter, more disordered. Lower T =\n"
                             "colder, more frozen. The useful window sits\n"
                             "between the two extremes.",
-                  bg=PANEL_BG, fg=DIM, font=("Consolas", 8), anchor="w",
+                  bg=PANEL_BG, fg=DIM, font=(MONO_FAMILY, 8), anchor="w",
                   justify="left", wraplength=260).pack(fill="x", pady=(0, 8))
 
         tk.Label(gf, text="ENERGY TRACE (over sweeps)", bg=PANEL_BG, fg=ACCENT,
-                  font=("Consolas", 8, "bold"), anchor="w").pack(fill="x")
-        self.energy_canvas = tk.Canvas(gf, width=260, height=110, bg="#111218",
+                  font=(MONO_FAMILY, 8, "bold"), anchor="w").pack(fill="x")
+        self.energy_canvas = tk.Canvas(gf, width=260, height=110, bg=theme.INSET,
                                          highlightthickness=0)
         self.energy_canvas.pack(fill="x", pady=(2, 8))
 
         tk.Label(gf, text="VALID FRACTION TRACE (over the session)", bg=PANEL_BG,
-                  fg=ACCENT, font=("Consolas", 8, "bold"), anchor="w").pack(fill="x")
-        self.valid_frac_canvas = tk.Canvas(gf, width=260, height=110, bg="#111218",
+                  fg=ACCENT, font=(MONO_FAMILY, 8, "bold"), anchor="w").pack(fill="x")
+        self.valid_frac_canvas = tk.Canvas(gf, width=260, height=110, bg=theme.INSET,
                                              highlightthickness=0)
         self.valid_frac_canvas.pack(fill="x", pady=(2, 4))
         tk.Label(gf, text="Both axes are labelled with their live min/max --\n"
                             "an unlabelled sparkline is decoration, not\n"
                             "instrumentation.",
-                  bg=PANEL_BG, fg=DIM, font=("Consolas", 8), anchor="w",
+                  bg=PANEL_BG, fg=DIM, font=(MONO_FAMILY, 8), anchor="w",
                   justify="left").pack(fill="x")
         self._draw_trace(self.energy_canvas, self.energy_trace, "sweep", "energy")
         self._draw_trace(self.valid_frac_canvas, self.valid_frac_trace,
@@ -1965,6 +2950,59 @@ class LatticeApp(tk.Tk):
         # on their "(no data yet)" / "(no draws yet)" placeholder, same
         # honesty convention as the two traces just above).
         self._refresh_scope_panel()
+
+    def _build_frontier_gauge_row(self, parent: tk.Frame, spec: GaugeSpec,
+                                  width: int) -> None:
+        """Task 11: one FRONTIER load-gauge row -- CHROME meta text (name,
+        tag, fraction, percent) as Labels, IMAGE track (fill + predicted
+        hairline / hatched overrun) blitted from render_frontier_gauge_track,
+        CHROME foot caption. `spec` already carries every number and label
+        this needs (see frontier_gauge_specs) -- this method only lays
+        widgets out, it computes nothing."""
+        row = tk.Frame(parent, bg=PANEL_BG)
+        row.pack(fill="x", pady=(0, 8))
+
+        head = tk.Frame(row, bg=PANEL_BG)
+        head.pack(fill="x")
+        left_head = tk.Frame(head, bg=PANEL_BG)
+        left_head.pack(side="left")
+        tk.Label(left_head, text=spec.label, bg=PANEL_BG, fg=ACCENT,
+                 font=(MONO_FAMILY, 9, "bold"), anchor="w").pack(side="left")
+        if spec.tag_text:
+            tag_fg = {"bind_first": theme.RED_HOT, "highest_util": WARN, "ok": GOOD}[spec.tag_kind]
+            tag_border = {"bind_first": theme.RED, "highest_util": WARN, "ok": GOOD}[spec.tag_kind]
+            tk.Label(left_head, text=" " + spec.tag_text + " ", bg=PANEL_BG, fg=tag_fg,
+                     font=(MONO_FAMILY, 7, "bold"), highlightbackground=tag_border,
+                     highlightthickness=1, bd=0
+                     ).pack(side="left", padx=(8, 0))
+        right_head = tk.Frame(head, bg=PANEL_BG)
+        right_head.pack(side="right")
+        frac_text = f"{spec.measured:g} / {spec.limit:g}"
+        pct_text = f"{spec.pct_used:.0f}%" if spec.pct_used is not None else "n/a"
+        tk.Label(right_head, text=pct_text, bg=PANEL_BG, fg=DIM,
+                 font=(MONO_FAMILY, 8), anchor="e").pack(side="right", padx=(6, 0))
+        tk.Label(right_head, text=frac_text, bg=PANEL_BG, fg=FG,
+                 font=(MONO_FAMILY, 8, "bold"), anchor="e").pack(side="right")
+
+        track_h = 18 if spec.tag_kind == "bind_first" else 14
+        overrun_ratio = None
+        if spec.predicted_exceeds_cap and spec.predicted_value is not None and spec.limit:
+            overrun_ratio = spec.predicted_value / spec.limit
+        img = render_frontier_gauge_track(
+            width, track_h, spec.frac_current,
+            frac_predicted=(spec.frac_predicted if not spec.predicted_exceeds_cap else None),
+            overrun_ratio=overrun_ratio)
+        photo = ImageTk.PhotoImage(img)
+        canvas = tk.Canvas(row, width=width, height=track_h, bg=PANEL_BG,
+                           highlightthickness=0)
+        canvas.pack(fill="x", pady=(3, 2))
+        canvas.create_image(0, 0, anchor="nw", image=photo)
+        canvas.image = photo  # keep a reference; Tk drops PhotoImages with none
+
+        if spec.foot_text:
+            tk.Label(row, text=spec.foot_text, bg=PANEL_BG, fg=DIM,
+                     font=(MONO_FAMILY, 7), anchor="w", justify="left",
+                     wraplength=width).pack(fill="x")
 
     def _draw_trace(self, canvas: tk.Canvas, trace: "Trace", xlabel: str,
                     ylabel: str) -> None:
@@ -1978,7 +3016,7 @@ class LatticeApp(tk.Tk):
         bounds = trace.bounds()
         if bounds is None or len(trace) < 2:
             canvas.create_text(w / 2, h / 2, text="(no data yet)", fill=DIM,
-                                font=("Consolas", 8))
+                                font=(MONO_FAMILY, 8))
             return
         xmin, xmax, ymin, ymax = bounds
         xspan = (xmax - xmin) or 1.0
@@ -1990,15 +3028,15 @@ class LatticeApp(tk.Tk):
             pts.extend((px(x), py(y)))
         canvas.create_line(*pts, fill=ACCENT, width=1)
         canvas.create_text(pad_l, pad_t, text=f"{ymax:.4g}", fill=DIM,
-                            font=("Consolas", 7), anchor="nw")
+                            font=(MONO_FAMILY, 7), anchor="nw")
         canvas.create_text(pad_l, h - pad_b, text=f"{ymin:.4g}", fill=DIM,
-                            font=("Consolas", 7), anchor="sw")
+                            font=(MONO_FAMILY, 7), anchor="sw")
         canvas.create_text(pad_l, h - 4, text=f"{xlabel}={xmin:.0f}", fill=DIM,
-                            font=("Consolas", 7), anchor="sw")
+                            font=(MONO_FAMILY, 7), anchor="sw")
         canvas.create_text(w - pad_r, h - 4, text=f"{xmax:.0f}", fill=DIM,
-                            font=("Consolas", 7), anchor="se")
+                            font=(MONO_FAMILY, 7), anchor="se")
         canvas.create_text(w - pad_r, pad_t, text=ylabel, fill=DIM,
-                            font=("Consolas", 7), anchor="ne")
+                            font=(MONO_FAMILY, 7), anchor="ne")
 
     def _refresh_scope_panel(self) -> None:
         """Task 6: rebuild all four SCOPE sub-plots from this session's own
@@ -2037,13 +3075,11 @@ class LatticeApp(tk.Tk):
                  "-- the order parameter's own physical bounds.")
         _fit_caption_height(self.mag_caption)
 
-        hist_img = render_energy_histogram_plot(SCOPE_PLOT_W, SCOPE_PLOT_H, energy_ys)
+        hist_img, hist_caption = render_energy_histogram_plot(
+            SCOPE_PLOT_W, SCOPE_PLOT_H, energy_ys)
         self.hist_photo = ImageTk.PhotoImage(hist_img)
         self.hist_canvas.itemconfig("plot", image=self.hist_photo)
-        self.hist_caption.config(
-            text=f"Distribution of the energy trace's own {len(energy_ys)} "
-                 f"value(s) so far this session -- the trace itself only "
-                 f"samples one point of this at a time.")
+        self.hist_caption.config(text=hist_caption)
         _fit_caption_height(self.hist_caption)
 
         sigmoid_img, sigmoid_caption = render_sigmoid_plot(
@@ -2053,11 +3089,23 @@ class LatticeApp(tk.Tk):
         self.sigmoid_caption.config(text=sigmoid_caption)
         _fit_caption_height(self.sigmoid_caption)  # I4: measured, not guessed
 
+        # Task 10: per-cell occupancy heatmap -- the SAME
+        # render_heatmap_image the detached "heatmap" window's own redraw
+        # loop calls (see _render_detached_plot), just at SCOPE_PLOT_W/H
+        # instead of its detached size.
+        occ = per_cell_occupancy(list(self.raw_draws), len(self.receipt.world_idx),
+                                  self.spins_per_cell, W)
+        heat_img, heat_caption = render_heatmap_image(SCOPE_PLOT_W, SCOPE_PLOT_H, occ)
+        self.heat_photo = ImageTk.PhotoImage(heat_img)
+        self.heat_canvas.itemconfig("plot", image=self.heat_photo)
+        self.heat_caption.config(text=heat_caption)
+        _fit_caption_height(self.heat_caption)
+
     def _swatch(self, master, color, text):
         row = tk.Frame(master, bg=PANEL_BG)
         row.pack(fill="x", pady=1)
         tk.Canvas(row, width=12, height=12, bg=color, highlightthickness=0).pack(side="left")
-        tk.Label(row, text=" " + text, bg=PANEL_BG, fg=DIM, font=("Consolas", 8)).pack(side="left")
+        tk.Label(row, text=" " + text, bg=PANEL_BG, fg=DIM, font=(MONO_FAMILY, 8)).pack(side="left")
 
     # -- live updates --------------------------------------------------
     def _poll_queue(self):
@@ -2373,15 +3421,32 @@ class LatticeApp(tk.Tk):
                                       f"(demo/elevation.band_patch's own scale "
                                       f"-- see dose-response note below)")
 
-    def _on_temperature_change(self, value):
-        """Overlay-only: stores the chosen T for the ACTIVE band, applied
-        on that band's NEXT regenerate (same 'takes effect next batch'
-        idiom the speed control already uses) -- never resamples here."""
-        if self.active_layer not in self.bands:
+    def _on_temp_canvas_interact(self, event):
+        """Task 8: click/drag on the Canvas-drawn track. ADJUSTABLE only --
+        a drag on the FIXED/locked track (or on composite's n/a track) is
+        deliberately a no-op, not merely visually disabled: the tokens
+        spec's own trap #2 is that a disabled-LOOKING control reads as
+        broken, not as a deliberate refusal, which is exactly why this is
+        drawn on a Canvas rather than relying on a native Scale's disabled
+        state to communicate anything. Overlay-only in practice today
+        (base/composite always fail the `state == "adjustable"` check),
+        but keyed on temperature_control_state like everything else here,
+        not on `self.active_layer == "base"`.
+
+        Stores the chosen T for the ACTIVE layer via set_beta_override,
+        applied on that layer's NEXT regenerate (same 'takes effect next
+        batch' idiom the speed control already uses) -- never resamples
+        here."""
+        ising = self._active_layer_ising()
+        if ising is None:
             return
-        t = float(value)
+        state, _ = temperature_control_state(ising)
+        if state != "adjustable":
+            return
+        frac = min(1.0, max(0.0, event.x / max(TEMP_TRACK_W - 1, 1)))
+        t = TEMP_T_MIN + frac * (TEMP_T_MAX - TEMP_T_MIN)
         beta = 1.0 / t   # T = 1/beta (demo/scope.py's own beta_to_temperature, inverted)
-        self.bands[self.active_layer].beta_override = beta
+        set_beta_override(self.active_layer, beta, self, self.bands)
         self._refresh_temperature_control()
 
     def _active_layer_ising(self):
@@ -2398,38 +3463,74 @@ class LatticeApp(tk.Tk):
         return None
 
     def _refresh_temperature_control(self):
-        """Task 7 Step 5: enabled iff the ACTIVE layer's program carries NO
-        mediator spins -- layer_supports_temperature DERIVES this from
-        `ising.mediator_nodes`, the SAME fact
-        `tsu.passes.route.assert_beta_consistent` gates sampling on, not a
-        hardcoded 'base is locked' flag. This is the honest INVERSE of the
-        SAMPLER panel's existing 'no beta slider' note, which stays on
-        screen unchanged (see _populate_static_panels)."""
+        """Task 8: the temperature control's two explicit states, drawn
+        entirely on the Canvas track (render_temperature_track) plus this
+        method's own Label/border styling -- ADJUSTABLE (a live slider,
+        gold) or FIXED (a locked seal, cold blue -- a point of pride, not
+        an apology, never a greyed-out control). Keyed on
+        temperature_control_state, which derives the decision from EXACTLY
+        the fact `tsu.passes.route.assert_beta_consistent` gates sampling
+        on (`ising.mediator_nodes` empty or not) -- never a hardcoded
+        'base is locked' flag, and never `self.bands[self.active_layer]`
+        directly (see get_beta_override's own docstring for the KeyError a
+        prior review flagged in that direct-indexing pattern)."""
         ising = self._active_layer_ising()
-        if ising is None:  # composite
-            self.temp_scale.config(state="disabled")
-            self.temp_label.config(text="T: n/a -- composite has no program of its own")
+        if ising is None:  # composite -- no program, nothing to show at all
+            self.temp_cell.config(highlightbackground=BORDER, highlightcolor=BORDER)
+            self.temp_label.config(text="n/a", fg=DIM)
+            self.temp_state_label.config(text="composite has no program of its own", fg=DIM)
             self.temp_reason.config(text="")
+            img = render_temperature_track(TEMP_TRACK_W, TEMP_TRACK_H,
+                                           adjustable=False, value_frac=0.5)
+            self.temp_photo = ImageTk.PhotoImage(img)
+            self.temp_canvas.itemconfig("track", image=self.temp_photo)
             return
-        supported = layer_supports_temperature(ising.mediator_nodes)
-        if not supported:
-            self.temp_scale.config(state="disabled")
-            self.temp_label.config(text=f"T: FIXED at {1.0/ising.beta:.3f} (beta={ising.beta:.4g})")
-            self.temp_reason.config(
-                text=f"base carries {len(ising.mediator_nodes)} mediator spin(s) "
-                     f"coupled at beta={ising.beta!r}; assert_beta_consistent "
-                     f"refuses any other beta for this model (BetaMismatchError, "
-                     f"spec 5.3.5) -- same fact the SAMPLER panel's 'no beta "
-                     f"slider' note states, this control is its honest inverse.")
+
+        state, reason = temperature_control_state(ising)
+        if state == "fixed":
+            self.temp_cell.config(highlightbackground=theme.BLUE, highlightcolor=theme.BLUE)
+            t = beta_to_temperature(ising.beta)
+            self.temp_label.config(text=f"T = {t:.3f}", fg=theme.BLUE_LIT)
+            self.temp_state_label.config(text="FIXED · NOT DISABLED", fg=theme.BLUE_LIT)
+            # "SEALED" up front carries the same pride-not-apology framing a
+            # separate "SEAL / SPEC 5.3.5" header line used to (see I1 fix,
+            # round 2, above) without spending a whole extra Label's worth
+            # of vertical space on it -- `reason` (from
+            # temperature_control_state) already cites "spec 5.3.5" itself.
+            self.temp_reason.config(text=f"SEALED -- {reason}", fg=DIM)
+            value_frac = 0.5   # frozen -- render_temperature_track's locked branch ignores this too
         else:
-            self.temp_scale.config(state="normal")
-            beta = self.bands[self.active_layer].beta_override or ising.beta
-            self.temp_label.config(text=f"T = {1.0/beta:.3f}  (beta={beta:.4g}, "
-                                         f"takes effect on this layer's NEXT regenerate)")
+            self.temp_cell.config(highlightbackground=theme.GOLD_DIM, highlightcolor=theme.GOLD_DIM)
+            beta = get_beta_override(self.active_layer, self.base_beta_override,
+                                     self.bands) or ising.beta
+            t = beta_to_temperature(beta)
+            self.temp_label.config(text=f"T = {t:.3f}", fg=ACCENT)
+            self.temp_state_label.config(text=f"ADJUSTABLE · {self.active_layer}", fg=ACCENT)
+            # Minor #4 (final review): this used to assert "bipartite" as a
+            # FACT. What's actually verified here is `ising.mediator_nodes`
+            # being empty (the same fact temperature_control_state keys
+            # "adjustable" on) -- zero mediators means none were INSERTED,
+            # it does not license concluding the receipt is bipartite,
+            # since `self.overlay_receipt.bipartite_after` is itself None
+            # (unrecorded) for this receipt, not True. Named the measured
+            # fact (mediator count) and stated bipartite_after honestly via
+            # fmt_value, rather than asserting a conclusion the receipt
+            # never recorded -- the same "unavailable: <reason>" discipline
+            # every other unrecorded value in this app follows.
             self.temp_reason.config(
-                text=f"{self.active_layer} is bipartite: place() needed no "
-                     f"mediator spins for it, so nothing here is welded to a "
-                     f"compile-time beta -- free to sample at any T.")
+                text=f"beta = {beta:.4g} -- {len(ising.mediator_nodes)} "
+                     f"mediator spins in this program (bipartite_after: "
+                     f"{fmt_value(self.overlay_receipt.bipartite_after)}), "
+                     f"so nothing here is welded to a compile-time beta. "
+                     f"Moving this re-samples {self.active_layer} on its "
+                     f"NEXT regenerate; it does not recompile.", fg=DIM)
+            value_frac = temperature_value_frac(t, TEMP_T_MIN, TEMP_T_MAX)
+
+        img = render_temperature_track(TEMP_TRACK_W, TEMP_TRACK_H,
+                                       adjustable=(state == "adjustable"),
+                                       value_frac=value_frac)
+        self.temp_photo = ImageTk.PhotoImage(img)
+        self.temp_canvas.itemconfig("track", image=self.temp_photo)
 
     def _refresh_composite_readout(self):
         """Task 7 Step 6: cross-layer (monotonicity) validation, SEPARATE
@@ -2658,6 +3759,202 @@ class LatticeApp(tk.Tk):
         if not self.paused:
             self._toggle_pause()
         self.worker.request_step()
+
+    # -- Task 9: "What is this?" explainer window -------------------------
+    def _on_show_explainer(self):
+        """Opens demo/explainer.py's ExplainerWindow -- a real tk.Toplevel
+        (draggable/resizable/minimizable via the native window manager,
+        never overrideredirect). Singleton: a second click LIFTS the
+        existing window (and un-minimizes it via deiconify) rather than
+        stacking duplicate windows -- winfo_exists() is checked because the
+        user closing the window (WM_DELETE_WINDOW -> destroy, wired in
+        ExplainerWindow.__init__) leaves self.explainer_window pointing at
+        a destroyed Tk object, which would raise on any method call."""
+        if self.explainer_window is not None and self.explainer_window.winfo_exists():
+            self.explainer_window.deiconify()
+            self.explainer_window.lift()
+            self.explainer_window.focus_set()
+            return
+        self.explainer_window = explainer.open_explainer(self)
+
+    # -- Task 10: detachable plots ----------------------------------------
+    def _open_detach(self, key: str) -> None:
+        """Opens (or LIFTS) `key`'s own small Toplevel -- the same
+        singleton pattern _on_show_explainer above already uses,
+        generalised over DETACHABLE_PLOTS via self.detach_registry instead
+        of one dedicated attribute per window. Native window manager only
+        (resizable, minimizable, no overrideredirect -- the tokens spec's
+        own trap #1), CHROME + IMAGE per the tokens spec's own buildability
+        rule: a plain Canvas holding one PhotoImage, no drop shadow/blur/
+        rounded corners.
+
+        The Toplevel's own redraw loop calls _render_detached_plot, which
+        dispatches to THE SAME render_* function this plot's inline host
+        calls where one exists (hist/sigmoid/heatmap, see
+        _refresh_scope_panel) -- one renderer, two hosts, per the brief's
+        own framing; lattice_graph/relaxation have no inline host at all,
+        so their only call site IS this one.
+
+        The redraw loop is this window's OWN self.after() timer
+        (DETACH_REFRESH_MS), independent of the inline SCOPE panel's
+        message-driven cadence -- deliberately, so a detached window still
+        redraws even for a plot (lattice_graph, relaxation) that has no
+        inline host driving a refresh at all. WM_DELETE_WINDOW routes
+        through self.detach_registry.close(key), which is the ONLY place
+        the timer is ever cancelled -- see DetachRegistry's own docstring
+        for why that single choke point is what makes "closed window still
+        receiving updates" structurally impossible rather than merely
+        avoided by care."""
+        if self.detach_registry.is_open(key):
+            win = self.detach_registry.window_for(key)
+            if win is not None and win.winfo_exists():
+                win.deiconify()
+                win.lift()
+                win.focus_set()
+                return
+            self.detach_registry.close(key)  # stale handle -- rebuild below
+
+        spec = DETACH_WINDOW_SPECS[key]
+        top = tk.Toplevel(self)
+        top.title(spec["title"])
+        win_w, win_h = spec["win"]
+        top.geometry(f"{win_w}x{win_h}")
+        top.resizable(True, True)   # native WM handles drag/resize/minimize
+        top.configure(bg=theme.PAGE)
+
+        plot_w, plot_h = spec["plot"]
+        # C2 (final review): the caption is packed FIRST, side="bottom" --
+        # Tk's pack manager hands out space to widgets in PACKING ORDER
+        # (not visual order), so whichever is packed first gets its full
+        # requested size before anyone else sees what's left. The canvas
+        # used to be packed first at a fixed size and never reflowed, so on
+        # a shrink the caption (packed last, fill="x" only) was the one
+        # squeezed -- down to fully UNMAPPED at a small enough size, taking
+        # a load-bearing on-screen disclosure with it while the plot stayed
+        # fully visible and looked authoritative on its own. Packing the
+        # caption first, side="bottom", means IT keeps its full requested
+        # height first and the canvas (which can tolerate less room, or the
+        # window's own minsize below can simply refuse to go that low) is
+        # the one that would give way instead.
+        caption = tk.Label(top, text="", bg=theme.PAGE, fg=theme.CREAM_DIM,
+                            font=(MONO_FAMILY, 8), justify="left", anchor="w",
+                            wraplength=win_w - 16)
+        caption.pack(side="bottom", fill="x", padx=8, pady=(0, 8))
+        canvas = tk.Canvas(top, width=plot_w, height=plot_h, bg=theme.INSET,
+                            highlightthickness=0)
+        canvas.pack(padx=8, pady=(8, 4))
+        canvas.create_image(0, 0, anchor="nw", tags="plot")
+        photos: list = []  # keep a reference -- Tk drops a PhotoImage with none
+
+        def redraw():
+            img, caption_text = self._render_detached_plot(key, plot_w, plot_h)
+            photo = ImageTk.PhotoImage(img)
+            photos.clear()
+            photos.append(photo)
+            canvas.itemconfig("plot", image=photo)
+            caption.config(text=caption_text)
+            _fit_caption_height(caption)
+
+        # C2: `wraplength` (set once above, from the CONSTRUCTION-TIME
+        # window width) stayed frozen across a resize, which clipped the
+        # caption horizontally on a widen and left dead space on a shrink
+        # -- re-set it from the window's OWN current width on every
+        # <Configure>, then re-measure the now-rewrapped text's real height
+        # (same _fit_caption_height every other caption in this app uses,
+        # never a re-guessed line count).
+        # Debounced, not run synchronously inside the <Configure> dispatch:
+        # `_fit_caption_height` itself changes the caption's own requested
+        # size (its whole job), and doing that WHILE still inside the
+        # widget's own <Configure> handler re-triggers <Configure> on `top`
+        # before the first call has returned -- an unbounded synchronous
+        # reflow storm (observed directly: opening one detached window and
+        # letting it reach steady state alone produced thousands of
+        # "Exception in Tkinter callback" prints before this fix). Coalesce
+        # rapid-fire events (a drag-resize fires many) into ONE run after a
+        # short quiet period, via top.after -- by the time it runs, Tk has
+        # already settled outside the original event's own call stack, so
+        # this can no longer recurse into itself.
+        cfg_job: dict[str, str | None] = {"id": None}
+
+        def _apply_configure():
+            cfg_job["id"] = None
+            if not top.winfo_exists():
+                return
+            new_wrap = max(top.winfo_width() - 16, 40)
+            if caption.cget("wraplength") != new_wrap:
+                caption.config(wraplength=new_wrap)
+            _fit_caption_height(caption)
+
+        def _on_configure(_evt=None):
+            if cfg_job["id"] is not None:
+                top.after_cancel(cfg_job["id"])
+            cfg_job["id"] = top.after(60, _apply_configure)
+
+        top.bind("<Configure>", _on_configure)
+
+        job_id: dict[str, str | None] = {"id": None}
+
+        def tick():
+            redraw()
+            job_id["id"] = top.after(DETACH_REFRESH_MS, tick)
+
+        def cancel_job():
+            if job_id["id"] is not None:
+                top.after_cancel(job_id["id"])
+                job_id["id"] = None
+            if cfg_job["id"] is not None:
+                top.after_cancel(cfg_job["id"])
+                cfg_job["id"] = None
+
+        def on_close():
+            self.detach_registry.close(key)  # invokes cancel_job() exactly once
+            top.destroy()
+
+        top.protocol("WM_DELETE_WINDOW", on_close)
+        self.detach_registry.open_window(key, top, cancel_job)
+        # C2: minsize used to be a hardcoded (280, 220) guess, unrelated to
+        # what this window's OWN plot + caption actually need -- draw once
+        # first so the caption holds its real content, then measure both
+        # widgets' real requested sizes and set minsize from that (still
+        # never smaller than a small hard floor, so the window can't be
+        # shrunk to zero).
+        redraw()
+        top.update_idletasks()
+        min_w = max(plot_w + 16, 280)
+        min_h = plot_h + caption.winfo_reqheight() + 28
+        top.minsize(min_w, max(min_h, 160))
+        tick()
+
+    def _render_detached_plot(self, key: str, w: int, h: int) -> tuple[Image.Image, str]:
+        """Dispatch table for a detached window's own redraw loop -- see
+        _open_detach's own docstring for why this deliberately calls the
+        EXACT SAME render_* functions the inline hosts call rather than a
+        second, parallel drawing path."""
+        if key == "hist":
+            # I2 (final review): render_energy_histogram_plot now returns
+            # (img, caption) itself -- the SAME caption the inline SCOPE
+            # cell shows, not a second hand-written one. This dispatch
+            # used to build its own caption text here, and it had already
+            # drifted from the inline copy (dropped the substantive "the
+            # trace itself only samples one point of this at a time"
+            # sentence in favour of naming which function was called).
+            return render_energy_histogram_plot(w, h, list(self.energy_trace.ys))
+        if key == "sigmoid":
+            return render_sigmoid_plot(w, h, list(self.raw_draws), self.receipt.im)
+        if key == "heatmap":
+            occ = per_cell_occupancy(list(self.raw_draws), len(self.receipt.world_idx),
+                                     self.spins_per_cell, W)
+            return render_heatmap_image(w, h, occ)
+        if key == "lattice_graph":
+            return render_lattice_graph_image(
+                w, h, self.receipt.im, self.receipt.world_idx,
+                self.receipt.mediator_idx, self.spins_per_cell, W)
+        if key == "relaxation":
+            return render_relaxation_strip_image(
+                w, h, list(self.raw_draws), n_frames=8,
+                n_world_spins=len(self.receipt.world_idx),
+                spins_per_cell=self.spins_per_cell, grid_w=W)
+        raise KeyError(key)
 
     # -- Task 7: per-layer regenerate ------------------------------------
     def _on_regenerate_layer(self):
