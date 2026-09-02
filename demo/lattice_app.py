@@ -367,17 +367,6 @@ class ClampState:
 # tests/test_lattice_app_logic.py's own "no Tk in pure logic" convention.
 # --------------------------------------------------------------------------
 
-def layer_supports_temperature(mediator_nodes: Sequence) -> bool:
-    """True iff a program carrying `mediator_nodes` (an IsingModel's own
-    field) is free to sample at any beta -- the SAME fact
-    `tsu.passes.route.assert_beta_consistent` gates on (empty
-    `mediator_nodes` -> that function is a no-op for ANY requested beta).
-    DERIVED here, not hardcoded per layer name, so this stays correct if a
-    future layer's own topology changes (see task 7's own brief: key the
-    control on this fact, not on "base is always locked")."""
-    return not bool(mediator_nodes)
-
-
 def get_beta_override(layer_name: str, base_override: float | None,
                        bands: "dict[str, LayerState]") -> float | None:
     """Task 8 structural fix: WHERE a layer's chosen beta override lives,
@@ -626,7 +615,13 @@ class GaugeSpec:
     measured: float
     limit: float
     pct_used: float | None
-    tag_kind: str | None       # "bind" | "over" | "ok" | None
+    tag_kind: str | None       # "bind_first" | "highest_util" | "ok" | None
+                               # (Minor #5, final review: renamed from
+                               # "over"/"bind" -- those names were inverted
+                               # relative to their own meaning, a trap for
+                               # the next editor. "bind_first" tags PREDICTED
+                               # TO BIND FIRST; "highest_util" tags HIGHEST
+                               # CURRENT UTILISATION.)
     tag_text: str | None
     predicted_value: float | None
     predicted_label: str | None   # e.g. "predicted degree 11 after k -> 4"
@@ -683,13 +678,34 @@ def frontier_gauge_specs(report: Any) -> list[GaugeSpec]:
     ranked = [h for h in headroom if h.pct_used is not None]
     highest = max(ranked, key=lambda h: h.pct_used) if ranked else None
 
+    # C1 (final review, fix round): report.verified[0] is ALWAYS
+    # verify_k_increment run against THIS receipt's own SELECTED encoding
+    # (build_frontier_report's first `verified` entry, unconditionally --
+    # see demo/frontier.py). Every predicted hairline above is a one-hot-law
+    # prediction; when the selected encoding isn't one_hot, that prediction
+    # can DIVERGE from what this model's own encoding actually does (the
+    # domain_wall case named in report.encoding_note). That divergence must
+    # sit beside the prediction it refutes, not several lines below a fold.
+    selected_verified = report.verified[0] if report.verified else None
+
     specs = []
     for h in headroom:
+        # Minor #5 (final review): this used to be if/elif, which silently
+        # DROPPED the "HIGHEST CURRENT UTILISATION" tag whenever a single
+        # gate happened to also be the one predicted to bind first --
+        # neither test receipt exercises that overlap, so it went unnoticed.
+        # Both tags are now kept when both apply, joined into one label;
+        # tag_kind (which only selects a colour) follows whichever is the
+        # more urgent signal.
         tag_kind = tag_text = None
+        tag_labels = []
         if h.gate == bind_first:
-            tag_kind, tag_text = "over", "PREDICTED TO BIND FIRST"
-        elif highest is not None and h.gate == highest.gate:
-            tag_kind, tag_text = "bind", "HIGHEST CURRENT UTILISATION"
+            tag_labels.append("PREDICTED TO BIND FIRST")
+        if highest is not None and h.gate == highest.gate:
+            tag_labels.append("HIGHEST CURRENT UTILISATION")
+        if tag_labels:
+            tag_kind = "bind_first" if h.gate == bind_first else "highest_util"
+            tag_text = "  +  ".join(tag_labels)
         elif h.gate == "node_budget" and h.pct_used is not None and h.pct_used < 5.0:
             tag_kind, tag_text = "ok", "UNBOUND ON Z1-CLASS"
 
@@ -717,6 +733,23 @@ def frontier_gauge_specs(report: Any) -> list[GaugeSpec]:
             over_note = "OVER CAP" if predicted_exceeds_cap else "still under cap"
             foot_parts.append(f"dashed/hatch = {predicted_label} "
                               f"({predicted_law}) -- {over_note}")
+            # C1: the observed value for THIS receipt's own selected
+            # encoding, named beside the prediction it either confirms or
+            # refutes -- never left for the Text box alone to carry.
+            if selected_verified is not None and h.gate == "degree":
+                match = ("MATCHES" if selected_verified.degree_matches
+                         else "DIVERGES")
+                foot_parts.append(
+                    f"OBSERVED ({report.encoding}): degree "
+                    f"{selected_verified.observed_degree} ({match} the law)")
+            elif (selected_verified is not None and h.gate == "field_cap"
+                  and selected_verified.predicted_field_floor is not None):
+                floor_ok = ("at/above floor"
+                            if selected_verified.field_at_or_above_floor
+                            else "BELOW floor")
+                foot_parts.append(
+                    f"OBSERVED ({report.encoding}): |b|max "
+                    f"{selected_verified.observed_field:.2f} ({floor_ok})")
         if h.gate in ("coupling_cap", "field_cap"):
             foot_parts.append(ASSUMED_CAP_NOTE)
         if h.gate == "node_budget":
@@ -808,7 +841,7 @@ def render_frontier_gauge_track(width: int, height: int, frac_current: float,
         hatch_w = max(int(round(avail * min(over_span / 0.5, 1.0))), 6)
         hatch_w = min(hatch_w, avail)
         x0, x1 = track_w, min(track_w + hatch_w, width - 1)
-        _hatch_fill(draw, x0, 0, x1, height - 1, hexrgb(theme.RED), hexrgb("#6a2018"))
+        _hatch_fill(draw, x0, 0, x1, height - 1, hexrgb(theme.RED), hexrgb(theme.RED_DEEP))
         draw.rectangle([x0, 0, x1, height - 1], outline=hexrgb(theme.RED), width=1)
     return img
 
@@ -1585,14 +1618,25 @@ def render_line_plot(w: int, h: int, xs: Sequence[float], ys: Sequence[float],
 
 
 def render_energy_histogram_plot(w: int, h: int, series: Sequence[float],
-                                 bins: int = SCOPE_ENERGY_HIST_BINS) -> Image.Image:
+                                 bins: int = SCOPE_ENERGY_HIST_BINS
+                                 ) -> tuple[Image.Image, str]:
     """Filled-bar histogram of `series` (the energy trace's own values) --
-    the distribution the trace only samples one point of at a time."""
+    the distribution the trace only samples one point of at a time. Returns
+    (image, caption) like every OTHER detachable plot's own render_*
+    function (render_sigmoid_plot, render_heatmap_image) -- I2, final
+    review: this used to return only the image, with the caption's actual
+    substance hand-written TWICE, once at each of its two call sites (the
+    inline SCOPE cell in _refresh_scope_panel, and the detached window in
+    _render_detached_plot), and the two had already drifted apart -- the
+    detached copy dropped the substantive "the trace itself only samples
+    one point of this at a time" sentence in favour of implementation
+    meta-commentary about which function was called. One caption, computed
+    once, used by both hosts -- there is no second copy left to drift."""
     img = Image.new("RGB", (w, h), PLOT_BG)
     d = ImageDraw.Draw(img)
     if len(series) < 4:
         d.text((10, h // 2 - 6), "(no data yet)", fill=PLOT_DIM)
-        return img
+        return img, "waiting for at least 4 energy trace values..."
     edges, counts = energy_histogram(list(series), bins=bins)
     pad_l, pad_r, pad_t, pad_b = 40, 8, 8, 16
     pw, ph = w - pad_l - pad_r, h - pad_t - pad_b
@@ -1610,7 +1654,10 @@ def render_energy_histogram_plot(w: int, h: int, series: Sequence[float],
     d.text((pad_l, h - 4), f"E={edges[0]:.3g}", fill=PLOT_DIM, anchor="ls")
     d.text((w - pad_r, h - 4), f"{edges[-1]:.3g}", fill=PLOT_DIM, anchor="rs")
     d.text((w - pad_r, pad_t), "count", fill=PLOT_DIM, anchor="ra")
-    return img
+    caption = (f"Distribution of the energy trace's own {len(series)} "
+              f"value(s) so far this session -- the trace itself only "
+              f"samples one point of this at a time.")
+    return img, caption
 
 
 def render_sigmoid_plot(w: int, h: int, draws: Sequence[Sequence[int]], ising,
@@ -2258,13 +2305,11 @@ class LatticeApp(tk.Tk):
         # opening its own Toplevel is the ONLY place either plot is ever
         # rendered, which trivially satisfies "one renderer" (there is no
         # second implementation to drift from). Measured narrow (not just
-        # guessed): the row's 5 existing canvas cells already request
-        # ~1794px against ~1726px actually available (see task-10-report.md
-        # -- a pre-existing few-dozen-px deficit this app has always run
-        # under without visible clipping, since Tk still lays out every
-        # OTHER cell at its full requested width first); this cell is kept
-        # to the width measured, by screenshot, to land inside what's left
-        # over, rather than adding to that deficit.
+        # guessed): the row's 5 existing canvas cells request ~1712px
+        # against ~1726px actually available -- no deficit, this row has
+        # always fit; this cell is kept to the width measured, by
+        # screenshot, to land inside what's left over rather than
+        # introducing one.
         detach_only_cell = tk.Frame(scope_row, bg=PANEL_BG, width=92)
         detach_only_cell.pack(side="left", fill="y", padx=(4, 0))
         detach_only_cell.pack_propagate(False)
@@ -2924,8 +2969,8 @@ class LatticeApp(tk.Tk):
         tk.Label(left_head, text=spec.label, bg=PANEL_BG, fg=ACCENT,
                  font=(MONO_FAMILY, 9, "bold"), anchor="w").pack(side="left")
         if spec.tag_text:
-            tag_fg = {"over": theme.RED_HOT, "bind": WARN, "ok": GOOD}[spec.tag_kind]
-            tag_border = {"over": theme.RED, "bind": WARN, "ok": GOOD}[spec.tag_kind]
+            tag_fg = {"bind_first": theme.RED_HOT, "highest_util": WARN, "ok": GOOD}[spec.tag_kind]
+            tag_border = {"bind_first": theme.RED, "highest_util": WARN, "ok": GOOD}[spec.tag_kind]
             tk.Label(left_head, text=" " + spec.tag_text + " ", bg=PANEL_BG, fg=tag_fg,
                      font=(MONO_FAMILY, 7, "bold"), highlightbackground=tag_border,
                      highlightthickness=1, bd=0
@@ -2939,7 +2984,7 @@ class LatticeApp(tk.Tk):
         tk.Label(right_head, text=frac_text, bg=PANEL_BG, fg=FG,
                  font=(MONO_FAMILY, 8, "bold"), anchor="e").pack(side="right")
 
-        track_h = 18 if spec.tag_kind == "over" else 14
+        track_h = 18 if spec.tag_kind == "bind_first" else 14
         overrun_ratio = None
         if spec.predicted_exceeds_cap and spec.predicted_value is not None and spec.limit:
             overrun_ratio = spec.predicted_value / spec.limit
@@ -3030,13 +3075,11 @@ class LatticeApp(tk.Tk):
                  "-- the order parameter's own physical bounds.")
         _fit_caption_height(self.mag_caption)
 
-        hist_img = render_energy_histogram_plot(SCOPE_PLOT_W, SCOPE_PLOT_H, energy_ys)
+        hist_img, hist_caption = render_energy_histogram_plot(
+            SCOPE_PLOT_W, SCOPE_PLOT_H, energy_ys)
         self.hist_photo = ImageTk.PhotoImage(hist_img)
         self.hist_canvas.itemconfig("plot", image=self.hist_photo)
-        self.hist_caption.config(
-            text=f"Distribution of the energy trace's own {len(energy_ys)} "
-                 f"value(s) so far this session -- the trace itself only "
-                 f"samples one point of this at a time.")
+        self.hist_caption.config(text=hist_caption)
         _fit_caption_height(self.hist_caption)
 
         sigmoid_img, sigmoid_caption = render_sigmoid_plot(
@@ -3463,11 +3506,24 @@ class LatticeApp(tk.Tk):
             t = beta_to_temperature(beta)
             self.temp_label.config(text=f"T = {t:.3f}", fg=ACCENT)
             self.temp_state_label.config(text=f"ADJUSTABLE · {self.active_layer}", fg=ACCENT)
+            # Minor #4 (final review): this used to assert "bipartite" as a
+            # FACT. What's actually verified here is `ising.mediator_nodes`
+            # being empty (the same fact temperature_control_state keys
+            # "adjustable" on) -- zero mediators means none were INSERTED,
+            # it does not license concluding the receipt is bipartite,
+            # since `self.overlay_receipt.bipartite_after` is itself None
+            # (unrecorded) for this receipt, not True. Named the measured
+            # fact (mediator count) and stated bipartite_after honestly via
+            # fmt_value, rather than asserting a conclusion the receipt
+            # never recorded -- the same "unavailable: <reason>" discipline
+            # every other unrecorded value in this app follows.
             self.temp_reason.config(
-                text=f"beta = {beta:.4g} -- bipartite: no mediator spins, so "
-                     f"nothing here is welded to a compile-time beta. Moving "
-                     f"this re-samples {self.active_layer} on its NEXT "
-                     f"regenerate; it does not recompile.", fg=DIM)
+                text=f"beta = {beta:.4g} -- {len(ising.mediator_nodes)} "
+                     f"mediator spins in this program (bipartite_after: "
+                     f"{fmt_value(self.overlay_receipt.bipartite_after)}), "
+                     f"so nothing here is welded to a compile-time beta. "
+                     f"Moving this re-samples {self.active_layer} on its "
+                     f"NEXT regenerate; it does not recompile.", fg=DIM)
             value_frac = temperature_value_frac(t, TEMP_T_MIN, TEMP_T_MAX)
 
         img = render_temperature_track(TEMP_TRACK_W, TEMP_TRACK_H,
@@ -3763,19 +3819,31 @@ class LatticeApp(tk.Tk):
         top.title(spec["title"])
         win_w, win_h = spec["win"]
         top.geometry(f"{win_w}x{win_h}")
-        top.minsize(280, 220)
         top.resizable(True, True)   # native WM handles drag/resize/minimize
         top.configure(bg=theme.PAGE)
 
         plot_w, plot_h = spec["plot"]
+        # C2 (final review): the caption is packed FIRST, side="bottom" --
+        # Tk's pack manager hands out space to widgets in PACKING ORDER
+        # (not visual order), so whichever is packed first gets its full
+        # requested size before anyone else sees what's left. The canvas
+        # used to be packed first at a fixed size and never reflowed, so on
+        # a shrink the caption (packed last, fill="x" only) was the one
+        # squeezed -- down to fully UNMAPPED at a small enough size, taking
+        # a load-bearing on-screen disclosure with it while the plot stayed
+        # fully visible and looked authoritative on its own. Packing the
+        # caption first, side="bottom", means IT keeps its full requested
+        # height first and the canvas (which can tolerate less room, or the
+        # window's own minsize below can simply refuse to go that low) is
+        # the one that would give way instead.
+        caption = tk.Label(top, text="", bg=theme.PAGE, fg=theme.CREAM_DIM,
+                            font=(MONO_FAMILY, 8), justify="left", anchor="w",
+                            wraplength=win_w - 16)
+        caption.pack(side="bottom", fill="x", padx=8, pady=(0, 8))
         canvas = tk.Canvas(top, width=plot_w, height=plot_h, bg=theme.INSET,
                             highlightthickness=0)
         canvas.pack(padx=8, pady=(8, 4))
         canvas.create_image(0, 0, anchor="nw", tags="plot")
-        caption = tk.Label(top, text="", bg=theme.PAGE, fg=theme.CREAM_DIM,
-                            font=(MONO_FAMILY, 8), justify="left", anchor="w",
-                            wraplength=win_w - 16)
-        caption.pack(fill="x", padx=8, pady=(0, 8))
         photos: list = []  # keep a reference -- Tk drops a PhotoImage with none
 
         def redraw():
@@ -3787,6 +3855,43 @@ class LatticeApp(tk.Tk):
             caption.config(text=caption_text)
             _fit_caption_height(caption)
 
+        # C2: `wraplength` (set once above, from the CONSTRUCTION-TIME
+        # window width) stayed frozen across a resize, which clipped the
+        # caption horizontally on a widen and left dead space on a shrink
+        # -- re-set it from the window's OWN current width on every
+        # <Configure>, then re-measure the now-rewrapped text's real height
+        # (same _fit_caption_height every other caption in this app uses,
+        # never a re-guessed line count).
+        # Debounced, not run synchronously inside the <Configure> dispatch:
+        # `_fit_caption_height` itself changes the caption's own requested
+        # size (its whole job), and doing that WHILE still inside the
+        # widget's own <Configure> handler re-triggers <Configure> on `top`
+        # before the first call has returned -- an unbounded synchronous
+        # reflow storm (observed directly: opening one detached window and
+        # letting it reach steady state alone produced thousands of
+        # "Exception in Tkinter callback" prints before this fix). Coalesce
+        # rapid-fire events (a drag-resize fires many) into ONE run after a
+        # short quiet period, via top.after -- by the time it runs, Tk has
+        # already settled outside the original event's own call stack, so
+        # this can no longer recurse into itself.
+        cfg_job: dict[str, str | None] = {"id": None}
+
+        def _apply_configure():
+            cfg_job["id"] = None
+            if not top.winfo_exists():
+                return
+            new_wrap = max(top.winfo_width() - 16, 40)
+            if caption.cget("wraplength") != new_wrap:
+                caption.config(wraplength=new_wrap)
+            _fit_caption_height(caption)
+
+        def _on_configure(_evt=None):
+            if cfg_job["id"] is not None:
+                top.after_cancel(cfg_job["id"])
+            cfg_job["id"] = top.after(60, _apply_configure)
+
+        top.bind("<Configure>", _on_configure)
+
         job_id: dict[str, str | None] = {"id": None}
 
         def tick():
@@ -3797,6 +3902,9 @@ class LatticeApp(tk.Tk):
             if job_id["id"] is not None:
                 top.after_cancel(job_id["id"])
                 job_id["id"] = None
+            if cfg_job["id"] is not None:
+                top.after_cancel(cfg_job["id"])
+                cfg_job["id"] = None
 
         def on_close():
             self.detach_registry.close(key)  # invokes cancel_job() exactly once
@@ -3804,6 +3912,17 @@ class LatticeApp(tk.Tk):
 
         top.protocol("WM_DELETE_WINDOW", on_close)
         self.detach_registry.open_window(key, top, cancel_job)
+        # C2: minsize used to be a hardcoded (280, 220) guess, unrelated to
+        # what this window's OWN plot + caption actually need -- draw once
+        # first so the caption holds its real content, then measure both
+        # widgets' real requested sizes and set minsize from that (still
+        # never smaller than a small hard floor, so the window can't be
+        # shrunk to zero).
+        redraw()
+        top.update_idletasks()
+        min_w = max(plot_w + 16, 280)
+        min_h = plot_h + caption.winfo_reqheight() + 28
+        top.minsize(min_w, max(min_h, 160))
         tick()
 
     def _render_detached_plot(self, key: str, w: int, h: int) -> tuple[Image.Image, str]:
@@ -3812,13 +3931,14 @@ class LatticeApp(tk.Tk):
         EXACT SAME render_* functions the inline hosts call rather than a
         second, parallel drawing path."""
         if key == "hist":
-            img = render_energy_histogram_plot(w, h, list(self.energy_trace.ys))
-            caption = (f"Distribution of the energy trace's own "
-                       f"{len(self.energy_trace.ys)} value(s) so far this "
-                       f"session -- the SAME render_energy_histogram_plot "
-                       f"the inline SCOPE cell uses, at a larger size (one "
-                       f"renderer, two hosts).")
-            return img, caption
+            # I2 (final review): render_energy_histogram_plot now returns
+            # (img, caption) itself -- the SAME caption the inline SCOPE
+            # cell shows, not a second hand-written one. This dispatch
+            # used to build its own caption text here, and it had already
+            # drifted from the inline copy (dropped the substantive "the
+            # trace itself only samples one point of this at a time"
+            # sentence in favour of naming which function was called).
+            return render_energy_histogram_plot(w, h, list(self.energy_trace.ys))
         if key == "sigmoid":
             return render_sigmoid_plot(w, h, list(self.raw_draws), self.receipt.im)
         if key == "heatmap":

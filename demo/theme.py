@@ -63,6 +63,12 @@ BLUE_DEEP = "#1e3a50"     # cold ground
 # Red -- critical / FAIL only.
 RED = "#b8352a"
 RED_HOT = "#d44538"       # critical, emphasised
+RED_DEEP = "#6a2018"      # dark red ground -- e.g. the FRONTIER gauge's
+                           # hatched-overrun background (I5, final review:
+                           # this hex lived as a hand-copied literal in
+                           # demo/lattice_app.py, the one global constraint
+                           # this branch otherwise holds to everywhere else
+                           # -- import the name, don't hand-copy the hex).
 
 # Text.
 CREAM = "#f5f0e8"         # body text -- warm white, not #fff

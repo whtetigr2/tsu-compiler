@@ -396,19 +396,12 @@ def test_worker_request_step_sets_the_event():
 
 
 # ---------------------------------------------------------------------------
-# Task 7: LAYERS panel pure logic -- layer_supports_temperature,
-# band_index_from_name, overlay_pin_patch, composite_missing_layers,
-# grid_to_decoded, and ClampState's per-instance `cycle` override. No Tk.
+# Task 7: LAYERS panel pure logic -- band_index_from_name, overlay_pin_patch,
+# composite_missing_layers, grid_to_decoded, and ClampState's per-instance
+# `cycle` override. No Tk. (layer_supports_temperature, formerly tested
+# here, was removed as dead code -- superseded by demo/scope.py's
+# temperature_control_state, see Task 8; nothing in the app called it.)
 # ---------------------------------------------------------------------------
-
-def test_layer_supports_temperature_true_for_no_mediators():
-    assert la.layer_supports_temperature(()) is True
-    assert la.layer_supports_temperature([]) is True
-
-
-def test_layer_supports_temperature_false_when_mediators_present():
-    assert la.layer_supports_temperature((1, 2, 3)) is False
-
 
 def test_band_index_from_name_parses_the_trailing_digit():
     assert la.band_index_from_name("band0") == 0
@@ -738,9 +731,8 @@ def test_temperature_value_frac_rejects_a_degenerate_range():
 # (same "no Tk in pure logic" convention this file's own module docstring
 # states). The Tk-layer wiring itself (LatticeApp._open_detach, which
 # builds a real Toplevel and schedules real self.after() jobs) is not
-# unit-tested -- it is checked by hand, launching the real app (see
-# task-10-report.md), the same way every other geometry/Tk-wiring concern
-# in this app already is.
+# unit-tested -- it is checked by hand, launching the real app, the same
+# way every other geometry/Tk-wiring concern in this app already is.
 # ---------------------------------------------------------------------------
 
 class _FakeDetachWindow:

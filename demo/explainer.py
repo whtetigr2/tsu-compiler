@@ -92,7 +92,14 @@ def _diagram_pbit() -> Image.Image:
     prev = None
     for x, b in zip(xs, bits):
         y = y0 if b else y1
-        color = _hexrgb(theme.GOLD) if b else _hexrgb(theme.BLUE)
+        # I1 (final review): a world p-bit in state 0 is GOLD_GHOST
+        # everywhere else in this app (lattice_app.py's own WORLD_OFF,
+        # asserted != theme.BLUE by test) -- BLUE is reserved for COLD
+        # mediator spins, never a decorative "off" colour. This diagram
+        # used to draw state 0 in BLUE, teaching a newcomer the exact
+        # on/off-colour inversion Task 0 existed to fix, directly
+        # contradicting the "dim" wording two lines below.
+        color = _hexrgb(theme.GOLD) if b else _hexrgb(theme.GOLD_GHOST)
         d.rectangle([x - 3, y - 3, x + 3, y + 3], fill=color)
         if prev is not None:
             d.line([prev, (x, y)], fill=_hexrgb(theme.GHOST), width=1)
@@ -254,8 +261,13 @@ def explainer_sections() -> list[tuple[str, str]]:
          "more likely, but never certain. Sampling means every world you "
          "see in DECODED WORLD is one draw from that distribution, not "
          "'the answer'. Run it again and you get a DIFFERENT valid draw. "
-         "This is also why roughly a quarter of raw draws are discarded: "
-         "not every draw is even a legal codeword, and what's shown is "
+         "This is also why roughly THREE QUARTERS of raw draws are "
+         "discarded (this receipt's own task_validity is ~0.25 -- see "
+         "verification.json). The dominant reason is the workload's own "
+         "TASK CONTRACT: most discarded draws ARE legal codewords that "
+         "simply violate one of the workload's rules. An outright illegal, "
+         "non-codeword draw is a small minority of what's discarded (this "
+         "receipt's own codeword_violation_rate is ~1%). What's shown is "
          "drawn from p(x | valid), never the raw, unfiltered chain -- the "
          "SAMPLE LOG panel says this in plain words too."),
 
@@ -296,8 +308,13 @@ def explainer_sections() -> list[tuple[str, str]]:
          "one p-bit has), COUPLING CAP |J| and FIELD CAP |b| (how strong "
          "any single coupling or bias may be), and NODE BUDGET (how many "
          "physical p-bits the whole program occupies). All four are shown "
-         "as load gauges in the FRONTIER panel, with the gate closest to "
-         "its own limit made visually dominant. |J| <= 6.0 and |b| <= 6.0 "
+         "as load gauges in the FRONTIER panel, with the gate PREDICTED TO "
+         "BIND FIRST as the next terrain value is added made visually "
+         "dominant -- not necessarily the gate with the highest CURRENT "
+         "utilisation (that one is tagged separately, and the two need not "
+         "be the same gate: this receipt's own DEGREE gate currently runs "
+         "hotter, at 56%, than the FIELD CAP gate that is actually "
+         "predicted to bind first, at 27%). |J| <= 6.0 and |b| <= 6.0 "
          "specifically are ASSUMED project values, not sourced Extropic "
          "figures -- every place this app displays them says so."),
 
@@ -391,7 +408,18 @@ class ExplainerWindow(tk.Toplevel):
         def _on_mousewheel(evt):
             canvas.yview_scroll(int(-1 * (evt.delta / 120)), "units")
 
-        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        # I3 (final review): `bind_all` is APPLICATION-scoped, not
+        # window-scoped -- a bare `canvas.bind_all(...)` here stayed live
+        # after this window closed, so the very next wheel event anywhere
+        # in the app raised TclError against this destroyed canvas for the
+        # rest of the session. Scope it to "pointer is actually over this
+        # canvas" (bind/unbind on Enter/Leave, the standard Tk idiom for a
+        # global wheel binding that must not outlive one widget) AND
+        # unbind on close as a belt-and-suspenders fallback for the case
+        # where the window is closed (e.g. via WM close, not by moving the
+        # mouse off the canvas first) while the pointer is still over it.
+        canvas.bind("<Enter>", lambda _e: canvas.bind_all("<MouseWheel>", _on_mousewheel))
+        canvas.bind("<Leave>", lambda _e: canvas.unbind_all("<MouseWheel>"))
 
         self._photos = []  # keep references; Tk drops PhotoImages with none
         sections = explainer_sections()
@@ -399,7 +427,11 @@ class ExplainerWindow(tk.Toplevel):
         for i, ((title, prose), diagram) in enumerate(zip(sections, diagrams)):
             self._build_section(body, mono, title, prose, diagram)
 
-        self.protocol("WM_DELETE_WINDOW", self.destroy)
+        def _on_close():
+            canvas.unbind_all("<MouseWheel>")  # I3: belt-and-suspenders, see above
+            self.destroy()
+
+        self.protocol("WM_DELETE_WINDOW", _on_close)
 
     def _build_section(self, parent: tk.Frame, mono: str, title: str,
                        prose: str, diagram: Image.Image) -> None:

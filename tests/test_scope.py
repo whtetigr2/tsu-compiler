@@ -286,7 +286,11 @@ def test_temperature_control_state_reason_names_the_count_and_beta_but_not_a_lay
     ising = _FakeMediatedIsing(mediator_nodes=tuple(range(64)), beta=1.0)
     _, reason = temperature_control_state(ising)
     assert "64" in reason
-    assert "1" in reason  # beta=1.0 appears in some rendering
+    # Tight, not "any digit '1' anywhere" (which would pass regardless of
+    # whether beta is actually rendered correctly): the exact formatted
+    # substring `beta={ising.beta:.4g}` that temperature_control_state's
+    # own f-string produces.
+    assert f"beta={ising.beta:.4g}" in reason
     assert "base" not in reason.lower()
     assert "assert_beta_consistent" in reason
 

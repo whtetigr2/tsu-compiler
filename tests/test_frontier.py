@@ -12,6 +12,7 @@ pure math in tests/test_frontier.py") -- imported here, not reimplemented.
 """
 import math
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -341,7 +342,7 @@ def test_frontier_gauge_specs_tags_degree_as_highest_current_utilisation():
     first (see the next test)."""
     report = _small_report()
     by_gate = {s.gate: s for s in la.frontier_gauge_specs(report)}
-    assert by_gate["degree"].tag_kind == "bind"
+    assert by_gate["degree"].tag_kind == "highest_util"
     assert by_gate["degree"].tag_text == "HIGHEST CURRENT UTILISATION"
 
 
@@ -352,9 +353,34 @@ def test_frontier_gauge_specs_tags_field_cap_as_predicted_to_bind_first():
     report = _small_report()
     assert "field_cap" in report.binding.headline
     by_gate = {s.gate: s for s in la.frontier_gauge_specs(report)}
-    assert by_gate["field_cap"].tag_kind == "over"
+    assert by_gate["field_cap"].tag_kind == "bind_first"
     assert by_gate["field_cap"].tag_text == "PREDICTED TO BIND FIRST"
     assert by_gate["field_cap"].predicted_exceeds_cap
+
+
+def test_frontier_gauge_specs_keeps_both_tags_when_one_gate_earns_both():
+    """Minor #5 (final review): frontier_gauge_specs used to be if/elif
+    over (bind-first, highest-utilisation, unbound), which silently
+    DROPPED the highest-utilisation tag whenever a single gate was both
+    the one predicted to bind first AND the one with the highest current
+    utilisation -- neither real receipt happens to exercise that overlap,
+    which is exactly why it went unnoticed. Force the overlap directly by
+    monkeypatching a `report` whose headroom/binding agree on the same
+    gate, and check BOTH labels survive in tag_text, not just one."""
+    report = _small_report()
+    # field_cap is the real report's bind-first gate; give it the highest
+    # pct_used too so highest-utilisation ALSO selects it.
+    headroom = list(report.headroom)
+    by_gate = {h.gate: i for i, h in enumerate(headroom)}
+    fc = headroom[by_gate["field_cap"]]
+    headroom[by_gate["field_cap"]] = fr.GateHeadroom(
+        fc.gate, fc.measured, fc.limit, 99.0)  # highest pct_used by far
+    forced = replace(report, headroom=headroom)
+    by_gate2 = {s.gate: s for s in la.frontier_gauge_specs(forced)}
+    spec = by_gate2["field_cap"]
+    assert "PREDICTED TO BIND FIRST" in spec.tag_text
+    assert "HIGHEST CURRENT UTILISATION" in spec.tag_text
+    assert spec.tag_kind == "bind_first"
 
 
 def test_frontier_gauge_specs_node_budget_tagged_unbound_and_untagged_by_utilisation():
@@ -400,8 +426,10 @@ def test_frontier_gauge_specs_predicted_labels_name_their_law_never_bare():
     for s in la.frontier_gauge_specs(report):
         if s.predicted_value is not None:
             assert s.predicted_law and "section" in s.predicted_law
-            assert s.predicted_label and s.gate.replace("_cap", "") in s.predicted_label \
-                or "degree" in s.predicted_label or "floor" in s.predicted_label
+            assert s.predicted_label and (
+                s.gate.replace("_cap", "") in s.predicted_label
+                or "degree" in s.predicted_label
+                or "floor" in s.predicted_label)
 
 
 def test_frontier_gauge_specs_assumed_cap_note_appears_for_coupling_and_field():
@@ -475,18 +503,26 @@ def test_gauge_track_fill_reaches_frac_current_and_stops():
 
 
 def test_gauge_track_predicted_hairline_is_gold_and_distinct_from_fill():
-    """The predicted hairline must be visually distinct from the measured
-    gold_dim fill (dashed gold, not a second solid fill) -- sample a column
-    at the predicted fraction, away from the current fill, and check it is
-    NOT the same colour as the inset background at that same column with no
-    prediction at all."""
-    plain = la.render_frontier_gauge_track(300, 14, 0.2, frac_predicted=None)
+    """The predicted hairline must actually BE a dashed GOLD line, not
+    merely "some pixels changed at that column" (which would also pass for
+    a hairline drawn in the fill colour, the background colour, or solid
+    rather than dashed). Sample the column at the predicted fraction (0.6,
+    well past the 0.2 current fill so no pixel there can be GOLD_DIM by
+    construction) and check: at least one pixel is GOLD (the dash strokes),
+    at least one pixel is NOT GOLD (the dash gaps -- i.e. actually dashed,
+    not a solid fill), and no pixel is GOLD_DIM (distinct from the measured
+    fill colour)."""
     predicted = la.render_frontier_gauge_track(300, 14, 0.2, frac_predicted=0.6)
-    x = int(0.6 * 299)
-    col_plain = [plain.getpixel((x, y)) for y in range(14)]
-    col_pred = [predicted.getpixel((x, y)) for y in range(14)]
-    assert col_plain != col_pred, \
-        "a predicted hairline must change pixels at its own column"
+    x = int(round(0.6 * 299))
+    col = [predicted.getpixel((x, y)) for y in range(14)]
+    gold = _hexrgb(theme.GOLD)
+    gold_dim = _hexrgb(theme.GOLD_DIM)
+    assert any(_close(px, gold, tol=8) for px in col), \
+        "the predicted hairline must draw GOLD pixels in its own column"
+    assert any(not _close(px, gold, tol=8) for px in col), \
+        "the predicted hairline must be DASHED (gaps), not a solid line"
+    assert all(not _close(px, gold_dim, tol=8) for px in col), \
+        "the predicted hairline must never be the same colour as the fill"
 
 
 def test_gauge_track_overrun_draws_a_hatched_red_region_past_the_compressed_track():
