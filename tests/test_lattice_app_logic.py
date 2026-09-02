@@ -475,3 +475,83 @@ def test_clamp_state_custom_cycle_for_a_binary_overlay_layer():
 def test_receipt_loads_cleanly_for_an_unmediated_bipartite_overlay():
     r = la.Receipt(la.OVERLAY_RECEIPT_DIR)
     assert r.mediator_count == 0
+
+
+# ---------------------------------------------------------------------------
+# Task 0: lattice_app's own palette constants must trace back to
+# demo/theme.py's tokens, applied per the SEMANTIC rule (blue = cold /
+# locked / mediator ONLY, never decorative) -- not a second, hand-copied
+# palette that can drift from theme.py. The pre-Task-0 palette was flat
+# grey/cyan and, worse, used blue DECORATIVELY for WORLD_ON/WORLD_OFF (the
+# LIVE LATTICE panel's own live/lit world p-bit colour) while a separate
+# purple pair (MEDIATOR_ON/OFF) stood in for the mediator (cold) channel --
+# exactly backwards from the mockup's own construction note ("Lit gold
+# nodes are world p-bits in state 1. Cold-blue nodes are hidden mediators
+# -- frozen helpers, not terrain."). These tests pin the corrected mapping.
+# ---------------------------------------------------------------------------
+
+def test_window_and_panel_grounds_use_theme_tokens():
+    import theme
+    assert la.BG == theme.PAGE
+    assert la.PANEL_BG == theme.PANEL
+    assert la.BORDER == theme.BEZEL
+    assert la.FG == theme.CREAM
+    assert la.DIM == theme.CREAM_DIM
+
+
+def test_status_colours_stay_off_the_decorative_accent_channel():
+    """PASS/FAIL/WARN are semantic status colour, kept distinct from the
+    gold/orange/blue 'this is live/hot/cold data' accent channel (olive
+    PASS / orange warn / red FAIL, per the mockup's own legend)."""
+    import theme
+    assert la.GOOD == theme.STATUS_PASS == theme.OLIVE
+    assert la.BAD == theme.STATUS_FAIL == theme.RED
+    assert la.WARN == theme.STATUS_WARN == theme.ORANGE
+    assert la.GOOD != theme.GOLD  # PASS must never read as "live data"
+
+
+def test_accent_label_colour_is_gold_not_decorative_blue():
+    import theme
+    assert la.ACCENT == theme.GOLD
+    assert la.ACCENT != theme.BLUE
+
+
+def test_world_pbits_are_gold_lit_never_blue():
+    """THE fix: world p-bits (LIVE LATTICE's own live/lit channel) must be
+    gold when on, never blue -- blue is reserved for cold/mediator/locked
+    only. Before Task 0, WORLD_ON was "#6fb3ff" (blue) -- a stray
+    decorative blue the tokens spec calls out by name as the exact mistake
+    that destroys the scheme's learnability."""
+    import theme
+    assert la.WORLD_ON == theme.GOLD
+    assert la.WORLD_OFF == theme.GOLD_GHOST
+    assert la.WORLD_ON != theme.BLUE
+    assert la.WORLD_OFF != theme.BLUE
+    assert la.WORLD_OFF != theme.BLUE_DEEP
+
+
+def test_mediator_spins_are_the_cold_blue_channel():
+    """Mediator spins are COLD by definition (spec: 'mediator spins' is one
+    of the three things blue means) -- lit and unlit mediator both stay in
+    the blue family, never purple/violet as before Task 0."""
+    import theme
+    assert la.MEDIATOR_ON == theme.BLUE_LIT
+    assert la.MEDIATOR_OFF == theme.BLUE_DEEP
+
+
+def test_terrain_palette_matches_the_tokens_spec_verbatim():
+    import theme
+    expected = [theme.WATER, theme.ROCK, theme.GRASS]
+    for (r, g, b), hexval in zip(la.PAL, expected):
+        h = hexval.lstrip("#")
+        assert (int(r), int(g), int(b)) == (
+            int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+
+
+def test_inset_recessed_areas_use_the_inset_token():
+    """The old hand-picked "#111218" (log box / frontier box / SCOPE plot
+    canvases / PLOT_BG) must become theme.INSET -- one recessed-area colour,
+    not a second literal copied by hand into 6 call sites."""
+    import theme
+    assert la.PLOT_BG == tuple(
+        int(theme.INSET.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))

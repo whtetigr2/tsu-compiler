@@ -71,14 +71,27 @@ from tsu.backends.thrml_backend import sample as thrml_sample  # noqa: E402
 from tsu.passes.route import assert_beta_consistent, BetaMismatchError  # noqa: E402 -- Task 7
 from worldfile import save_world  # noqa: E402 -- A2: save/load provenance-carrying worlds
 import frontier as frontier_mod  # noqa: E402 -- B1: capacity frontier panel
-from scope import (beta_to_temperature, autocorrelation, magnetization,  # noqa: E402
+import theme  # noqa: E402 -- Task 0: theme foundation, see theme.py's own docstring
+from scope import (beta_to_temperature, temperature_control_state,  # noqa: E402
+                    autocorrelation, magnetization,
                     energy_histogram, local_field_response, sigmoid,
-                    MIN_LOCAL_FIELD_BIN_COUNT)  # Task 5/6
+                    MIN_LOCAL_FIELD_BIN_COUNT)  # Task 5/6/8
 from tsu.ess import (integrated_autocorrelation_time,  # noqa: E402
                      RELIABILITY_MIN_N_OVER_TAU)  # SCOPE panel's tau readout
 from layers import FIELD_CAP, FieldCapExceeded, bias_patch  # noqa: E402 -- Task 7
 from elevation import band_patch, thermometer_level, monotonicity_violations  # noqa: E402
 from elevation_world import render_elevation_world_image  # noqa: E402 -- composite view, reused verbatim
+
+
+def _rgb(hex_str: str) -> tuple[int, int, int]:
+    """'#rrggbb' -> (r, g, b) ints -- so terrain/plot colours below share
+    demo/theme.py's own tokens instead of a second, hand-copied palette
+    that could drift from it. Moved up here (Task 0) so PAL, below, can use
+    it too -- it used to live only just above the SCOPE panel's PLOT_*
+    constants, too late for PAL's own definition."""
+    h = hex_str.lstrip("#")
+    return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+
 
 # --------------------------------------------------------------------------
 # constants shared by the raw-lattice grid and the decode/render path
@@ -87,7 +100,9 @@ W = H = 8                      # decoded world is an 8x8 grid
 WATER, ROCK, GRASS = 0, 1, 2
 TERRAIN_NAMES = {WATER: "water", ROCK: "rock", GRASS: "grass"}
 TERRAIN_ORDER = (WATER, ROCK, GRASS)
-PAL = np.array([[46, 92, 132], [124, 116, 106], [126, 158, 84]], float)
+# Task 0: terrain palette verbatim from theme.py (water/rock/grass tokens),
+# not a second hand-picked set of RGB triples.
+PAL = np.array([_rgb(theme.WATER), _rgb(theme.ROCK), _rgb(theme.GRASS)], float)
 CELL_UP = 32                    # px per grid cell in the rendered world image (render_world.py uses 64; halved here so a redraw fits inside one animation tick)
 WORLD_DISPLAY_PX = 320          # DECODED WORLD canvas is square, this many px/side
 WORLD_CELL_PX = WORLD_DISPLAY_PX // W   # px per grid cell ON SCREEN (for clicks + pin markers)
@@ -936,36 +951,47 @@ class SampleWorker(threading.Thread):
 
 
 # --------------------------------------------------------------------------
-# UI
+# UI -- Task 0: every colour below is a NAME from demo/theme.py, never a
+# hand-copied hex literal (see theme.py's own docstring for the semantic
+# rule this must honour: blue means COLD -- mediator spins, a locked
+# control -- and NOTHING else; gold is the live/active-data channel; PASS/
+# FAIL/WARN stay off that accent channel entirely, per the mockup's own
+# "olive PASS / orange warn / red FAIL / ice lock" legend).
+#
+# WORLD_ON/WORLD_OFF (the LIVE LATTICE panel's live/lit p-bit colour) were,
+# before this task, blue ("#6fb3ff") -- a stray DECORATIVE blue, exactly
+# backwards from the mockup's own construction note ("Lit gold nodes are
+# world p-bits in state 1. Cold-blue nodes are hidden mediators -- frozen
+# helpers, not terrain."). MEDIATOR_ON/OFF were a separate purple pair with
+# no relation to "cold" at all. Both are corrected here: world p-bits are
+# gold (the live/active channel they actually are), mediator spins are
+# blue (the cold channel they actually are).
 # --------------------------------------------------------------------------
-BG = "#1a1b22"
-PANEL_BG = "#22242e"
-BORDER = "#3a3d4d"
-FG = "#e7e7ee"
-DIM = "#9497a8"
-GOOD = "#5ed38a"
-BAD = "#e0667a"
-WARN = "#e0b155"
-ACCENT = "#6fb3ff"
-MEDIATOR_ON = "#c98cff"
-MEDIATOR_OFF = "#3c2f4d"
-WORLD_ON = "#6fb3ff"
-WORLD_OFF = "#243149"
-MONO = ("Consolas", 9)
-MONO_B = ("Consolas", 9, "bold")
-
-
-def _rgb(hex_str: str) -> tuple[int, int, int]:
-    """'#rrggbb' -> (r, g, b) ints -- so the SCOPE panel's PIL-rendered
-    plots (below) can share this file's own colour palette instead of a
-    second, hand-copied one that could drift from it."""
-    h = hex_str.lstrip("#")
-    return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+BG = theme.PAGE
+PANEL_BG = theme.PANEL
+BORDER = theme.BEZEL
+FG = theme.CREAM
+DIM = theme.CREAM_DIM
+GOOD = theme.STATUS_PASS      # PASS -- olive, never gold (gold means "live data", not "this passed")
+BAD = theme.STATUS_FAIL       # FAIL -- red, critical only
+WARN = theme.STATUS_WARN      # warning -- orange
+ACCENT = theme.GOLD           # panel titles / active labels -- the live/useful-window channel
+MEDIATOR_ON = theme.BLUE_LIT  # mediator spins are COLD, full stop -- lit is still cold
+MEDIATOR_OFF = theme.BLUE_DEEP
+WORLD_ON = theme.GOLD         # world p-bits are the LIVE channel, never blue -- see block comment above
+WORLD_OFF = theme.GOLD_GHOST
+MONO_FAMILY = theme.resolve_mono_family()  # Consolas-fallback pre-Tk-root (headless-safe); re-resolved once a real Tk root exists, see LatticeApp.__init__
+MONO = (MONO_FAMILY, 9)
+MONO_B = (MONO_FAMILY, 9, "bold")
 
 
 # Task 6: colours for the SCOPE panel's PIL-rendered plots, derived from
 # this file's own palette above (never a second literal set of colours).
-PLOT_BG = _rgb("#111218")      # same canvas background _draw_trace uses
+# Task 0: PLOT_BG was the hand-picked "#111218", now theme.INSET -- one
+# recessed-area colour, matching every other recessed widget below
+# (log box, frontier box, energy/valid-frac canvases) instead of a second
+# literal only PLOT_BG used.
+PLOT_BG = _rgb(theme.INSET)
 PLOT_FG = _rgb(FG)
 PLOT_DIM = _rgb(DIM)
 PLOT_ACCENT = _rgb(ACCENT)
@@ -1224,7 +1250,7 @@ class Panel(tk.Frame):
         super().__init__(master, bg=PANEL_BG, highlightbackground=BORDER,
                           highlightthickness=1, **kw)
         tk.Label(self, text=title, bg=PANEL_BG, fg=ACCENT,
-                  font=("Consolas", 10, "bold"), anchor="w"
+                  font=(MONO_FAMILY, 10, "bold"), anchor="w"
                   ).pack(fill="x", padx=8, pady=(6, 2))
         self.body = tk.Frame(self, bg=PANEL_BG)
         self.body.pack(fill="both", expand=True, padx=8, pady=(0, 8))
@@ -1233,6 +1259,21 @@ class Panel(tk.Frame):
 class LatticeApp(tk.Tk):
     def __init__(self, receipt: Receipt, overlay_receipt: Receipt):
         super().__init__()
+        # Task 0: MONO_FAMILY was resolved once at import time (module
+        # scope, before ANY Tk root existed -- lattice_app.py must stay
+        # safe to import headlessly, see the "no Tk in pure logic" test
+        # convention), so it could only ever see theme.py's own
+        # no-root fallback ("Consolas"). Re-resolve now that `self` IS a
+        # live Tk root (LatticeApp subclasses tk.Tk) -- this is the first
+        # point "Cascadia Mono" can actually be detected as installed.
+        # Every widget built below (in _build_layout /
+        # _populate_static_panels, both called later in this __init__)
+        # reads the MONO_FAMILY global at call time, so rebinding it here,
+        # before either runs, is sufficient -- no widget needs rebuilding.
+        global MONO_FAMILY, MONO, MONO_B
+        MONO_FAMILY = theme.resolve_mono_family()
+        MONO = (MONO_FAMILY, 9)
+        MONO_B = (MONO_FAMILY, 9, "bold")
         self.receipt = receipt
         self.overlay_receipt = overlay_receipt   # Task 7: demo/receipts/elev_band, compiled once at load, same as `receipt`
         self.title("tsu lattice demo -- live sampling of a compiled receipt")
@@ -1413,12 +1454,12 @@ class LatticeApp(tk.Tk):
             cell = tk.Frame(scope_row, bg=PANEL_BG)
             cell.pack(side="left", fill="both", expand=True, padx=4)
             tk.Label(cell, text=title, bg=PANEL_BG, fg=ACCENT,
-                      font=("Consolas", 8, "bold"), anchor="w").pack(fill="x")
+                      font=(MONO_FAMILY, 8, "bold"), anchor="w").pack(fill="x")
             canvas = tk.Canvas(cell, width=SCOPE_PLOT_W, height=SCOPE_PLOT_H,
-                                bg="#111218", highlightthickness=0)
+                                bg=theme.INSET, highlightthickness=0)
             canvas.pack(pady=(2, 2))
             caption = tk.Label(cell, text="", bg=PANEL_BG, fg=DIM,
-                                font=("Consolas", 7), anchor="w", justify="left",
+                                font=(MONO_FAMILY, 7), anchor="w", justify="left",
                                 wraplength=SCOPE_PLOT_W, height=caption_lines)
             caption.pack(fill="x")
             return canvas, caption
@@ -1463,7 +1504,7 @@ class LatticeApp(tk.Tk):
             if width is not None:
                 cell.pack_propagate(False)
             tk.Label(cell, text=title, bg=PANEL_BG, fg=ACCENT,
-                      font=("Consolas", 8, "bold"), anchor="w").pack(fill="x")
+                      font=(MONO_FAMILY, 8, "bold"), anchor="w").pack(fill="x")
             return cell
 
         # Step 1: layer selector.
@@ -1477,7 +1518,7 @@ class LatticeApp(tk.Tk):
                             highlightthickness=0).pack(fill="x")
         tk.Label(sel_cell, text="Pins apply to the SELECTED layer only "
                                  "(see PINS list, tagged by layer).",
-                  bg=PANEL_BG, fg=DIM, font=("Consolas", 7), anchor="w",
+                  bg=PANEL_BG, fg=DIM, font=(MONO_FAMILY, 7), anchor="w",
                   justify="left", wraplength=180).pack(fill="x", pady=(4, 0))
         # C1 (fix-round-2): the code comment above OVERLAY_PIN_STRENGTH
         # claims "the UI states this" (that an overlay pin is a strong
@@ -1488,7 +1529,7 @@ class LatticeApp(tk.Tk):
                                  "a guarantee -- CONDITIONING STRENGTH can "
                                  "outvote them and the pinned cell can "
                                  "still render the other value.",
-                  bg=PANEL_BG, fg=WARN, font=("Consolas", 7), anchor="w",
+                  bg=PANEL_BG, fg=WARN, font=(MONO_FAMILY, 7), anchor="w",
                   justify="left", wraplength=180).pack(fill="x", pady=(4, 0))
 
         # Step 3: conditioning strength + dose-response reference table.
@@ -1509,10 +1550,10 @@ class LatticeApp(tk.Tk):
         self.alpha_scale.pack(fill="x")
         table_txt = "  ".join(f"a={a:.2f}->{r:.1f}%" for a, r in DOSE_RESPONSE_TABLE)
         tk.Label(alpha_cell, text=f"dose-response reference: {table_txt}",
-                  bg=PANEL_BG, fg=WARN, font=("Consolas", 7), anchor="w",
+                  bg=PANEL_BG, fg=WARN, font=(MONO_FAMILY, 7), anchor="w",
                   justify="left", wraplength=320).pack(fill="x", pady=(2, 0))
         tk.Label(alpha_cell, text=DOSE_RESPONSE_NOTE, bg=PANEL_BG, fg=DIM,
-                  font=("Consolas", 7), anchor="w", justify="left",
+                  font=(MONO_FAMILY, 7), anchor="w", justify="left",
                   wraplength=320).pack(fill="x", pady=(2, 0))
 
         # Step 4: per-layer regenerate.
@@ -1523,7 +1564,7 @@ class LatticeApp(tk.Tk):
             relief="flat", padx=8, pady=4, wraplength=170)
         self.regenerate_btn.pack(fill="x", pady=(4, 0))
         self.regenerate_status = tk.Label(regen_cell, text="", bg=PANEL_BG, fg=DIM,
-                                           font=("Consolas", 7), anchor="w",
+                                           font=(MONO_FAMILY, 7), anchor="w",
                                            justify="left", wraplength=180)
         self.regenerate_status.pack(fill="x", pady=(4, 0))
 
@@ -1540,7 +1581,7 @@ class LatticeApp(tk.Tk):
         self.temp_scale.set(1.0)
         self.temp_scale.pack(fill="x")
         self.temp_reason = tk.Label(temp_cell, text="", bg=PANEL_BG, fg=WARN,
-                                     font=("Consolas", 7), anchor="w",
+                                     font=(MONO_FAMILY, 7), anchor="w",
                                      justify="left", wraplength=250)
         self.temp_reason.pack(fill="x", pady=(2, 0))
 
@@ -1548,7 +1589,7 @@ class LatticeApp(tk.Tk):
         comp_cell = _layers_cell("COMPOSITE VALIDATION  (cross-layer, separate "
                                   "from each layer's own contract validity)")
         self.composite_label = tk.Label(comp_cell, text="", bg=PANEL_BG, fg=FG,
-                                         font=("Consolas", 8), anchor="w",
+                                         font=(MONO_FAMILY, 8), anchor="w",
                                          justify="left", wraplength=340)
         self.composite_label.pack(fill="x", pady=(2, 0))
 
@@ -1591,13 +1632,13 @@ class LatticeApp(tk.Tk):
         speed_frame = tk.Frame(bottom, bg=BG)
         speed_frame.pack(side="left", padx=(16, 0))
         tk.Label(speed_frame, text="speed:", bg=BG, fg=DIM,
-                  font=("Consolas", 8)).pack(side="left")
+                  font=(MONO_FAMILY, 8)).pack(side="left")
         # speed_label is created BEFORE the Scale's initial .set() below --
         # tk.Scale.set() can invoke -command synchronously even for a
         # programmatic change, and _on_speed_change/_refresh_speed_label
         # both write to self.speed_label, so it must already exist.
         self.speed_label = tk.Label(speed_frame, text="", bg=BG, fg=DIM,
-                                      font=("Consolas", 8), justify="left")
+                                      font=(MONO_FAMILY, 8), justify="left")
         self.speed_scale = tk.Scale(
             speed_frame, from_=0, to=len(SPEED_LEVELS) - 1, orient="horizontal",
             resolution=1, showvalue=0, length=140, bg=BG, fg=FG,
@@ -1609,7 +1650,7 @@ class LatticeApp(tk.Tk):
         self._refresh_speed_label()
 
         tk.Label(bottom, text=FOOTER_TEXT, bg=BG, fg=DIM,
-                  font=("Consolas", 8), wraplength=900, justify="left"
+                  font=(MONO_FAMILY, 8), wraplength=900, justify="left"
                   ).pack(side="left", padx=(16, 0))
 
     # -- static (receipt-only) panel content --------------------------
@@ -1636,7 +1677,7 @@ class LatticeApp(tk.Tk):
                            "that one run's own numbers, read from passes.json.\n"
                            "Only SAMPLING re-runs per world; the pipeline\n"
                            "itself is not re-executing.",
-                  bg=PANEL_BG, fg=DIM, font=("Consolas", 8), anchor="w", justify="left"
+                  bg=PANEL_BG, fg=DIM, font=(MONO_FAMILY, 8), anchor="w", justify="left"
                   ).pack(fill="x", pady=(4, 0))
 
         # LIVE LATTICE ----------------------------------------------------
@@ -1712,7 +1753,7 @@ class LatticeApp(tk.Tk):
 
         self.lattice_canvas.create_text(
             4, world_h + gap + label_h / 2, anchor="w", fill=DIM,
-            font=("Consolas", 8),
+            font=(MONO_FAMILY, 8),
             text=f"MEDIATOR SPINS ({med_count}) -- hidden spins from edge "
                  f"subdivision; belong to no cell")
 
@@ -1725,7 +1766,7 @@ class LatticeApp(tk.Tk):
                            "terrain meaning until enc.decode succeeds. Each\n"
                            "bordered block above is one DECODED WORLD cell, at\n"
                            "the same grid position and pitch as that panel.",
-                  bg=PANEL_BG, fg=DIM, font=("Consolas", 8), justify="left", anchor="w"
+                  bg=PANEL_BG, fg=DIM, font=(MONO_FAMILY, 8), justify="left", anchor="w"
                   ).pack(fill="x", pady=(6, 0))
 
         # DECODED WORLD ---------------------------------------------------
@@ -1742,7 +1783,7 @@ class LatticeApp(tk.Tk):
         self.world_image_item = self.world_canvas.create_image(0, 0, anchor="nw")
         self.world_canvas.bind("<Button-1>", self._on_world_click)
         self.world_status_label = tk.Label(wf, text="", bg=PANEL_BG, fg=DIM,
-                                             font=("Consolas", 8), justify="left", anchor="w",
+                                             font=(MONO_FAMILY, 8), justify="left", anchor="w",
                                              wraplength=WORLD_DISPLAY_PX - 8)
         self.world_status_label.pack(fill="x")
         self.infeasible_label = tk.Label(wf, text="", bg=PANEL_BG, fg=BAD,
@@ -1753,7 +1794,7 @@ class LatticeApp(tk.Tk):
         pf = tk.Frame(wf, bg=PANEL_BG, highlightbackground=BORDER, highlightthickness=1)
         pf.pack(fill="x", pady=(8, 0))
         tk.Label(pf, text="PINS  (click a cell above to add/cycle/remove one)",
-                  bg=PANEL_BG, fg=ACCENT, font=("Consolas", 9, "bold"), anchor="w"
+                  bg=PANEL_BG, fg=ACCENT, font=(MONO_FAMILY, 9, "bold"), anchor="w"
                   ).pack(fill="x", padx=6, pady=(4, 2))
         self.pins_list_label = tk.Label(pf, text="(none)", bg=PANEL_BG, fg=DIM,
                                           font=MONO, justify="left", anchor="w")
@@ -1785,7 +1826,7 @@ class LatticeApp(tk.Tk):
             else:
                 detail = "verdict recorded; measurement not stored in receipt"
             tk.Label(vf, text=f"{status:<4} {g['gate']:<13} {detail}{extra_s}",
-                      bg=PANEL_BG, fg=color, font=("Consolas", 8), anchor="w"
+                      bg=PANEL_BG, fg=color, font=(MONO_FAMILY, 8), anchor="w"
                       ).pack(fill="x")
         tk.Label(vf, text="", bg=PANEL_BG).pack()
         v = r.verification
@@ -1796,7 +1837,7 @@ class LatticeApp(tk.Tk):
             text = fmt_value(val) if key in v else "unavailable: field absent from receipt"
             fg = DIM if isinstance(val, str) else FG
             tk.Label(vf, text=f"{key}: {text}", bg=PANEL_BG, fg=fg,
-                      font=("Consolas", 8), anchor="w", justify="left", wraplength=395
+                      font=(MONO_FAMILY, 8), anchor="w", justify="left", wraplength=395
                       ).pack(fill="x")
 
         # SAMPLER -------------------------------------------------------
@@ -1814,37 +1855,37 @@ class LatticeApp(tk.Tk):
             f"beta_used={fmt_value(r.beta_used)}",
         ]
         for t in rows_txt:
-            tk.Label(sf, text=t, bg=PANEL_BG, fg=FG, font=("Consolas", 8),
+            tk.Label(sf, text=t, bg=PANEL_BG, fg=FG, font=(MONO_FAMILY, 8),
                       anchor="w", justify="left", wraplength=395).pack(fill="x")
         tk.Label(sf, text=f"no beta slider: {r.mediator_count} mediator spin(s) were "
                            f"coupled at beta={r.beta_used!r}; tsu.passes.route."
                            f"assert_beta_consistent refuses any other beta for this "
                            f"model (BetaMismatchError, spec 5.3.5) -- shown fixed, "
                            f"not hidden.",
-                  bg=PANEL_BG, fg=WARN, font=("Consolas", 8), anchor="w",
+                  bg=PANEL_BG, fg=WARN, font=(MONO_FAMILY, 8), anchor="w",
                   justify="left", wraplength=395).pack(fill="x", pady=(4, 0))
         tk.Label(sf, text=f"live sampler settings (this app, not the receipt) -- "
                            f"UNPINNED at Full speed: n_chains/call={BATCH_CHAINS}, "
                            f"n_warmup={N_WARMUP}, n_samples/call={N_SAMPLES_PER_CALL}",
-                  bg=PANEL_BG, fg=DIM, font=("Consolas", 8), anchor="w",
+                  bg=PANEL_BG, fg=DIM, font=(MONO_FAMILY, 8), anchor="w",
                   justify="left", wraplength=395).pack(fill="x", pady=(4, 0))
         tk.Label(sf, text=f"PINNED at Full speed (via simulate(clamp=...), one batch "
                            f"per pin change): n_chains/call={CLAMP_N_CHAINS}, "
                            f"n_warmup={CLAMP_N_WARMUP}, n_samples/call={CLAMP_N_SAMPLES}",
-                  bg=PANEL_BG, fg=DIM, font=("Consolas", 8), anchor="w",
+                  bg=PANEL_BG, fg=DIM, font=(MONO_FAMILY, 8), anchor="w",
                   justify="left", wraplength=395).pack(fill="x", pady=(2, 0))
         tk.Label(sf, text=f"both: steps_per_sample(thinning)={STEPS_PER_SAMPLE} -- "
                            f"n_warmup and steps_per_sample are FIXED at every speed "
                            f"(see speed control in the bottom bar): only n_chains/call "
                            f"and n_samples/call scale down below Full, which changes "
                            f"batch size/display rate, never the sampled distribution.",
-                  bg=PANEL_BG, fg=DIM, font=("Consolas", 8), anchor="w",
+                  bg=PANEL_BG, fg=DIM, font=(MONO_FAMILY, 8), anchor="w",
                   justify="left", wraplength=395).pack(fill="x", pady=(2, 0))
 
         # DECODED MIX ---------------------------------------------------
         mf = self.mix_panel.body
         self.mix_label = tk.Label(mf, text="unavailable: no valid sample drawn yet this session",
-                                    bg=PANEL_BG, fg=DIM, font=("Consolas", 9), justify="left", anchor="w")
+                                    bg=PANEL_BG, fg=DIM, font=(MONO_FAMILY, 9), justify="left", anchor="w")
         self.mix_label.pack(fill="x")
 
         # SAMPLE LOG ------------------------------------------------------
@@ -1856,7 +1897,7 @@ class LatticeApp(tk.Tk):
                             "NOT p(x): only valid draws are ever rendered,\n"
                             "so this mix and the world panel reflect the\n"
                             "conditional distribution, not the raw sampler.",
-                  bg=PANEL_BG, fg=DIM, font=("Consolas", 8), justify="left", anchor="w"
+                  bg=PANEL_BG, fg=DIM, font=(MONO_FAMILY, 8), justify="left", anchor="w"
                   ).pack(fill="x", pady=(2, 4))
         log_frame = tk.Frame(lgf, bg=PANEL_BG)
         log_frame.pack(fill="both", expand=True)
@@ -1867,7 +1908,7 @@ class LatticeApp(tk.Tk):
         # violation text names the offending edge and is worth reading in full.
         sbx = tk.Scrollbar(log_frame, orient="horizontal")
         sbx.pack(side="bottom", fill="x")
-        self.log_box = tk.Listbox(log_frame, bg="#111218", fg=FG, font=("Consolas", 8),
+        self.log_box = tk.Listbox(log_frame, bg=theme.INSET, fg=FG, font=(MONO_FAMILY, 8),
                                     highlightthickness=0, relief="flat",
                                     yscrollcommand=sb.set, xscrollcommand=sbx.set)
         self.log_box.pack(side="left", fill="both", expand=True)
@@ -1891,8 +1932,8 @@ class LatticeApp(tk.Tk):
         frontier_frame.pack(fill="both", expand=True)
         fsb = tk.Scrollbar(frontier_frame)
         fsb.pack(side="right", fill="y")
-        frontier_box = tk.Text(frontier_frame, bg="#111218", fg=FG, width=38,
-                                font=("Consolas", 8), wrap="word", relief="flat",
+        frontier_box = tk.Text(frontier_frame, bg=theme.INSET, fg=FG, width=38,
+                                font=(MONO_FAMILY, 8), wrap="word", relief="flat",
                                 highlightthickness=0, yscrollcommand=fsb.set)
         frontier_box.insert("1.0", frontier_text)
         frontier_box.config(state="disabled")
@@ -1913,11 +1954,11 @@ class LatticeApp(tk.Tk):
             regime = None
             regime_line = f"unavailable: {exc}"
         tk.Label(gf, text=f"|J|max (this program) = {j_max:.4g}", bg=PANEL_BG,
-                  fg=FG, font=("Consolas", 8), anchor="w").pack(fill="x")
+                  fg=FG, font=(MONO_FAMILY, 8), anchor="w").pack(fill="x")
         tk.Label(gf, text=regime_line, bg=PANEL_BG, fg=FG, font=MONO_B,
                   anchor="w", wraplength=260, justify="left").pack(fill="x", pady=(2, 4))
         tk.Label(gf, text=ONSAGER_ASSUMPTION_NOTE, bg=PANEL_BG, fg=WARN,
-                  font=("Consolas", 8), anchor="w", justify="left",
+                  font=(MONO_FAMILY, 8), anchor="w", justify="left",
                   wraplength=260).pack(fill="x", pady=(0, 8))
 
         # Task 5: temperature alongside beta -- "everything being inverted
@@ -1938,24 +1979,24 @@ class LatticeApp(tk.Tk):
         tk.Label(gf, text="Higher T = hotter, more disordered. Lower T =\n"
                             "colder, more frozen. The useful window sits\n"
                             "between the two extremes.",
-                  bg=PANEL_BG, fg=DIM, font=("Consolas", 8), anchor="w",
+                  bg=PANEL_BG, fg=DIM, font=(MONO_FAMILY, 8), anchor="w",
                   justify="left", wraplength=260).pack(fill="x", pady=(0, 8))
 
         tk.Label(gf, text="ENERGY TRACE (over sweeps)", bg=PANEL_BG, fg=ACCENT,
-                  font=("Consolas", 8, "bold"), anchor="w").pack(fill="x")
-        self.energy_canvas = tk.Canvas(gf, width=260, height=110, bg="#111218",
+                  font=(MONO_FAMILY, 8, "bold"), anchor="w").pack(fill="x")
+        self.energy_canvas = tk.Canvas(gf, width=260, height=110, bg=theme.INSET,
                                          highlightthickness=0)
         self.energy_canvas.pack(fill="x", pady=(2, 8))
 
         tk.Label(gf, text="VALID FRACTION TRACE (over the session)", bg=PANEL_BG,
-                  fg=ACCENT, font=("Consolas", 8, "bold"), anchor="w").pack(fill="x")
-        self.valid_frac_canvas = tk.Canvas(gf, width=260, height=110, bg="#111218",
+                  fg=ACCENT, font=(MONO_FAMILY, 8, "bold"), anchor="w").pack(fill="x")
+        self.valid_frac_canvas = tk.Canvas(gf, width=260, height=110, bg=theme.INSET,
                                              highlightthickness=0)
         self.valid_frac_canvas.pack(fill="x", pady=(2, 4))
         tk.Label(gf, text="Both axes are labelled with their live min/max --\n"
                             "an unlabelled sparkline is decoration, not\n"
                             "instrumentation.",
-                  bg=PANEL_BG, fg=DIM, font=("Consolas", 8), anchor="w",
+                  bg=PANEL_BG, fg=DIM, font=(MONO_FAMILY, 8), anchor="w",
                   justify="left").pack(fill="x")
         self._draw_trace(self.energy_canvas, self.energy_trace, "sweep", "energy")
         self._draw_trace(self.valid_frac_canvas, self.valid_frac_trace,
@@ -1978,7 +2019,7 @@ class LatticeApp(tk.Tk):
         bounds = trace.bounds()
         if bounds is None or len(trace) < 2:
             canvas.create_text(w / 2, h / 2, text="(no data yet)", fill=DIM,
-                                font=("Consolas", 8))
+                                font=(MONO_FAMILY, 8))
             return
         xmin, xmax, ymin, ymax = bounds
         xspan = (xmax - xmin) or 1.0
@@ -1990,15 +2031,15 @@ class LatticeApp(tk.Tk):
             pts.extend((px(x), py(y)))
         canvas.create_line(*pts, fill=ACCENT, width=1)
         canvas.create_text(pad_l, pad_t, text=f"{ymax:.4g}", fill=DIM,
-                            font=("Consolas", 7), anchor="nw")
+                            font=(MONO_FAMILY, 7), anchor="nw")
         canvas.create_text(pad_l, h - pad_b, text=f"{ymin:.4g}", fill=DIM,
-                            font=("Consolas", 7), anchor="sw")
+                            font=(MONO_FAMILY, 7), anchor="sw")
         canvas.create_text(pad_l, h - 4, text=f"{xlabel}={xmin:.0f}", fill=DIM,
-                            font=("Consolas", 7), anchor="sw")
+                            font=(MONO_FAMILY, 7), anchor="sw")
         canvas.create_text(w - pad_r, h - 4, text=f"{xmax:.0f}", fill=DIM,
-                            font=("Consolas", 7), anchor="se")
+                            font=(MONO_FAMILY, 7), anchor="se")
         canvas.create_text(w - pad_r, pad_t, text=ylabel, fill=DIM,
-                            font=("Consolas", 7), anchor="ne")
+                            font=(MONO_FAMILY, 7), anchor="ne")
 
     def _refresh_scope_panel(self) -> None:
         """Task 6: rebuild all four SCOPE sub-plots from this session's own
@@ -2057,7 +2098,7 @@ class LatticeApp(tk.Tk):
         row = tk.Frame(master, bg=PANEL_BG)
         row.pack(fill="x", pady=1)
         tk.Canvas(row, width=12, height=12, bg=color, highlightthickness=0).pack(side="left")
-        tk.Label(row, text=" " + text, bg=PANEL_BG, fg=DIM, font=("Consolas", 8)).pack(side="left")
+        tk.Label(row, text=" " + text, bg=PANEL_BG, fg=DIM, font=(MONO_FAMILY, 8)).pack(side="left")
 
     # -- live updates --------------------------------------------------
     def _poll_queue(self):
