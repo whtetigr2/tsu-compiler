@@ -1,0 +1,12 @@
+{
+  "energy_tv": "unavailable: 2^64 too large to enumerate",
+  "task_validity": 1.0,
+  "execution_tv": "unavailable: no exact reference",
+  "execution_noise_floor": "unavailable: no exact reference",
+  "cross_check_tv": "unavailable: model too large",
+  "codeword_violation_rate": 0.0,
+  "ess": 6584.667716456667,
+  "diversity_distinct": 6040,
+  "diversity_valid_samples": 6400,
+  "diversity_reachable": "unavailable: 2^64 too large to enumerate"
+}

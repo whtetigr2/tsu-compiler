@@ -1,0 +1,43 @@
+name: lattice_elev_band_8x8
+description: >
+  A single binary overlay term over the same 8x8 grid shape the base layer
+  (lattice_small_8x8_k3.yaml) uses -- but this spec is NOT scoped to any one
+  band. A band's identity comes entirely from the conditioning bias patch
+  applied to a compiled instance of this spec at sample time (demo/elevation.py),
+  never from a per-band spec -- so this compiles ONCE and every band of a
+  thermometer stack reuses the same receipt at demo/receipts/elev_band.
+
+  Domain story, for intuition only and deliberately kept out of src/: each
+  spin here is "is this cell above the elevation band's threshold" (1) or
+  not (0) -- an independent binary indicator, not a terrain class. A cell
+  above the threshold prefers its above-threshold neighbours to also be
+  above threshold ("cells above the band clump" -- ground doesn't jump
+  discontinuously from below-band to above-band one cell at a time), giving
+  the smoothly-contoured region a real elevation band should have rather
+  than isolated noise pixels. N of these overlays stacked and counted
+  (demo/elevation.py's thermometer_level) is what recovers the "gradual
+  transitions" property lost when the base layer's k dropped from 5 to 3
+  (see lattice_small_8x8_k3.yaml's own docstring on the field-cap arithmetic
+  that forced that drop).
+
+  Why this is cheap on the SAME field gate that bound the base layer: at
+  k=2 (binary) the one-hot exactly-one penalty is P*(k-2)/2 = 0 -- there is
+  no representation penalty to pay at all, unlike k=3's 5.0 or k=4's 10.0.
+  An overlay costs nothing on the gate that binds everything else, which is
+  why richer worlds are built by STACKING cheap binary layers instead of
+  widening one layer's k.
+
+  Measured 2026-09-01 (compile step, --placement-restarts 12
+  --placement-iters 200000): 64 spins, degree 4, |J| 0.20, |b| 0.80,
+  BIPARTITE. Bipartite is the load-bearing fact, not an incidental one: it
+  means place() never needed a mediator spin for this graph, so this
+  program's beta is never welded to compile time the way the base layer's
+  (mediated, non-bipartite) beta is -- a later task puts a temperature
+  slider on overlays precisely because of this.
+generate:
+  kind: grid
+  width: 8
+  height: 8
+  variable_domain: {domain: binary}
+terms:
+  - {kind: product_over_edges, a_value: 1, b_value: 1, weight: -0.4}

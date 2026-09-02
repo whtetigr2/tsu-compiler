@@ -1,0 +1,6 @@
+{
+  "variables": 64,
+  "logical_interactions": 224,
+  "state_cardinality": 2,
+  "constraint_classes": 0
+}

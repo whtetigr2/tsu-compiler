@@ -35,6 +35,7 @@ zero, a dash, or a guess. Three honesty commitments this file holds to:
 """
 from __future__ import annotations
 
+import dataclasses
 import json
 import math
 import queue
@@ -43,20 +44,22 @@ import sys
 import threading
 import time
 import tkinter as tk
+import tkinter.font as tkfont
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 import numpy as np
-from PIL import Image, ImageTk
+from PIL import Image, ImageDraw, ImageTk
 from scipy import ndimage
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC = REPO_ROOT / "src"
 DEMO_DIR = REPO_ROOT / "demo"
 RECEIPT_DIR = DEMO_DIR / "receipts" / "small"
+OVERLAY_RECEIPT_DIR = DEMO_DIR / "receipts" / "elev_band"  # Task 7: elevation bands
 WORLDS_DIR = DEMO_DIR / "worlds"
 sys.path.insert(0, str(SRC))
 sys.path.insert(0, str(DEMO_DIR))
@@ -65,8 +68,17 @@ from tsu.spec import load_spec  # noqa: E402
 from tsu.passes.encode import encode  # noqa: E402
 from tsu.simulate import reconstruct_program, _selected_encoding  # noqa: E402
 from tsu.backends.thrml_backend import sample as thrml_sample  # noqa: E402
+from tsu.passes.route import assert_beta_consistent, BetaMismatchError  # noqa: E402 -- Task 7
 from worldfile import save_world  # noqa: E402 -- A2: save/load provenance-carrying worlds
 import frontier as frontier_mod  # noqa: E402 -- B1: capacity frontier panel
+from scope import (beta_to_temperature, autocorrelation, magnetization,  # noqa: E402
+                    energy_histogram, local_field_response, sigmoid,
+                    MIN_LOCAL_FIELD_BIN_COUNT)  # Task 5/6
+from tsu.ess import (integrated_autocorrelation_time,  # noqa: E402
+                     RELIABILITY_MIN_N_OVER_TAU)  # SCOPE panel's tau readout
+from layers import FIELD_CAP, FieldCapExceeded, bias_patch  # noqa: E402 -- Task 7
+from elevation import band_patch, thermometer_level, monotonicity_violations  # noqa: E402
+from elevation_world import render_elevation_world_image  # noqa: E402 -- composite view, reused verbatim
 
 # --------------------------------------------------------------------------
 # constants shared by the raw-lattice grid and the decode/render path
@@ -109,6 +121,64 @@ CLAMP_N_SAMPLES = 30
 CLAMP_N_WARMUP = 600
 
 # --------------------------------------------------------------------------
+# Task 7: LAYERS panel -- a base layer plus N_BANDS elevation-band overlay
+# layers (all N_BANDS bands sample from the SAME compiled demo/receipts/
+# elev_band program, patched differently per band -- one receipt, no
+# recompile, matching demo/elevation_world.py's own N_BANDS). "composite" is
+# a fifth, view-only pseudo-layer: it samples nothing of its own, it is
+# DERIVED from base's and every band's current last-valid decode.
+# --------------------------------------------------------------------------
+N_BANDS = 3   # matches demo/elevation_world.py's own N_BANDS
+BAND_NAMES = tuple(f"band{i}" for i in range(N_BANDS))
+LAYER_NAMES = ("base",) + BAND_NAMES + ("composite",)
+BAND_VALUE_NAMES = ("below", "above")   # a band cell is 0 (below threshold) or 1 (above)
+
+# A band has no continuous background worker (unlike base): it samples on
+# an explicit "Regenerate this layer" click, one batch, same scale as a
+# base pin-change batch (CLAMP_N_CHAINS/CLAMP_N_SAMPLES/CLAMP_N_WARMUP
+# above) -- reused rather than a third set of numbers invented for a third
+# sampling mode.
+BAND_SAMPLE_PARAMS = dict(n_chains=CLAMP_N_CHAINS, n_samples=CLAMP_N_SAMPLES,
+                          n_warmup=CLAMP_N_WARMUP, steps_per_sample=STEPS_PER_SAMPLE)
+
+# A pin on an OVERLAY cell (see ClampState/LayerState below) is NOT a hard
+# workload clamp the way a base-layer pin is (base pins route through
+# `tsu.simulate.simulate(clamp=...)`, which repartitions and FIXES those
+# physical spins -- see SampleWorker._run_clamped_batch). An overlay pin is
+# instead folded into the SAME bias_patch conditioning every band already
+# goes through, at a magnitude large relative to band_patch's own terms
+# (order 1-1.5, see demo/elevation_world.py's STRENGTH calibration note)
+# but kept under FIELD_CAP once combined with them. This is a DELIBERATE,
+# DISCLOSED difference, not an oversight: "pinning in the base and in an
+# overlay are different operations" (task 7 brief) -- a base pin is exact,
+# an overlay pin is a strong probabilistic nudge, and the UI states this
+# rather than presenting both as the same kind of control.
+OVERLAY_PIN_STRENGTH = 3.5
+
+# Reference dose-response table (spec section 2.1), MEASURED on
+# demo/stacked_world.py's own ROCK-vs-distance-from-water conditioning
+# sweep against demo/receipts/small -- reused here as-is (not re-measured)
+# to show the SAME bias_patch mechanism's known degenerate-zone shape. The
+# CONDITIONING STRENGTH control below drives demo/elevation.band_patch's
+# own `strength` parameter, a DIFFERENT quantity on a different scale (a
+# raw per-cell bias magnitude, not an alpha multiplying a distance field)
+# -- the table is shown as qualitative reference for "conditioning strength
+# controls have a degenerate zone," never claimed to read out this app's
+# own alpha numerically. Stated on screen, not just here.
+DOSE_RESPONSE_TABLE = (
+    (0.00, 15.3), (0.05, 23.6), (0.10, 33.1), (0.20, 52.8), (0.35, 66.6))
+DOSE_RESPONSE_NOTE = (
+    "Reference only, NOT this control's own calibration: measured on "
+    "demo/stacked_world.py's ROCK-vs-distance-from-water sweep (spec "
+    "2.1) against demo/receipts/small, alpha scaling a DISTANCE field "
+    "-- a different quantity on a different scale than this slider's "
+    "STRENGTH (a raw per-cell bias on demo/receipts/elev_band). Shown to "
+    "make the SHAPE visible: conditioning strength controls have a "
+    "degenerate zone (here, above alpha~0.2 the base rules were "
+    "overwhelmed) rather than a linear response -- discover that shape "
+    "here, not by accident on this app's own slider.")
+
+# --------------------------------------------------------------------------
 # UI2: speed control. This is a DISPLAY-RATE knob only. It varies n_chains
 # and n_samples per worker call (how much of a batch gets pulled and pushed
 # to the UI before the worker looks at pause/stop again) plus an explicit
@@ -141,6 +211,30 @@ SPEED_LEVELS = (
 )
 DEFAULT_SPEED_IDX = len(SPEED_LEVELS) - 1  # Full speed -- matches pre-UI2 behaviour
 
+# --------------------------------------------------------------------------
+# Task 6: SCOPE panel -- sizing/cadence constants. None of these change what
+# is SAMPLED (that's N_WARMUP/STEPS_PER_SAMPLE, untouched above); they only
+# bound how much of the live session's own history this panel looks at and
+# how often it redraws.
+# --------------------------------------------------------------------------
+SCOPE_PLOT_W, SCOPE_PLOT_H = 300, 150       # px, one sub-plot's image size
+SCOPE_ENERGY_TRACE_MAXLEN = 400             # same ring-buffer length B2's
+# energy_trace already used before this task; named here so the ACF plot's
+# own caption can state it rather than hardcoding a second "400" that could
+# drift from the Trace(...) construction below.
+SCOPE_RAW_DRAWS_MAXLEN = 600                # ring buffer of raw spin rows,
+# feeds local_field_response -- 600 draws * up to ~200 spins/draw pools
+# comfortably past MIN_LOCAL_FIELD_BIN_COUNT per bin without growing
+# unbounded over a long session.
+SCOPE_ACF_MAX_LAG = 40                      # lag window drawn on the
+# semi-log ACF plot; tau is marked separately even if it falls outside it
+SCOPE_ENERGY_HIST_BINS = 24
+SCOPE_LOCAL_FIELD_BINS = 16
+SCOPE_REDRAW_EVERY_N_DRAWS = 5              # throttle: local_field_response
+# pools SCOPE_RAW_DRAWS_MAXLEN draws * every spin each redraw -- cheap per
+# call, but recomputing on literally every one of many draws/sec is wasted
+# work the display rate (poll cadence, ~80ms) doesn't need.
+
 
 def speed_level(idx: int) -> dict:
     """SPEED_LEVELS[idx], clamping idx into range -- pure, headlessly
@@ -165,7 +259,12 @@ class ClampState:
 
     _CYCLE = (WATER, ROCK, GRASS)  # unpinned -> water -> rock -> grass -> unpinned
 
-    def __init__(self):
+    def __init__(self, cycle: tuple[int, ...] | None = None):
+        # Task 7: an overlay band's pin cycle is (0, 1) -- below/above --
+        # not the base's 3-value terrain cycle. `cycle` overrides the class
+        # default per-instance; every EXISTING call site (`ClampState()`,
+        # no argument) is unaffected, same 3-value terrain cycle as before.
+        self._cycle = cycle if cycle is not None else self._CYCLE
         self._pins: dict[tuple[int, int], int] = {}
 
     def get(self, x: int, y: int) -> int | None:
@@ -181,15 +280,16 @@ class ClampState:
         self._pins.clear()
 
     def cycle(self, x: int, y: int) -> int | None:
-        """Advance one cell's pin: unpinned -> water(0) -> rock(1) ->
-        grass(2) -> unpinned. Returns the new value (or None if now
-        unpinned)."""
+        """Advance one cell's pin through this instance's own `_cycle`
+        (default: unpinned -> water(0) -> rock(1) -> grass(2) -> unpinned;
+        (0, 1) for an overlay band -- see __init__). Returns the new value
+        (or None if now unpinned)."""
         cur = self._pins.get((x, y))
         if cur is None:
-            nxt = self._CYCLE[0]
+            nxt = self._cycle[0]
         else:
-            i = self._CYCLE.index(cur)
-            nxt = self._CYCLE[i + 1] if i + 1 < len(self._CYCLE) else None
+            i = self._cycle.index(cur)
+            nxt = self._cycle[i + 1] if i + 1 < len(self._cycle) else None
         if nxt is None:
             self._pins.pop((x, y), None)
         else:
@@ -211,6 +311,78 @@ class ClampState:
         return bool(self._pins)
 
 
+# --------------------------------------------------------------------------
+# Task 7: pure LAYERS-panel logic -- no Tk here, see
+# tests/test_lattice_app_logic.py's own "no Tk in pure logic" convention.
+# --------------------------------------------------------------------------
+
+def layer_supports_temperature(mediator_nodes: Sequence) -> bool:
+    """True iff a program carrying `mediator_nodes` (an IsingModel's own
+    field) is free to sample at any beta -- the SAME fact
+    `tsu.passes.route.assert_beta_consistent` gates on (empty
+    `mediator_nodes` -> that function is a no-op for ANY requested beta).
+    DERIVED here, not hardcoded per layer name, so this stays correct if a
+    future layer's own topology changes (see task 7's own brief: key the
+    control on this fact, not on "base is always locked")."""
+    return not bool(mediator_nodes)
+
+
+def band_index_from_name(layer_name: str) -> int:
+    """"band2" -> 2. Raises ValueError for anything else -- a caller
+    passing "base"/"composite" here is a bug, not a value to guess at."""
+    if not layer_name.startswith("band"):
+        raise ValueError(f"{layer_name!r} is not a band layer name")
+    return int(layer_name[len("band"):])
+
+
+def overlay_pin_patch(pins: Sequence[tuple[tuple[int, int], int]],
+                      strength: float = OVERLAY_PIN_STRENGTH
+                      ) -> dict[tuple[str, int], float]:
+    """{(cell_name, 1): weight} for every pinned cell in `pins` (an
+    iterable of ((x, y), value) pairs, i.e. ClampState.items()) -- value 1
+    (above) encourages at +strength, value 0 (below) encourages at
+    -strength (discourages "above"). This is NOT the same operation as a
+    base-layer pin (see OVERLAY_PIN_STRENGTH's own module-level docstring
+    note): it is a strong bias_patch nudge, added into the SAME patch dict
+    band_patch produces, not a hard clamp -- so a pinned overlay cell can
+    still, rarely, sample the other way, which base's hard-clamped pins
+    cannot. Returns {} for no pins -- an empty patch contribution, not a
+    special case the caller needs to branch on."""
+    return {(f"g{x}_{y}", 1): (strength if v == 1 else -strength)
+            for (x, y), v in pins}
+
+
+def composite_missing_layers(base_decoded, band_decodeds: Sequence) -> list[str]:
+    """Which of "base"/"band0"/"band1"/... have no valid decode yet --
+    the composite view is UNAVAILABLE (never fabricated from a partial
+    stack) until this returns []."""
+    missing = []
+    if base_decoded is None:
+        missing.append("base")
+    missing.extend(f"band{i}" for i, d in enumerate(band_decodeds) if d is None)
+    return missing
+
+
+class LayerState:
+    """Live, mutable per-layer sampling state for ONE band (or the base --
+    see LatticeApp's own base-layer attributes, which stay as they were
+    before this task; a base LayerState is not constructed). Composite has
+    no LayerState of its own -- it is derived from every band's (and
+    base's) `last_valid_decoded`, recomputed on demand, never stored."""
+
+    def __init__(self, name: str, clamp: "ClampState"):
+        self.name = name
+        self.clamp = clamp
+        self.conditioning_patch: dict[tuple[str, int], float] = {}
+        self.beta_override: float | None = None   # None = use the receipt's own compiled beta
+        self.last_valid_decoded: dict | None = None
+        self.last_valid_grid: np.ndarray | None = None
+        self.valid_count = 0
+        self.total_draws = 0
+        self.batch_infeasible = False
+        self.batch_reason = ""
+
+
 def cell_at(px: int, py: int, origin_x: int, origin_y: int, cell_px: int,
             width: int, height: int) -> tuple[int, int] | None:
     """Map a canvas click at (px, py) to a grid cell (x, y), given the
@@ -223,6 +395,60 @@ def cell_at(px: int, py: int, origin_x: int, origin_y: int, cell_px: int,
     if dx < 0 or dy < 0 or dx >= width or dy >= height:
         return None
     return int(dx // cell_px), int(dy // cell_px)
+
+
+def spin_cell_position(index: int, n_world_spins: int, spins_per_cell: int,
+                        grid_w: int) -> tuple[int, int, int] | None:
+    """Map a physical spin index to (cell_x, cell_y, slot), or None if the
+    spin is a mediator and belongs to no cell.
+
+    The encoder emits each categorical variable's chain spins consecutively
+    (`g{x}_{y}__dw{p}`), and the grid generator emits variables in row-major
+    order, so cell = index // spins_per_cell and slot = index % spins_per_cell.
+    `spins_per_cell` must be passed by the caller, derived from the receipt
+    (world spin count / cell count), never hardcoded here -- this function
+    only implements the arithmetic, not the assumption that it's 2."""
+    if index >= n_world_spins:
+        return None
+    cell, slot = divmod(index, spins_per_cell)
+    return (cell % grid_w, cell // grid_w, slot)
+
+
+def cell_block_bounds(cell_x: int, cell_y: int, cell_px: int) -> tuple[int, int, int, int]:
+    """Pixel bounds (x0, y0, x1, y1) of one cell's whole block on the LIVE
+    LATTICE canvas, at `cell_px` per cell -- the SAME pitch the DECODED
+    WORLD panel uses (WORLD_CELL_PX), so cell (x, y) lands at the identical
+    on-screen origin in both panels and a pinned shape reads congruently in
+    both. No margin here -- this is the block's OUTER border; sub-spin
+    rectangles inside it are inset by spin_slot_rect below."""
+    x0, y0 = cell_x * cell_px, cell_y * cell_px
+    return (x0, y0, x0 + cell_px, y0 + cell_px)
+
+
+def spin_slot_rect(cell_x: int, cell_y: int, slot: int, spins_per_cell: int,
+                    cell_px: int, inset: int = 2) -> tuple[int, int, int, int]:
+    """Pixel bounds of ONE sub-spin's fill rectangle inside its cell's
+    block: `spins_per_cell` slots laid out side by side (never stacked --
+    stacking would put slot 1 outside the 1:1 aspect this whole fix exists
+    to restore), each `inset` px clear of its neighbours and of the block's
+    own border so the border reads as a border, not just another seam."""
+    bx0, by0, bx1, by1 = cell_block_bounds(cell_x, cell_y, cell_px)
+    slot_w = max(1, (bx1 - bx0) // spins_per_cell)
+    x0 = bx0 + slot * slot_w
+    x1 = bx0 + (slot + 1) * slot_w if slot < spins_per_cell - 1 else bx1
+    return (x0 + inset, by0 + inset, x1 - inset, by1 - inset)
+
+
+def mediator_slot_rect(slot_index: int, cols: int, cw: int,
+                        inset: int = 1) -> tuple[int, int, int, int]:
+    """Pixel bounds of one mediator's rectangle within the mediator strip,
+    relative to the strip's own top-left (0, 0) -- the caller offsets by
+    the strip's canvas y-origin. Mediators are laid out row-major in their
+    own `cols`-wide grid, deliberately NOT the world's 8-wide grid: they
+    belong to no cell, so nothing about their layout should suggest one."""
+    row, col = divmod(slot_index, cols)
+    x0, y0 = col * cw, row * cw
+    return (x0 + inset, y0 + inset, x0 + cw - inset, y0 + cw - inset)
 
 
 def batch_feasibility(draws: list[dict]) -> tuple[bool, str]:
@@ -390,9 +616,30 @@ class Receipt:
         self.world_idx = [i for i in range(self.n_spins) if i not in mediator_set]
         self.mediator_idx = sorted(mediator_set)
 
-        med = self.passes.get("mediation", {})
+        # Task 7: `.get("mediation", {})` only supplies {} when the KEY is
+        # absent -- an unmediated (bipartite) receipt like elev_band still
+        # HAS the key, with value `null` (json -> None), because place()
+        # ran the mediation pass and recorded "nothing to mediate", not
+        # "mediation didn't run". `.get(...) or {}` catches both absent-key
+        # and present-but-null the same honest way: a bipartite overlay's
+        # Receipt must load cleanly, not crash on the exact fact (0
+        # mediators) this task's temperature control depends on.
+        mediation_raw = self.passes.get("mediation")
+        med = mediation_raw or {}
         self.mediator_count = med.get("mediator_count", len(self.mediator_idx))
-        self.partition_method = med.get("partition_method", "unavailable: field absent from receipt")
+        # Minor #3 (fix-round-2): "field absent from receipt" was wrong for
+        # elev_band -- its "mediation" key IS present, with value null (see
+        # comment above), not absent. Distinguish the two honestly: a
+        # present-but-null mediation pass (bipartite, 0 mediators) gets its
+        # own reason string; a genuinely absent key keeps the old one.
+        if "partition_method" in med:
+            self.partition_method = med["partition_method"]
+        elif "mediation" in self.passes and mediation_raw is None:
+            self.partition_method = ("unavailable: mediation pass recorded "
+                                      "null (bipartite receipt, 0 mediators) "
+                                      "-- no partition_method to report")
+        else:
+            self.partition_method = "unavailable: field absent from receipt"
         self.bipartite_after = med.get("bipartite_after")
         self.beta_used = med.get("beta_used", self.im.beta)
 
@@ -439,6 +686,34 @@ def render_world_image(grid: np.ndarray, up: int = CELL_UP) -> Image.Image:
     g[::up, :] = g[:, ::up] = 1
     img *= (1 - 0.05 * g[..., None])
     return Image.fromarray(np.clip(img, 0, 255).astype(np.uint8))
+
+
+def render_band_image(grid01: np.ndarray, up: int = CELL_UP) -> Image.Image:
+    """Task 7: render one elevation BAND's decoded 0/1 grid ("below"/
+    "above" threshold, see demo/elevation.py's own module docstring) --
+    deliberately REUSES this file's own terrain palette (PAL[WATER] for
+    below, PAL[GRASS] for above) rather than inventing a second colour
+    scheme: demo/render_world.py's own pseudo-relief already treats grass
+    as the highest terrain class and water as the lowest (hgt = np.choose
+    (grid, [0.0, 2.0, 1.0])), so "below=water-blue, above=grass-green"
+    reads as the same low/high convention this app already establishes,
+    not a new one."""
+    below_above = PAL[np.array([WATER, GRASS])]
+    img = below_above[np.kron(np.asarray(grid01, dtype=int), np.ones((up, up), int))]
+    g = np.zeros(img.shape[:2])
+    g[::up, :] = g[:, ::up] = 1
+    img = img * (1 - 0.06 * g[..., None])
+    return Image.fromarray(np.clip(img, 0, 255).astype(np.uint8))
+
+
+def grid_to_decoded(grid: np.ndarray) -> dict[str, int]:
+    """Inverse of classify_draw's own `grid[y, x] = decoded[f"g{x}_{y}"]`
+    construction -- Task 7 reconstructs the raw decoded dict
+    demo/elevation.band_patch expects (its `base=...` argument) from an
+    already-decoded grid, rather than keeping a second copy of the decoded
+    assignment around only for this."""
+    h, w = grid.shape
+    return {f"g{x}_{y}": int(grid[y, x]) for y in range(h) for x in range(w)}
 
 
 def classify_draw(receipt: Receipt, row: np.ndarray, seed: int) -> dict:
@@ -680,6 +955,270 @@ MONO = ("Consolas", 9)
 MONO_B = ("Consolas", 9, "bold")
 
 
+def _rgb(hex_str: str) -> tuple[int, int, int]:
+    """'#rrggbb' -> (r, g, b) ints -- so the SCOPE panel's PIL-rendered
+    plots (below) can share this file's own colour palette instead of a
+    second, hand-copied one that could drift from it."""
+    h = hex_str.lstrip("#")
+    return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+
+
+# Task 6: colours for the SCOPE panel's PIL-rendered plots, derived from
+# this file's own palette above (never a second literal set of colours).
+PLOT_BG = _rgb("#111218")      # same canvas background _draw_trace uses
+PLOT_FG = _rgb(FG)
+PLOT_DIM = _rgb(DIM)
+PLOT_ACCENT = _rgb(ACCENT)
+PLOT_WARN = _rgb(WARN)
+PLOT_GOOD = _rgb(GOOD)
+PLOT_BAD = _rgb(BAD)
+
+
+# --------------------------------------------------------------------------
+# Task 6: SCOPE panel plot renderers. Pure functions -- no Tk here, each
+# returns a PIL.Image (the brief requires plots be numpy/PIL images blitted
+# to a Tk canvas, not drawn as Tk canvas primitives / widget chrome: a
+# semi-log axis, filled histogram bars, and an overlaid scatter+curve are
+# not things Tk's own line/rect primitives render well). Axis extremes are
+# ALWAYS drawn on the image itself (never skipped -- an unlabelled
+# sparkline is decoration, not instrumentation); a longer plain-language
+# caption is returned alongside for the caller to show as a Tk label,
+# where PIL's small bitmap font would be unreadable.
+# --------------------------------------------------------------------------
+
+def render_acf_plot(w: int, h: int, series: Sequence[float],
+                    max_lag: int = SCOPE_ACF_MAX_LAG, floor: float = 1e-3
+                    ) -> tuple[Image.Image, str]:
+    """Semi-log (log-y) autocorrelation plot: x=lag (linear), y=|rho(lag)|
+    on a log scale -- matches Extropic's DTM paper (arXiv 2510.23972)
+    Figure 4b's own semi-log-with-decorrelation-time-marked convention
+    (see demo/scope.py's module docstring). rho values <= `floor` are
+    FLOORED to `floor` so the log axis has something to plot (a log scale
+    cannot show zero or negative values) -- floored points are marked with
+    a small warn-coloured dot so the flooring is visible, not hidden.
+    tau (Sokal's windowed estimate) is marked as a vertical line when it
+    falls within the plotted lag range."""
+    img = Image.new("RGB", (w, h), PLOT_BG)
+    d = ImageDraw.Draw(img)
+    if len(series) < 12:
+        d.text((10, h // 2 - 6), "(not enough draws yet)", fill=PLOT_DIM)
+        return img, "waiting for more draws before an ACF can be estimated..."
+
+    lag_cap = min(max_lag, len(series) - 1)
+    acf = autocorrelation(list(series), max_lag=lag_cap)
+    iat = integrated_autocorrelation_time(np.asarray(series, dtype=float))
+    n = len(series)
+    n_over_tau = (n / iat.tau) if iat.tau > 0 else float("inf")
+
+    pad_l, pad_r, pad_t, pad_b = 40, 8, 8, 16
+    pw, ph = w - pad_l - pad_r, h - pad_t - pad_b
+    ylo, yhi = math.log10(floor), 0.0  # rho[0] == 1.0 always -> log10(1)=0
+
+    def px(lag): return pad_l + (lag / lag_cap) * pw if lag_cap else pad_l
+
+    def py(v):
+        vv = max(v, floor)
+        return pad_t + (1.0 - (math.log10(vv) - ylo) / (yhi - ylo)) * ph
+
+    pts = [(px(k), py(v)) for k, v in enumerate(acf)]
+    if len(pts) >= 2:
+        d.line(pts, fill=PLOT_ACCENT, width=1)
+    for k, v in enumerate(acf):
+        if v <= floor:
+            x, y = px(k), py(v)
+            d.ellipse([x - 1.5, y - 1.5, x + 1.5, y + 1.5], fill=PLOT_WARN)
+
+    tau_in_range = 0 < iat.tau <= lag_cap
+    if tau_in_range:
+        xp = px(iat.tau)
+        d.line([(xp, pad_t), (xp, pad_t + ph)], fill=PLOT_WARN, width=1)
+        d.text((min(xp + 2, w - 40), pad_t), f"tau~{iat.tau:.1f}", fill=PLOT_WARN)
+
+    d.text((pad_l, pad_t), "1.0", fill=PLOT_DIM, anchor="la")
+    d.text((pad_l, pad_t + ph), f"{floor:g}", fill=PLOT_DIM, anchor="la")
+    d.text((pad_l, h - 4), "lag=0", fill=PLOT_DIM, anchor="ls")
+    d.text((w - pad_r, h - 4), f"{lag_cap}", fill=PLOT_DIM, anchor="rs")
+    d.text((w - pad_r, pad_t), "rho (log)", fill=PLOT_DIM, anchor="ra")
+
+    reliable = n_over_tau >= RELIABILITY_MIN_N_OVER_TAU
+    caption = (
+        f"tau~={iat.tau:.2f} (Sokal window={iat.window}"
+        f"{'*, saturated -- see tsu.ess' if iat.window_saturated else ''})"
+        f"{'  (beyond the plotted window)' if not tau_in_range else ''}  "
+        f"N={n}  N/tau={n_over_tau:.3g}  reliability threshold (tsu.ess."
+        f"RELIABILITY_MIN_N_OVER_TAU)=5000: {'MET' if reliable else 'NOT MET'}. "
+        f"This is this LIVE session's own energy trace (ring buffer, "
+        f"maxlen={SCOPE_ENERGY_TRACE_MAXLEN}) -- a SEPARATE measurement from "
+        f"the receipt's own precomputed ess in the VERIFICATION panel above, "
+        f"not a live update of it.")
+    return img, caption
+
+
+def render_line_plot(w: int, h: int, xs: Sequence[float], ys: Sequence[float],
+                     xlabel: str, ylabel: str,
+                     y_range: tuple[float, float] | None = None) -> Image.Image:
+    """Linear x/y line plot -- used for the magnetization trace, with
+    y_range fixed to (-1, 1) (the order parameter's own physical bounds,
+    a more honest axis than autoscaling to whatever range happened to be
+    observed so far)."""
+    img = Image.new("RGB", (w, h), PLOT_BG)
+    d = ImageDraw.Draw(img)
+    if len(xs) < 2:
+        d.text((10, h // 2 - 6), "(no data yet)", fill=PLOT_DIM)
+        return img
+    pad_l, pad_r, pad_t, pad_b = 40, 8, 8, 16
+    pw, ph = w - pad_l - pad_r, h - pad_t - pad_b
+    xmin, xmax = min(xs), max(xs)
+    ymin, ymax = y_range if y_range is not None else (min(ys), max(ys))
+    xspan = (xmax - xmin) or 1.0
+    yspan = (ymax - ymin) or (abs(ymax) or 1.0)
+
+    def px(x): return pad_l + (x - xmin) / xspan * pw
+
+    def py(y): return pad_t + (1.0 - (y - ymin) / yspan) * ph
+
+    pts = [(px(x), py(y)) for x, y in zip(xs, ys)]
+    d.line(pts, fill=PLOT_ACCENT, width=1)
+    d.text((pad_l, pad_t), f"{ymax:.3g}", fill=PLOT_DIM, anchor="la")
+    d.text((pad_l, pad_t + ph), f"{ymin:.3g}", fill=PLOT_DIM, anchor="la")
+    d.text((pad_l, h - 4), f"{xlabel}={xmin:.0f}", fill=PLOT_DIM, anchor="ls")
+    d.text((w - pad_r, h - 4), f"{xmax:.0f}", fill=PLOT_DIM, anchor="rs")
+    d.text((w - pad_r, pad_t), ylabel, fill=PLOT_DIM, anchor="ra")
+    return img
+
+
+def render_energy_histogram_plot(w: int, h: int, series: Sequence[float],
+                                 bins: int = SCOPE_ENERGY_HIST_BINS) -> Image.Image:
+    """Filled-bar histogram of `series` (the energy trace's own values) --
+    the distribution the trace only samples one point of at a time."""
+    img = Image.new("RGB", (w, h), PLOT_BG)
+    d = ImageDraw.Draw(img)
+    if len(series) < 4:
+        d.text((10, h // 2 - 6), "(no data yet)", fill=PLOT_DIM)
+        return img
+    edges, counts = energy_histogram(list(series), bins=bins)
+    pad_l, pad_r, pad_t, pad_b = 40, 8, 8, 16
+    pw, ph = w - pad_l - pad_r, h - pad_t - pad_b
+    cmax = max(counts) or 1
+    n_bins = len(counts)
+    bw = pw / n_bins if n_bins else pw
+    for i, c in enumerate(counts):
+        x0 = pad_l + i * bw
+        x1 = x0 + bw * 0.85
+        bar_h = (c / cmax) * ph
+        y1 = pad_t + ph
+        y0 = y1 - bar_h
+        d.rectangle([x0, y0, x1, y1], fill=PLOT_ACCENT)
+    d.text((pad_l, pad_t), f"{cmax}", fill=PLOT_DIM, anchor="la")
+    d.text((pad_l, h - 4), f"E={edges[0]:.3g}", fill=PLOT_DIM, anchor="ls")
+    d.text((w - pad_r, h - 4), f"{edges[-1]:.3g}", fill=PLOT_DIM, anchor="rs")
+    d.text((w - pad_r, pad_t), "count", fill=PLOT_DIM, anchor="ra")
+    return img
+
+
+def render_sigmoid_plot(w: int, h: int, draws: Sequence[Sequence[int]], ising,
+                        bins: int = SCOPE_LOCAL_FIELD_BINS) -> tuple[Image.Image, str]:
+    """Empirical P(s=1) per POST-HOC RECONSTRUCTED local-field bin (blue
+    points) plotted alongside the analytic sigmoid(2*gamma) (green curve,
+    FOR REFERENCE ONLY) -- the measurable analogue of Extropic's DTM
+    paper Figure 4a.
+
+    THIS IS NOT A PLOT OF THE SAMPLER'S CONDITIONAL (fix-round-1 finding,
+    see task-5-6-report.md and demo/scope.py's local_field_response
+    docstring for the full reasoning): thrml exposes no local field at
+    flip time, so gamma is reconstructed after the fact from each draw's
+    final joint state, which makes it correlated with the very spin it's
+    paired with. Measured points are therefore NOT expected to sit on
+    the reference curve near the transition even for a defect-free
+    sampler, AND a genuine sampler defect would look the same way -- the
+    two are currently indistinguishable from this plot alone. A
+    block-split measurement (task-5-6-report.md) ruled out one specific
+    alternative (per-substep staleness) but not a sampler defect in
+    general. All of this is restated in the returned caption, not just
+    here, because the brief requires it be visible ON SCREEN.
+
+    A bin with too few pooled samples (see MIN_LOCAL_FIELD_BIN_COUNT in
+    demo/scope.py) is SKIPPED here, not plotted at a fabricated position
+    -- the caption reports how many were skipped so that omission is
+    visible, not silent."""
+    img = Image.new("RGB", (w, h), PLOT_BG)
+    d = ImageDraw.Draw(img)
+    if len(draws) < 4:
+        d.text((10, h // 2 - 6), "(no draws yet)", fill=PLOT_DIM)
+        return img, "waiting for draws..."
+    centers, probs, counts = local_field_response(draws, ising, bins=bins)
+    if not centers:
+        d.text((10, h // 2 - 6), "(no field data)", fill=PLOT_DIM)
+        return img, "no data"
+
+    pad_l, pad_r, pad_t, pad_b = 40, 8, 8, 16
+    pw, ph = w - pad_l - pad_r, h - pad_t - pad_b
+    gmin, gmax = min(centers), max(centers)
+    gspan = (gmax - gmin) or 1.0
+
+    def px(g): return pad_l + (g - gmin) / gspan * pw
+
+    def py(p): return pad_t + (1.0 - p) * ph
+
+    curve_pts = [(px(gmin + gspan * i / 40.0),
+                  py(float(sigmoid(2.0 * (gmin + gspan * i / 40.0)))))
+                 for i in range(41)]
+    d.line(curve_pts, fill=PLOT_GOOD, width=1)
+
+    n_skipped = 0
+    for c, p, n in zip(centers, probs, counts):
+        if n == 0:
+            continue
+        if math.isnan(p):
+            n_skipped += 1
+            continue
+        x, y = px(c), py(p)
+        r = 2.5
+        d.ellipse([x - r, y - r, x + r, y + r], fill=PLOT_ACCENT)
+
+    d.text((pad_l, pad_t), "1.0", fill=PLOT_DIM, anchor="la")
+    d.text((pad_l, pad_t + ph), "0.0", fill=PLOT_DIM, anchor="la")
+    d.text((pad_l, h - 4), f"recon.gamma={gmin:.2f}", fill=PLOT_DIM, anchor="ls")
+    d.text((w - pad_r, h - 4), f"{gmax:.2f}", fill=PLOT_DIM, anchor="rs")
+    d.text((w - pad_r, pad_t), "empirical P(s=1)", fill=PLOT_DIM, anchor="ra")
+
+    caption = (
+        f"blue = empirical P(s=1) vs a POST-HOC RECONSTRUCTED local field "
+        f"(read from each draw's final state, NOT the sampler's live "
+        f"conditional -- thrml exposes no field at flip time). green = "
+        f"analytic sigmoid(2*gamma), shown FOR REFERENCE ONLY. Near the "
+        f"transition, measured points are NOT expected to sit on the "
+        f"reference curve: conditioning on a reconstructed field differs "
+        f"from the sampler's own conditional. The gap could ALSO be a "
+        f"real sampler defect -- the two explanations cannot currently "
+        f"be told apart (see task-5-6-report.md). "
+        f"{n_skipped}/{len(centers)} bin(s) skipped -- fewer than "
+        f"{MIN_LOCAL_FIELD_BIN_COUNT} pooled samples to report a "
+        f"probability (counts are real, just too sparse to plot).")
+    return img, caption
+
+
+def _fit_caption_height(label: tk.Label) -> None:
+    """I3/I4 (fix-round-2): size `label`'s `height` (Tk's Label height is a
+    LINE COUNT, not pixels) to what its CURRENTLY SET text actually needs
+    at its configured wraplength/font -- measured via real Tk layout
+    (winfo_reqheight), never a guessed line count. The ACF and sigmoid
+    captions were both set with a guessed caption_lines (4 and 11) that
+    undercounted the real wrapped text (7 and 12 lines respectively) and
+    silently clipped the load-bearing sentence in each -- a caption that
+    carries one of this app's honesty disclosures must not be sized by
+    guess. Call this after every `.config(text=...)` that can change a
+    caption's content, not just once at construction, since the safety
+    net must hold for text that changes at runtime, not just today's
+    wording."""
+    label.config(height=0)  # let Tk report its OWN unclipped natural size
+    label.update_idletasks()
+    req_h = label.winfo_reqheight()
+    line_h = tkfont.Font(font=label.cget("font")).metrics("linespace")
+    n_lines = max(1, -(-req_h // max(line_h, 1)))  # ceil division
+    label.config(height=n_lines)
+
+
 class Panel(tk.Frame):
     def __init__(self, master, title: str, **kw):
         super().__init__(master, bg=PANEL_BG, highlightbackground=BORDER,
@@ -692,11 +1231,20 @@ class Panel(tk.Frame):
 
 
 class LatticeApp(tk.Tk):
-    def __init__(self, receipt: Receipt):
+    def __init__(self, receipt: Receipt, overlay_receipt: Receipt):
         super().__init__()
         self.receipt = receipt
+        self.overlay_receipt = overlay_receipt   # Task 7: demo/receipts/elev_band, compiled once at load, same as `receipt`
         self.title("tsu lattice demo -- live sampling of a compiled receipt")
-        self.geometry("1760x900")
+        # Task 6: extra height for the new SCOPE panel row added below the
+        # existing content row -- every other panel's own size/position is
+        # unchanged, this only makes room for the addition. Grew again in
+        # fix-round 1 (1160 -> 1240) when the sigmoid cell's caption grew
+        # from 4 to 11 lines to carry the reconstruction-vs-defect
+        # disclosure on screen. Task 7: grew again (1240 -> 1380) for the
+        # new LAYERS row -- every other panel's own size/position is again
+        # unchanged.
+        self.geometry("1760x1380")
         self.configure(bg=BG)
 
         self.in_q: "queue.Queue[dict]" = queue.Queue(maxsize=64)
@@ -728,13 +1276,53 @@ class LatticeApp(tk.Tk):
         # subset) and valid fraction over the session (recomputed at the
         # SAME cadence, from self.valid_count/self.total_draws already
         # tracked above). Bounded ring buffers, see Trace's own docstring.
-        self.energy_trace = Trace(maxlen=400)
-        self.valid_frac_trace = Trace(maxlen=400)
+        self.energy_trace = Trace(maxlen=SCOPE_ENERGY_TRACE_MAXLEN)
+        self.valid_frac_trace = Trace(maxlen=SCOPE_ENERGY_TRACE_MAXLEN)
+
+        # Task 6: SCOPE panel state. magnetization_trace mirrors energy_
+        # trace's own convention (every draw, valid or not -- the order
+        # parameter is a property of the raw chain too). raw_draws is a
+        # SEPARATE, longer ring buffer of full spin rows (not just a
+        # scalar per draw): local_field_response needs the actual pooled
+        # (gamma, spin) pairs a real draw produced, not a summary of one.
+        self.magnetization_trace = Trace(maxlen=SCOPE_ENERGY_TRACE_MAXLEN)
+        self.raw_draws: deque = deque(maxlen=SCOPE_RAW_DRAWS_MAXLEN)
+        self._scope_redraw_counter = 0
+        # keep references so Tk doesn't garbage-collect the blitted images
+        self.acf_photo = self.mag_photo = self.hist_photo = self.sigmoid_photo = None
+
+        # Task 7: LAYERS panel state. `active_layer` selects what DECODED
+        # WORLD/PINS show and act on -- "base" reuses every attribute
+        # already defined above UNCHANGED (this task adds a NEW mode, it
+        # does not touch the base-layer path). Each band gets its own
+        # LayerState (own ClampState, own conditioning/beta, own last-valid
+        # decode) -- see LayerState's own docstring for why composite has
+        # no entry here (it is derived, never stored).
+        self.active_layer = "base"
+        self.alpha = 1.0   # demo/elevation.band_patch's own `strength` -- see DOSE_RESPONSE_NOTE
+        self.bands: dict[str, LayerState] = {
+            name: LayerState(name, ClampState(cycle=(0, 1))) for name in BAND_NAMES}
+        self.layer_photo = None  # DECODED WORLD's blitted image when a band/composite is active
+        # I2 (fix-round-2): the base grid actually captured at the most
+        # recent band regenerate -- what the composite's terrain must be
+        # rendered from, NOT self.last_valid_grid (which keeps streaming
+        # after that regenerate). Set in _on_band_regenerated. See
+        # _refresh_layer_view's composite branch.
+        self.composite_base_grid: np.ndarray | None = None
 
         self._build_layout()
         self._populate_static_panels()
 
         self._start_worker(random.randint(0, 2**31 - 1))
+
+        # Task 7: LAYERS panel's own initial draw -- alpha label, temperature
+        # control (base starts selected, so this shows FIXED/disabled), pins
+        # list, composite readout (starts "unavailable", honestly, since no
+        # band has ever been regenerated this session yet).
+        self._on_alpha_change(self.alpha)
+        self._refresh_temperature_control()
+        self._refresh_pins_panel()
+        self._refresh_composite_readout()
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.after(80, self._poll_queue)
@@ -749,6 +1337,14 @@ class LatticeApp(tk.Tk):
         for c, weight in enumerate((0, 1, 1, 0, 0)):
             content.grid_columnconfigure(c, weight=weight)
         content.grid_rowconfigure(0, weight=1)
+        # Task 6: SCOPE panel -- a new row below the existing content row,
+        # spanning every column, fixed height (grid_propagate off) so it
+        # never eats into the row-0 panels' own space.
+        # Task 6 fix-round 1: minsize grew from 260 -- the sigmoid cell's
+        # caption is now 11 lines (was 4) to fit the reconstruction-vs-
+        # defect disclosure required on screen, and this row sizes to its
+        # tallest cell.
+        content.grid_rowconfigure(1, weight=0, minsize=340)
 
         left = tk.Frame(content, bg=BG, width=340)
         left.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
@@ -800,6 +1396,161 @@ class LatticeApp(tk.Tk):
         self.mix_panel.grid(row=2, column=0, sticky="nsew", pady=4)
         self.log_panel = Panel(right, "SAMPLE LOG")
         self.log_panel.grid(row=3, column=0, sticky="nsew", pady=(4, 0))
+
+        # Task 6: SCOPE panel -- autocorrelation (semi-log, tau + the 5000
+        # reliability threshold), magnetization trace, energy histogram,
+        # and the measured-vs-analytic sigmoid response, four sub-plots in
+        # a row. Every plot is a PIL image blitted onto its own Canvas (see
+        # render_acf_plot etc. above) -- Tk canvas primitives alone can't
+        # do a log axis, filled bars, or an overlaid scatter+curve well.
+        self.scope_panel = Panel(content, "SCOPE  (autocorrelation / magnetization / "
+                                          "energy histogram / local-field response)")
+        self.scope_panel.grid(row=1, column=0, columnspan=5, sticky="nsew", pady=(6, 0))
+        scope_row = tk.Frame(self.scope_panel.body, bg=PANEL_BG)
+        scope_row.pack(fill="both", expand=True)
+
+        def _scope_cell(title, caption_lines=4):
+            cell = tk.Frame(scope_row, bg=PANEL_BG)
+            cell.pack(side="left", fill="both", expand=True, padx=4)
+            tk.Label(cell, text=title, bg=PANEL_BG, fg=ACCENT,
+                      font=("Consolas", 8, "bold"), anchor="w").pack(fill="x")
+            canvas = tk.Canvas(cell, width=SCOPE_PLOT_W, height=SCOPE_PLOT_H,
+                                bg="#111218", highlightthickness=0)
+            canvas.pack(pady=(2, 2))
+            caption = tk.Label(cell, text="", bg=PANEL_BG, fg=DIM,
+                                font=("Consolas", 7), anchor="w", justify="left",
+                                wraplength=SCOPE_PLOT_W, height=caption_lines)
+            caption.pack(fill="x")
+            return canvas, caption
+
+        self.acf_canvas, self.acf_caption = _scope_cell(
+            "AUTOCORRELATION (semi-log, tau marked)")
+        self.mag_canvas, self.mag_caption = _scope_cell(
+            "MAGNETIZATION (order parameter, per draw)")
+        self.hist_canvas, self.hist_caption = _scope_cell(
+            "ENERGY HISTOGRAM (over the session)")
+        # Task 6 fix-round 1: retitled from "measured P(s=1) vs analytic
+        # sigmoid" -- that phrasing claimed the plot showed the sampler's
+        # own conditional, which it does not (see render_sigmoid_plot's
+        # docstring and demo/scope.py's local_field_response docstring).
+        # This cell's caption is long BY REQUIREMENT (the fix-round-1
+        # ruling: the reconstruction-vs-defect distinction must be stated
+        # ON SCREEN, not only in a docstring) -- caption_lines=11 gives it
+        # room without touching any other cell's sizing.
+        self.sigmoid_canvas, self.sigmoid_caption = _scope_cell(
+            "LOCAL FIELD: EMPIRICAL P(s=1) vs SIGMOID (REFERENCE ONLY)",
+            caption_lines=11)
+        for canvas in (self.acf_canvas, self.mag_canvas, self.hist_canvas,
+                      self.sigmoid_canvas):
+            canvas.create_image(0, 0, anchor="nw", tags="plot")
+
+        # Task 7: LAYERS panel -- a new row below SCOPE, same "new full-
+        # width row" pattern Task 6 used for SCOPE itself. Selector / pins-
+        # apply-to note / conditioning strength + dose-response reference /
+        # per-layer regenerate / temperature (overlay-only) / composite
+        # validation readout -- see the brief's own 6 steps, one widget
+        # group per step, left to right.
+        content.grid_rowconfigure(2, weight=0, minsize=190)
+        self.layers_panel = Panel(content, "LAYERS  (base / band0.."
+                                          f"band{N_BANDS - 1} / composite)")
+        self.layers_panel.grid(row=2, column=0, columnspan=5, sticky="nsew", pady=(6, 0))
+        layers_row = tk.Frame(self.layers_panel.body, bg=PANEL_BG)
+        layers_row.pack(fill="both", expand=True)
+
+        def _layers_cell(title, width=None):
+            cell = tk.Frame(layers_row, bg=PANEL_BG, width=width)
+            cell.pack(side="left", fill="both", expand=(width is None), padx=6)
+            if width is not None:
+                cell.pack_propagate(False)
+            tk.Label(cell, text=title, bg=PANEL_BG, fg=ACCENT,
+                      font=("Consolas", 8, "bold"), anchor="w").pack(fill="x")
+            return cell
+
+        # Step 1: layer selector.
+        sel_cell = _layers_cell("LAYER SELECTOR", width=190)
+        self.layer_var = tk.StringVar(value=self.active_layer)
+        for name in LAYER_NAMES:
+            tk.Radiobutton(sel_cell, text=name, value=name, variable=self.layer_var,
+                            command=self._on_layer_selected, bg=PANEL_BG, fg=FG,
+                            selectcolor=BORDER, activebackground=PANEL_BG,
+                            activeforeground=FG, font=MONO, anchor="w",
+                            highlightthickness=0).pack(fill="x")
+        tk.Label(sel_cell, text="Pins apply to the SELECTED layer only "
+                                 "(see PINS list, tagged by layer).",
+                  bg=PANEL_BG, fg=DIM, font=("Consolas", 7), anchor="w",
+                  justify="left", wraplength=180).pack(fill="x", pady=(4, 0))
+        # C1 (fix-round-2): the code comment above OVERLAY_PIN_STRENGTH
+        # claims "the UI states this" (that an overlay pin is a strong
+        # nudge, not a hard constraint) -- it did not, until this label.
+        # Made true here rather than left as an aspirational comment.
+        tk.Label(sel_cell, text="Base pins are EXACT clamps. Overlay pins "
+                                 "(band0/1/2) are a STRONG BIAS NUDGE, not "
+                                 "a guarantee -- CONDITIONING STRENGTH can "
+                                 "outvote them and the pinned cell can "
+                                 "still render the other value.",
+                  bg=PANEL_BG, fg=WARN, font=("Consolas", 7), anchor="w",
+                  justify="left", wraplength=180).pack(fill="x", pady=(4, 0))
+
+        # Step 3: conditioning strength + dose-response reference table.
+        alpha_cell = _layers_cell("CONDITIONING STRENGTH (overlays)", width=330)
+        # Minor #4 (fix-round-2): no wraplength in a 330px cell -- the text
+        # (incl. the "-- see dose-response note below" pointer) measures
+        # ~672px and was getting cut off. Matches the other two labels in
+        # this same cell, which already wrap at 320.
+        self.alpha_label = tk.Label(alpha_cell, text="", bg=PANEL_BG, fg=FG,
+                                     font=MONO, anchor="w", justify="left",
+                                     wraplength=320)
+        self.alpha_label.pack(fill="x", pady=(2, 0))
+        self.alpha_scale = tk.Scale(
+            alpha_cell, from_=0.0, to=4.0, resolution=0.05, orient="horizontal",
+            showvalue=0, length=300, bg=PANEL_BG, fg=FG, troughcolor=BG,
+            highlightthickness=0, bd=0, command=self._on_alpha_change)
+        self.alpha_scale.set(self.alpha)
+        self.alpha_scale.pack(fill="x")
+        table_txt = "  ".join(f"a={a:.2f}->{r:.1f}%" for a, r in DOSE_RESPONSE_TABLE)
+        tk.Label(alpha_cell, text=f"dose-response reference: {table_txt}",
+                  bg=PANEL_BG, fg=WARN, font=("Consolas", 7), anchor="w",
+                  justify="left", wraplength=320).pack(fill="x", pady=(2, 0))
+        tk.Label(alpha_cell, text=DOSE_RESPONSE_NOTE, bg=PANEL_BG, fg=DIM,
+                  font=("Consolas", 7), anchor="w", justify="left",
+                  wraplength=320).pack(fill="x", pady=(2, 0))
+
+        # Step 4: per-layer regenerate.
+        regen_cell = _layers_cell("PER-LAYER REGENERATE", width=190)
+        self.regenerate_btn = tk.Button(
+            regen_cell, text="Regenerate this layer", command=self._on_regenerate_layer,
+            bg=PANEL_BG, fg=FG, activebackground=BORDER, activeforeground=FG,
+            relief="flat", padx=8, pady=4, wraplength=170)
+        self.regenerate_btn.pack(fill="x", pady=(4, 0))
+        self.regenerate_status = tk.Label(regen_cell, text="", bg=PANEL_BG, fg=DIM,
+                                           font=("Consolas", 7), anchor="w",
+                                           justify="left", wraplength=180)
+        self.regenerate_status.pack(fill="x", pady=(4, 0))
+
+        # Step 5: temperature control -- overlays only, derived from
+        # whether the ACTIVE layer's program carries mediator spins.
+        temp_cell = _layers_cell("TEMPERATURE (overlay layers only)", width=260)
+        self.temp_label = tk.Label(temp_cell, text="", bg=PANEL_BG, fg=FG,
+                                    font=MONO, anchor="w")
+        self.temp_label.pack(fill="x", pady=(2, 0))
+        self.temp_scale = tk.Scale(
+            temp_cell, from_=0.3, to=3.0, resolution=0.05, orient="horizontal",
+            showvalue=0, length=240, bg=PANEL_BG, fg=FG, troughcolor=BG,
+            highlightthickness=0, bd=0, command=self._on_temperature_change)
+        self.temp_scale.set(1.0)
+        self.temp_scale.pack(fill="x")
+        self.temp_reason = tk.Label(temp_cell, text="", bg=PANEL_BG, fg=WARN,
+                                     font=("Consolas", 7), anchor="w",
+                                     justify="left", wraplength=250)
+        self.temp_reason.pack(fill="x", pady=(2, 0))
+
+        # Step 6: composite validation readout.
+        comp_cell = _layers_cell("COMPOSITE VALIDATION  (cross-layer, separate "
+                                  "from each layer's own contract validity)")
+        self.composite_label = tk.Label(comp_cell, text="", bg=PANEL_BG, fg=FG,
+                                         font=("Consolas", 8), anchor="w",
+                                         justify="left", wraplength=340)
+        self.composite_label.pack(fill="x", pady=(2, 0))
 
         bottom = tk.Frame(self, bg=BG)
         bottom.pack(fill="x", padx=8, pady=(0, 8))
@@ -893,31 +1644,87 @@ class LatticeApp(tk.Tk):
         # expand=True (no fill) into the panel body -- that centres the
         # whole block in whatever vertical space the panel grid cell gives
         # it, instead of the block hugging the top and leaving dead PANEL_BG
-        # below it. `cw` (px/spin) is also bumped up from 18 so the grid
-        # itself reads less like a postage stamp.
+        # below it.
+        #
+        # Redraw (was: divmod(i, 16), no cell boundary, mediators tacked on
+        # as four more rows -- the two panels read at 2:1 vs 1:1 aspect and
+        # mediators inflated the row count, which is why a pinned shape
+        # didn't visually match between LIVE LATTICE and DECODED WORLD).
+        # Now: an 8x8 grid of bordered cell BLOCKS at the SAME cell_px pitch
+        # as the DECODED WORLD panel (WORLD_CELL_PX), each block holding its
+        # spins_per_cell sub-spins side by side; mediators get their own
+        # labelled strip below, never implying they belong to a cell.
+        # spins_per_cell is DERIVED from the receipt (world spin count /
+        # cell count), never hardcoded -- this app has no basis for
+        # assuming k=3 domain-wall coding stays true if the receipt changes.
         lf = self.lattice_panel.body
         inner = tk.Frame(lf, bg=PANEL_BG)
         inner.pack(expand=True)
-        cols = 16
-        rows = -(-r.n_spins // cols)
-        cw = 24
-        self.lattice_canvas = tk.Canvas(inner, width=cols * cw, height=rows * cw,
+
+        n_world = len(r.world_idx)
+        n_cells = W * H
+        if n_world % n_cells != 0:
+            raise ValueError(
+                f"world spin count {n_world} is not evenly divisible by "
+                f"{n_cells} cells ({W}x{H}) -- cannot derive spins_per_cell "
+                f"without guessing; this receipt's encoding doesn't match "
+                f"the assumption this panel is built on")
+        spins_per_cell = n_world // n_cells
+        cell_px = WORLD_CELL_PX  # same on-screen pitch as DECODED WORLD
+
+        world_w, world_h = W * cell_px, H * cell_px
+        med_cols = 16
+        med_cw = 16
+        med_count = len(r.mediator_idx)
+        med_rows = -(-med_count // med_cols) if med_count else 0
+        gap, label_h = 10, 16
+        canvas_w = max(world_w, med_cols * med_cw)
+        canvas_h = world_h + gap + label_h + med_rows * med_cw + 4
+
+        self.lattice_canvas = tk.Canvas(inner, width=canvas_w, height=canvas_h,
                                           bg=PANEL_BG, highlightthickness=0)
         self.lattice_canvas.pack(pady=(2, 6))
+
+        # cell blocks: one bordered outline per cell, drawn once ...
+        for cy in range(H):
+            for cx in range(W):
+                bx0, by0, bx1, by1 = cell_block_bounds(cx, cy, cell_px)
+                self.lattice_canvas.create_rectangle(
+                    bx0, by0, bx1, by1, outline=BORDER, width=1)
+
+        # ... then each world spin's own fill rectangle inside its block,
+        # positioned via spin_cell_position -- the single source of truth
+        # for "which cell does this physical spin belong to."
         self.lattice_rects = []
         for i in range(r.n_spins):
-            row, col = divmod(i, cols)
-            x0, y0 = col * cw + 1, row * cw + 1
+            pos = spin_cell_position(i, n_world, spins_per_cell, W)
+            if pos is not None:
+                cx, cy, slot = pos
+                x0, y0, x1, y1 = spin_slot_rect(cx, cy, slot, spins_per_cell, cell_px)
+            else:
+                m = i - n_world  # mediator's own index within the strip
+                mx0, my0, mx1, my1 = mediator_slot_rect(m, med_cols, med_cw)
+                strip_y0 = world_h + gap + label_h
+                x0, y0, x1, y1 = mx0, my0 + strip_y0, mx1, my1 + strip_y0
             rect = self.lattice_canvas.create_rectangle(
-                x0, y0, x0 + cw - 2, y0 + cw - 2, outline="", fill=WORLD_OFF)
+                x0, y0, x1, y1, outline="", fill=WORLD_OFF)
             self.lattice_rects.append(rect)
+
+        self.lattice_canvas.create_text(
+            4, world_h + gap + label_h / 2, anchor="w", fill=DIM,
+            font=("Consolas", 8),
+            text=f"MEDIATOR SPINS ({med_count}) -- hidden spins from edge "
+                 f"subdivision; belong to no cell")
+
         legend = tk.Frame(inner, bg=PANEL_BG)
         legend.pack(fill="x")
         self._swatch(legend, WORLD_ON, f"world spin (0-{len(r.world_idx) - 1}), lit = 1")
         self._swatch(legend, MEDIATOR_ON, f"mediator spin ({r.mediator_idx[0]}-{r.mediator_idx[-1]}), lit = 1")
         tk.Label(inner, text="Raw physical spin state of the compiled program --\n"
                            "this is NOT the decoded world; a spin here has no\n"
-                           "terrain meaning until enc.decode succeeds.",
+                           "terrain meaning until enc.decode succeeds. Each\n"
+                           "bordered block above is one DECODED WORLD cell, at\n"
+                           "the same grid position and pitch as that panel.",
                   bg=PANEL_BG, fg=DIM, font=("Consolas", 8), justify="left", anchor="w"
                   ).pack(fill="x", pady=(6, 0))
 
@@ -1113,6 +1920,27 @@ class LatticeApp(tk.Tk):
                   font=("Consolas", 8), anchor="w", justify="left",
                   wraplength=260).pack(fill="x", pady=(0, 8))
 
+        # Task 5: temperature alongside beta -- "everything being inverted
+        # is what throws me for a loop." beta is inverse temperature only
+        # because exp(-beta*E) is tidier to carry through the compiler than
+        # exp(-E/T); both belong on screen. beta<=0 is refused by
+        # beta_to_temperature itself (see demo/scope.py), never silently
+        # displayed as a blank or a guess.
+        try:
+            temp_line = (f"beta = {r.im.beta:.6g}  (temperature T = 1/beta "
+                        f"= {beta_to_temperature(r.im.beta):.3f})")
+            temp_fg = FG
+        except ValueError as exc:
+            temp_line = f"unavailable: {exc}"
+            temp_fg = WARN
+        tk.Label(gf, text=temp_line, bg=PANEL_BG, fg=temp_fg, font=MONO_B,
+                  anchor="w", wraplength=260, justify="left").pack(fill="x", pady=(0, 2))
+        tk.Label(gf, text="Higher T = hotter, more disordered. Lower T =\n"
+                            "colder, more frozen. The useful window sits\n"
+                            "between the two extremes.",
+                  bg=PANEL_BG, fg=DIM, font=("Consolas", 8), anchor="w",
+                  justify="left", wraplength=260).pack(fill="x", pady=(0, 8))
+
         tk.Label(gf, text="ENERGY TRACE (over sweeps)", bg=PANEL_BG, fg=ACCENT,
                   font=("Consolas", 8, "bold"), anchor="w").pack(fill="x")
         self.energy_canvas = tk.Canvas(gf, width=260, height=110, bg="#111218",
@@ -1132,6 +1960,11 @@ class LatticeApp(tk.Tk):
         self._draw_trace(self.energy_canvas, self.energy_trace, "sweep", "energy")
         self._draw_trace(self.valid_frac_canvas, self.valid_frac_trace,
                          "draw", "valid %")
+
+        # Task 6: SCOPE panel's own initial draw (all four sub-plots start
+        # on their "(no data yet)" / "(no draws yet)" placeholder, same
+        # honesty convention as the two traces just above).
+        self._refresh_scope_panel()
 
     def _draw_trace(self, canvas: tk.Canvas, trace: "Trace", xlabel: str,
                     ylabel: str) -> None:
@@ -1167,6 +2000,59 @@ class LatticeApp(tk.Tk):
         canvas.create_text(w - pad_r, pad_t, text=ylabel, fill=DIM,
                             font=("Consolas", 7), anchor="ne")
 
+    def _refresh_scope_panel(self) -> None:
+        """Task 6: rebuild all four SCOPE sub-plots from this session's own
+        live history (energy_trace, magnetization_trace, raw_draws) and
+        blit them onto their canvases. Each render_* function already
+        handles "not enough data yet" honestly; this method just calls
+        them, converts to PhotoImage, and keeps a reference (Tk drops a
+        PhotoImage with no surviving Python reference -- same pattern
+        _update_world already uses for world_photo)."""
+        energy_ys = list(self.energy_trace.ys)
+        # Minor #7 (fix-round-2): tsu.ess.autocorrelation (reached via
+        # integrated_autocorrelation_time, called inside render_acf_plot)
+        # raises ValueError on an exactly-constant series (zero variance --
+        # autocorrelation is undefined). Every OTHER honesty path in this
+        # panel degrades to an "unavailable: <reason>" caption; this was
+        # the one spot an exception could instead escape the Tk `after`
+        # poll callback and silently kill the whole 80ms poll loop. Guarded
+        # the same way its neighbours already degrade.
+        try:
+            acf_img, acf_caption = render_acf_plot(SCOPE_PLOT_W, SCOPE_PLOT_H, energy_ys)
+        except ValueError as exc:
+            acf_img = Image.new("RGB", (SCOPE_PLOT_W, SCOPE_PLOT_H), PLOT_BG)
+            acf_caption = f"unavailable: {exc}"
+        self.acf_photo = ImageTk.PhotoImage(acf_img)
+        self.acf_canvas.itemconfig("plot", image=self.acf_photo)
+        self.acf_caption.config(text=acf_caption)
+        _fit_caption_height(self.acf_caption)  # I3: measured, not guessed
+
+        mag_img = render_line_plot(
+            SCOPE_PLOT_W, SCOPE_PLOT_H, list(self.magnetization_trace.xs),
+            list(self.magnetization_trace.ys), "draw", "M", y_range=(-1.0, 1.0))
+        self.mag_photo = ImageTk.PhotoImage(mag_img)
+        self.mag_canvas.itemconfig("plot", image=self.mag_photo)
+        self.mag_caption.config(
+            text="Mean spin per draw (s=2*occupancy-1), fixed axis [-1, 1] "
+                 "-- the order parameter's own physical bounds.")
+        _fit_caption_height(self.mag_caption)
+
+        hist_img = render_energy_histogram_plot(SCOPE_PLOT_W, SCOPE_PLOT_H, energy_ys)
+        self.hist_photo = ImageTk.PhotoImage(hist_img)
+        self.hist_canvas.itemconfig("plot", image=self.hist_photo)
+        self.hist_caption.config(
+            text=f"Distribution of the energy trace's own {len(energy_ys)} "
+                 f"value(s) so far this session -- the trace itself only "
+                 f"samples one point of this at a time.")
+        _fit_caption_height(self.hist_caption)
+
+        sigmoid_img, sigmoid_caption = render_sigmoid_plot(
+            SCOPE_PLOT_W, SCOPE_PLOT_H, list(self.raw_draws), self.receipt.im)
+        self.sigmoid_photo = ImageTk.PhotoImage(sigmoid_img)
+        self.sigmoid_canvas.itemconfig("plot", image=self.sigmoid_photo)
+        self.sigmoid_caption.config(text=sigmoid_caption)
+        _fit_caption_height(self.sigmoid_caption)  # I4: measured, not guessed
+
     def _swatch(self, master, color, text):
         row = tk.Frame(master, bg=PANEL_BG)
         row.pack(fill="x", pady=1)
@@ -1197,10 +2083,28 @@ class LatticeApp(tk.Tk):
             # One of these follows every CLAMPED batch (see SampleWorker.
             # _run_clamped_batch) -- it is the ONLY source of the infeasible
             # verdict; a batch with valid=0 is honoured verbatim, never
-            # second-guessed or smoothed over.
+            # second-guessed or smoothed over. This message is ALWAYS about
+            # BASE (bands have no continuous worker -- see
+            # BAND_SAMPLE_PARAMS's own note) -- base's own bookkeeping
+            # updates regardless of which layer is on screen, but the
+            # VISUAL refresh only fires when base is actually the one
+            # being shown, so it can never clobber a band/composite view.
             self.batch_infeasible = msg["infeasible"]
             self.batch_reason = msg["reason"]
-            self._refresh_world_status()
+            if self.active_layer == "base":
+                self._refresh_world_status()
+            return
+
+        # Task 7: a band's regenerate result -- see _regenerate_band_async.
+        # Handled BEFORE the base-only bookkeeping below; a band message
+        # never touches total_draws/energy_trace/etc, those are base's own.
+        if kind == "band_regenerated":
+            self._on_band_regenerated(msg)
+            return
+        if kind == "band_regenerate_error":
+            self.regenerate_status.config(
+                text=f"regenerate failed: {msg['message']}", fg=BAD)
+            self._log(f"[{msg['band']}] regenerate failed: {msg['message']}")
             return
 
         self.total_draws += 1
@@ -1213,6 +2117,14 @@ class LatticeApp(tk.Tk):
         # verify pass uses, see energy_of_draw's own docstring), plotted
         # against this app's own running draw counter as "sweep".
         self.energy_trace.append(self.total_draws, energy_of_draw(self.receipt.im, raw))
+
+        # Task 6: magnetization trace and the raw-draw pool for
+        # local_field_response -- SAME "every draw, valid or not" convention
+        # as the energy trace just above (mixing/the order parameter/the
+        # local field are all properties of the raw chain, not of the
+        # conditional-valid subset).
+        self.magnetization_trace.append(self.total_draws, magnetization([raw])[0])
+        self.raw_draws.append(raw)
 
         if kind == "valid":
             self.valid_count += 1
@@ -1230,8 +2142,19 @@ class LatticeApp(tk.Tk):
             # disproved it.
             self.batch_infeasible = False
             self.batch_reason = ""
-            self._update_world(msg["image"])
-            self._update_mix(msg["mix"])
+            # Task 7: base's own bookkeeping (above) always updates so
+            # switching back to "base" shows fresh data immediately -- but
+            # the visible canvas/labels only redraw when base is actually
+            # the layer on screen, so a band/composite view stays undisturbed.
+            if self.active_layer == "base":
+                self._update_world(msg["image"])
+                self._update_mix(msg["mix"])
+            # Task 7: base just produced a fresh valid decode -- the
+            # composite readout depends on base's CURRENT last_valid_grid
+            # (see composite_missing_layers), so it can flip from
+            # "unavailable" to a real number on THIS event even when a band
+            # is the one currently on screen, not only after a band regenerate.
+            self._refresh_composite_readout()
             self._log(f"#{idx:<5} valid")
         elif kind == "contract-fail":
             self.contract_fail_count += 1
@@ -1250,7 +2173,19 @@ class LatticeApp(tk.Tk):
         self._draw_trace(self.energy_canvas, self.energy_trace, "sweep", "energy")
         self._draw_trace(self.valid_frac_canvas, self.valid_frac_trace,
                          "draw", "valid %")
-        self._refresh_world_status()
+        if self.active_layer == "base":
+            self._refresh_world_status()
+
+        # Task 6: throttled -- local_field_response pools every spin of
+        # every buffered draw on each call, cheap per call but wasted work
+        # at the poll cadence (~80ms) if run on literally every draw; every
+        # SCOPE_REDRAW_EVERY_N_DRAWS-th draw (plus the first few, so the
+        # panel doesn't sit on "(no data yet)" longer than it has to) is
+        # plenty for a display, not a measurement.
+        self._scope_redraw_counter += 1
+        if (self.total_draws <= 5
+                or self._scope_redraw_counter % SCOPE_REDRAW_EVERY_N_DRAWS == 0):
+            self._refresh_scope_panel()
 
     def _update_lattice(self, raw):
         med = set(self.receipt.mediator_idx)
@@ -1316,44 +2251,337 @@ class LatticeApp(tk.Tk):
         r, g, b = (int(c) for c in PAL[value])
         return f"#{r:02x}{g:02x}{b:02x}"
 
+    def _band_pin_color(self, value: int) -> str:
+        return self._pin_color(WATER if value == 0 else GRASS)  # matches render_band_image's own palette reuse
+
+    def _current_layer_clamp(self) -> "ClampState | None":
+        """Task 7: which ClampState click-to-pin acts on right now. None
+        for composite -- a derived view has no program of its own to pin."""
+        if self.active_layer == "base":
+            return self.clamp
+        if self.active_layer in self.bands:
+            return self.bands[self.active_layer].clamp
+        return None
+
     def _redraw_pin_markers(self):
+        """Task 7: draws only the ACTIVE layer's own pins -- base and band
+        pins live on different ClampState instances (see LayerState), so
+        showing both on one canvas would blur exactly the distinction the
+        brief requires the UI keep ("pinning in the base and in an overlay
+        are different operations")."""
         self.world_canvas.delete("pin")
-        for (x, y), v in self.clamp.items():
+        clamp = self._current_layer_clamp()
+        if clamp is None:
+            return
+        is_base = self.active_layer == "base"
+        color_fn = self._pin_color if is_base else self._band_pin_color
+        # C1 (fix-round-2): base pins are exact clamps, overlay pins are a
+        # soft nudge (see OVERLAY_PIN_STRENGTH's comment and the LAYER
+        # SELECTOR cell's disclosure label) -- a rectangle-plus-dot marker
+        # identical for both wore the affordance of a guarantee on the soft
+        # case too. Overlay pins now draw with a dashed outline and no
+        # solid dot (a hollow ring instead), so "this one can be outvoted"
+        # is visible on the canvas itself, not just in a caption.
+        rect_kw = {} if is_base else {"dash": (3, 2)}
+        for (x, y), v in clamp.items():
             x0, y0 = x * WORLD_CELL_PX, y * WORLD_CELL_PX
-            color = self._pin_color(v)
+            color = color_fn(v)
             self.world_canvas.create_rectangle(
                 x0 + 2, y0 + 2, x0 + WORLD_CELL_PX - 2, y0 + WORLD_CELL_PX - 2,
-                outline=color, width=3, tags="pin")
-            self.world_canvas.create_oval(
-                x0 + 3, y0 + 3, x0 + 11, y0 + 11, fill=color, outline=FG, tags="pin")
+                outline=color, width=3, tags="pin", **rect_kw)
+            if is_base:
+                self.world_canvas.create_oval(
+                    x0 + 3, y0 + 3, x0 + 11, y0 + 11, fill=color, outline=FG, tags="pin")
+            else:
+                self.world_canvas.create_oval(
+                    x0 + 3, y0 + 3, x0 + 11, y0 + 11, fill="", outline=color,
+                    width=2, tags="pin")
         self.world_canvas.tag_raise("pin")
 
     def _refresh_pins_panel(self):
-        d = self.clamp.as_dict()
-        if not d:
+        """Task 7: PINS lists EVERY layer's pins together, each line tagged
+        with its own layer name -- base pins never rendered as if they were
+        an overlay's, and vice versa (see _redraw_pin_markers's own
+        docstring for why the two are kept structurally separate)."""
+        lines = [f"base: {name} = {TERRAIN_NAMES[v]}"
+                 for name, v in sorted(self.clamp.as_dict().items())]
+        for band_name in BAND_NAMES:
+            d = self.bands[band_name].clamp.as_dict()
+            lines.extend(f"{band_name}: {name} = {BAND_VALUE_NAMES[v]}"
+                         for name, v in sorted(d.items()))
+        if not lines:
             self.pins_list_label.config(text="(none)", fg=DIM)
         else:
-            lines = [f"{name} = {TERRAIN_NAMES[v]}" for name, v in sorted(d.items())]
             self.pins_list_label.config(text="\n".join(lines), fg=FG)
 
     def _on_world_click(self, event):
+        if self.active_layer == "composite":
+            self.regenerate_status.config(
+                text="composite is a read-only derived view -- select "
+                     "base or a band to pin a cell", fg=WARN)
+            return
         cell = cell_at(event.x, event.y, 0, 0, WORLD_CELL_PX,
                         WORLD_DISPLAY_PX, WORLD_DISPLAY_PX)
         if cell is None:
             return
         x, y = cell
-        self.clamp.cycle(x, y)
+        clamp = self._current_layer_clamp()
+        clamp.cycle(x, y)
         self._redraw_pin_markers()
         self._refresh_pins_panel()
-        self._restart_sampling_for_clamp_change()
+        if self.active_layer == "base":
+            self._restart_sampling_for_clamp_change()
+        # A band's pin does NOT trigger a resample by itself (bands have no
+        # continuous worker -- see BAND_SAMPLE_PARAMS's own docstring note):
+        # it takes effect on the NEXT "Regenerate this layer" click, folded
+        # into that band's conditioning patch via overlay_pin_patch. Marking
+        # the band's current world stale here would be dishonest about
+        # WHICH world is stale -- there is no live stream to go stale;
+        # the status text says so instead (see _refresh_layer_view).
+        else:
+            self._refresh_layer_view()
 
     def _on_clear_pins(self):
-        if len(self.clamp) == 0:
+        """Clears the ACTIVE layer's own pins only -- consistent with
+        "pins apply to the selected layer" for every other pin operation
+        in this panel."""
+        clamp = self._current_layer_clamp()
+        if clamp is None or len(clamp) == 0:
             return
-        self.clamp.clear()
+        clamp.clear()
         self._redraw_pin_markers()
         self._refresh_pins_panel()
-        self._restart_sampling_for_clamp_change()
+        if self.active_layer == "base":
+            self._restart_sampling_for_clamp_change()
+        else:
+            self._refresh_layer_view()
+
+    # -- Task 7: LAYERS panel ---------------------------------------------
+    def _on_layer_selected(self):
+        self.active_layer = self.layer_var.get()
+        self.regenerate_status.config(text="", fg=DIM)
+        self.regenerate_btn.config(
+            state="disabled" if self.active_layer == "composite" else "normal")
+        self._refresh_layer_view()
+        self._refresh_pins_panel()
+        self._refresh_temperature_control()
+        self._refresh_composite_readout()
+
+    def _on_alpha_change(self, value):
+        self.alpha = float(value)
+        self.alpha_label.config(text=f"strength (alpha) = {self.alpha:.2f}  "
+                                      f"(demo/elevation.band_patch's own scale "
+                                      f"-- see dose-response note below)")
+
+    def _on_temperature_change(self, value):
+        """Overlay-only: stores the chosen T for the ACTIVE band, applied
+        on that band's NEXT regenerate (same 'takes effect next batch'
+        idiom the speed control already uses) -- never resamples here."""
+        if self.active_layer not in self.bands:
+            return
+        t = float(value)
+        beta = 1.0 / t   # T = 1/beta (demo/scope.py's own beta_to_temperature, inverted)
+        self.bands[self.active_layer].beta_override = beta
+        self._refresh_temperature_control()
+
+    def _active_layer_ising(self):
+        """The IsingModel the ACTIVE layer's own program is built from --
+        base's compiled program for "base", the overlay receipt's compiled
+        program for any band (every band starts from the SAME compiled
+        demo/receipts/elev_band program; only its biases differ per band,
+        never its topology/mediator_nodes -- see demo/layers.bias_patch's
+        own guarantee), None for composite (no program of its own)."""
+        if self.active_layer == "base":
+            return self.receipt.im
+        if self.active_layer in self.bands:
+            return self.overlay_receipt.im
+        return None
+
+    def _refresh_temperature_control(self):
+        """Task 7 Step 5: enabled iff the ACTIVE layer's program carries NO
+        mediator spins -- layer_supports_temperature DERIVES this from
+        `ising.mediator_nodes`, the SAME fact
+        `tsu.passes.route.assert_beta_consistent` gates sampling on, not a
+        hardcoded 'base is locked' flag. This is the honest INVERSE of the
+        SAMPLER panel's existing 'no beta slider' note, which stays on
+        screen unchanged (see _populate_static_panels)."""
+        ising = self._active_layer_ising()
+        if ising is None:  # composite
+            self.temp_scale.config(state="disabled")
+            self.temp_label.config(text="T: n/a -- composite has no program of its own")
+            self.temp_reason.config(text="")
+            return
+        supported = layer_supports_temperature(ising.mediator_nodes)
+        if not supported:
+            self.temp_scale.config(state="disabled")
+            self.temp_label.config(text=f"T: FIXED at {1.0/ising.beta:.3f} (beta={ising.beta:.4g})")
+            self.temp_reason.config(
+                text=f"base carries {len(ising.mediator_nodes)} mediator spin(s) "
+                     f"coupled at beta={ising.beta!r}; assert_beta_consistent "
+                     f"refuses any other beta for this model (BetaMismatchError, "
+                     f"spec 5.3.5) -- same fact the SAMPLER panel's 'no beta "
+                     f"slider' note states, this control is its honest inverse.")
+        else:
+            self.temp_scale.config(state="normal")
+            beta = self.bands[self.active_layer].beta_override or ising.beta
+            self.temp_label.config(text=f"T = {1.0/beta:.3f}  (beta={beta:.4g}, "
+                                         f"takes effect on this layer's NEXT regenerate)")
+            self.temp_reason.config(
+                text=f"{self.active_layer} is bipartite: place() needed no "
+                     f"mediator spins for it, so nothing here is welded to a "
+                     f"compile-time beta -- free to sample at any T.")
+
+    def _refresh_composite_readout(self):
+        """Task 7 Step 6: cross-layer (monotonicity) validation, SEPARATE
+        from each layer's own contract validity (already shown per-layer:
+        base's in VERIFICATION, a band's in its own regenerate_status)."""
+        band_decoded = [self.bands[n].last_valid_decoded for n in BAND_NAMES]
+        missing = composite_missing_layers(self.last_valid_grid, band_decoded)
+        if missing:
+            self.composite_label.config(
+                text=f"unavailable: {', '.join(missing)} has no valid sample "
+                     f"yet this session -- composite needs every layer at "
+                     f"least once (base streams continuously; regenerate "
+                     f"each band at least once)", fg=DIM)
+            return
+        viol = monotonicity_violations(band_decoded)
+        slots = W * H * (N_BANDS - 1)
+        rate = len(viol) / slots if slots else float("nan")
+        self.composite_label.config(
+            text=f"monotonicity violations (band i+1 true where band i "
+                 f"false): {len(viol)}/{slots} cell-transitions "
+                 f"({100*rate:.1f}%). DETECTED, not repaired -- band_patch's "
+                 f"nudge is an encouragement, never a hard constraint, so "
+                 f"this can and does exceed 0%; see demo/elevation.py.",
+            fg=WARN if rate > 0 else GOOD)
+
+    def _refresh_layer_view(self):
+        """Task 7: redraw DECODED WORLD + its status labels + pin markers
+        for whichever layer is selected. Never samples anything -- purely a
+        redraw of state already held (base's own continuously-updated
+        attributes, a band's LayerState, or the composite derivation)."""
+        if self.active_layer == "base":
+            if self.last_valid_grid is not None:
+                self.world_canvas.itemconfig(self.world_image_item, image=self.world_photo)
+                self.world_canvas.itemconfig(self.world_placeholder_id, state="hidden")
+            else:
+                self.world_canvas.itemconfig(self.world_image_item, image="")
+                self.world_canvas.itemconfig(
+                    self.world_placeholder_id, state="normal",
+                    text="(no valid sample drawn yet this session)")
+            self._refresh_world_status()
+        elif self.active_layer in self.bands:
+            layer = self.bands[self.active_layer]
+            if layer.last_valid_grid is None:
+                self.world_canvas.itemconfig(self.world_image_item, image="")
+                self.world_canvas.itemconfig(
+                    self.world_placeholder_id, state="normal",
+                    text=f"({self.active_layer}: no valid sample yet -- "
+                         f"click 'Regenerate this layer')")
+                self.world_status_label.config(
+                    text="unavailable: no valid sample for this layer yet", fg=DIM)
+            else:
+                img = render_band_image(layer.last_valid_grid)
+                disp = img.resize((WORLD_DISPLAY_PX, WORLD_DISPLAY_PX), Image.LANCZOS)
+                self.layer_photo = ImageTk.PhotoImage(disp)
+                self.world_canvas.itemconfig(self.world_image_item, image=self.layer_photo)
+                self.world_canvas.itemconfig(self.world_placeholder_id, state="hidden")
+                # I1 (fix-round-2): this overlay's TaskContract declares
+                # ZERO rules (measured live below, not assumed) -- for a
+                # binary domain with no chain to violate, contract.validate
+                # is vacuously .ok=True for every codeword. "valid" here is
+                # therefore ONLY "decoded as a codeword" (a real check);
+                # dressing that as "same convention as base" implied a
+                # contract was actually checked, which for this overlay it
+                # was not. Relabelled, not deleted -- the codeword rate
+                # itself is still real.
+                n_rules = len(self.overlay_receipt.spec.contract.rules)
+                if n_rules == 0:
+                    rules_note = ("this overlay's contract declares 0 rules, "
+                                   "so \"valid\" means only \"decoded as a "
+                                   "codeword\" -- the contract-pass check is "
+                                   "vacuously true for every codeword, not "
+                                   "evidence any rule was satisfied")
+                else:
+                    rules_note = (f"{n_rules} contract rule(s) checked, same "
+                                   f"convention as base")
+                self.world_status_label.config(
+                    text=f"{self.active_layer}: valid {layer.valid_count}/"
+                         f"{layer.total_draws} draws so far under the current "
+                         f"conditioning/pins -- p(x | valid); {rules_note} "
+                         f"(see SAMPLE LOG note)", fg=DIM)
+            self.infeasible_label.config(
+                text=f"INFEASIBLE: {layer.batch_reason}" if layer.batch_infeasible else "")
+            self.save_btn.config(state="disabled")  # A2 Save World stays base-only, see report
+        else:  # composite
+            self.world_canvas.itemconfig(self.world_placeholder_id, state="hidden")
+            band_decoded = [self.bands[n].last_valid_decoded for n in BAND_NAMES]
+            missing = composite_missing_layers(self.last_valid_grid, band_decoded)
+            if missing:
+                self.world_canvas.itemconfig(self.world_image_item, image="")
+                self.world_canvas.itemconfig(
+                    self.world_placeholder_id, state="normal",
+                    text=f"(composite unavailable: {', '.join(missing)} has "
+                         f"no valid sample yet)")
+                self.world_status_label.config(
+                    text=f"unavailable: {', '.join(missing)} has no valid "
+                         f"sample yet this session", fg=DIM)
+            else:
+                elevation = np.array(
+                    [[thermometer_level(band_decoded, f"g{x}_{y}") for x in range(W)]
+                     for y in range(H)])
+                # I2 (fix-round-2): terrain now comes from
+                # composite_base_grid -- the base decode actually captured
+                # at the MOST RECENT band regenerate, whichever band that
+                # was (see _regenerate_band_async/_on_band_regenerated) --
+                # NOT self.last_valid_grid, which keeps streaming from
+                # base's continuous background worker while a band is
+                # selected. Rendering self.last_valid_grid here would show
+                # elevation conditioned on base-decode-A hillshaded over
+                # terrain from a LATER base-decode-B: not a draw from
+                # p(base)*p(band|base) at all. composite_base_grid is
+                # guaranteed non-None here: `missing` above is empty only
+                # once every band has a last_valid_decoded, which is set in
+                # the same handler that sets composite_base_grid.
+                #
+                # NOTE (fix-round-3, re-review residual): composite_base_
+                # grid is a SINGLE app-wide value, overwritten unconditionally
+                # by WHICHEVER band regenerates most recently -- it is not a
+                # base shared by all three bands. Per-layer regenerate is
+                # deliberate (bands resample independently), so band0/1/2
+                # are the normal case, not the exception, conditioned on
+                # DIFFERENT historical base draws. The status text below
+                # must therefore name only the most-recently-regenerated
+                # band's base, not "the bands" plural -- claiming joint
+                # consistency across all three is exactly the overclaim
+                # this whole review round was about. Tracking each band's
+                # own conditioning snapshot (so the status line could name
+                # per-band staleness precisely) is the fuller fix and is
+                # deliberately NOT done here -- out of scope for a wording
+                # correction, belongs in its own reviewed task.
+                terrain_grid = self.composite_base_grid
+                img = render_elevation_world_image(terrain_grid, elevation)
+                disp = img.resize((WORLD_DISPLAY_PX, WORLD_DISPLAY_PX), Image.LANCZOS)
+                self.layer_photo = ImageTk.PhotoImage(disp)
+                self.world_canvas.itemconfig(self.world_image_item, image=self.layer_photo)
+                base_is_stale = not np.array_equal(terrain_grid, self.last_valid_grid)
+                staleness_note = (
+                    " -- base has advanced since (streaming continuously); "
+                    "this terrain is NOT base's current live decode"
+                    if base_is_stale else
+                    " -- currently matches base's live decode too")
+                self.world_status_label.config(
+                    text="composite: elevation-driven hillshade over the "
+                         "base decode the MOST RECENTLY REGENERATED band "
+                         "was conditioned on" + staleness_note +
+                         " -- the OTHER bands may have been conditioned on "
+                         "a DIFFERENT base draw (each band regenerates "
+                         "independently; see COMPOSITE VALIDATION below "
+                         "for the cross-layer check)",
+                    fg=(WARN if base_is_stale else DIM))
+            self.infeasible_label.config(text="")
+            self.save_btn.config(state="disabled")
+        self._redraw_pin_markers()
 
     def _on_save_world(self):
         """Write the currently displayed world to demo/worlds/. Guarded
@@ -1431,6 +2659,133 @@ class LatticeApp(tk.Tk):
             self._toggle_pause()
         self.worker.request_step()
 
+    # -- Task 7: per-layer regenerate ------------------------------------
+    def _on_regenerate_layer(self):
+        """Step 4: re-sample ONE layer without touching any other --
+        base's own continuous worker and every OTHER band's held state are
+        untouched by this call, demonstrating the amortized-compile point
+        the brief names directly: one receipt, patched biases, no
+        recompile, and now not even a re-sample of layers that didn't ask
+        for one."""
+        if self.active_layer == "base":
+            # base already has its own "start over" concept -- reuse it
+            # rather than inventing a second one.
+            self._new_seed()
+            return
+        if self.active_layer not in self.bands:
+            return  # composite: button is disabled, but guard anyway
+        self.regenerate_status.config(text="sampling...", fg=DIM)
+        self._regenerate_band_async(self.active_layer)
+
+    def _regenerate_band_async(self, band_name: str):
+        """Background thread: derive this band's conditioning patch from
+        base's and (for band i>0) the band below's CURRENT last-valid
+        decode, fold in this band's own pins (overlay_pin_patch) and
+        temperature override, sample one batch, decode+validate, and push
+        ONE result back through the existing queue/_handle_msg plumbing --
+        same responsive-UI pattern every other sampling call in this app
+        already uses, never a main-thread blocking call."""
+        if self.last_valid_grid is None:
+            self.in_q.put({"kind": "band_regenerate_error", "band": band_name,
+                           "message": "base has no valid sample yet -- "
+                                      "nothing to condition this band on"})
+            return
+        idx = band_index_from_name(band_name)
+        # I2 (fix-round-2): snapshot the grid ALONGSIDE base_decoded, here
+        # in the synchronous dispatch (not inside work(), which runs later
+        # on a worker thread while base's own background worker keeps
+        # mutating self.last_valid_grid) -- this is the exact base decode
+        # this band's conditioning patch is computed from, and it is what
+        # the composite must later render its terrain from.
+        base_grid_snapshot = self.last_valid_grid
+        base_decoded = grid_to_decoded(base_grid_snapshot)
+        if idx == 0:
+            prev_decoded = None
+        else:
+            prev = self.bands[f"band{idx - 1}"]
+            if prev.last_valid_decoded is None:
+                self.in_q.put({"kind": "band_regenerate_error", "band": band_name,
+                               "message": f"band{idx - 1} has no valid sample "
+                                          f"yet -- regenerate it first"})
+                return
+            prev_decoded = prev.last_valid_decoded
+
+        alpha = self.alpha
+        layer = self.bands[band_name]
+        pins = list(layer.clamp.items())
+        beta_override = layer.beta_override
+        overlay = self.overlay_receipt
+
+        def work():
+            try:
+                patch = dict(band_patch(prev_decoded, base_decoded, alpha))
+                for k, v in overlay_pin_patch(pins).items():
+                    patch[k] = patch.get(k, 0.0) + v
+                patched = bias_patch(overlay.sampling_program, overlay.enc, patch,
+                                     field_cap=FIELD_CAP)
+                if beta_override is not None:
+                    assert_beta_consistent(patched.ising, beta_override)
+                    patched = dataclasses.replace(
+                        patched, ising=dataclasses.replace(patched.ising, beta=beta_override))
+                seed = random.randint(0, 2**31 - 1)
+                got = thrml_sample(patched, seed=seed, **BAND_SAMPLE_PARAMS)
+            except Exception as exc:  # FieldCapExceeded, BetaMismatchError, or
+                # anything else -- surfaced in the UI, never swallowed (same
+                # rule every other worker in this app follows).
+                self.in_q.put({"kind": "band_regenerate_error", "band": band_name,
+                               "message": str(exc)})
+                return
+            decoded = []
+            for row in got:
+                bits = dict(zip(patched.ising.nodes, row.tolist()))
+                if overlay.enc.is_codeword(bits):
+                    d = overlay.enc.decode(bits)
+                    if overlay.spec.contract.validate(d).ok:
+                        decoded.append(d)
+            self.in_q.put({"kind": "band_regenerated", "band": band_name,
+                           "valid": decoded, "total": len(got), "patch": patch,
+                           "base_grid": base_grid_snapshot})
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_band_regenerated(self, msg: dict):
+        band_name = msg["band"]
+        layer = self.bands[band_name]
+        valid = msg["valid"]
+        layer.valid_count += len(valid)
+        layer.total_draws += msg["total"]
+        layer.conditioning_patch = msg["patch"]
+        if not valid:
+            layer.batch_infeasible = True
+            layer.batch_reason = f"0/{msg['total']} draws valid under this conditioning"
+            self.regenerate_status.config(
+                text=f"{band_name}: 0/{msg['total']} valid -- infeasible under "
+                     f"current conditioning/pins", fg=BAD)
+        else:
+            layer.batch_infeasible = False
+            layer.batch_reason = ""
+            rep = valid[0]
+            layer.last_valid_decoded = rep
+            layer.last_valid_grid = np.array(
+                [[int(rep[f"g{x}_{y}"]) for x in range(W)] for y in range(H)])
+            # I2 (fix-round-2): record the base decode THIS band was
+            # actually conditioned on, so the composite can render terrain
+            # consistent with THIS band's contribution rather than base's
+            # current (possibly since-advanced) live decode. This
+            # unconditionally overwrites whatever the previous regenerate
+            # (of this band or any other) had stored -- it names only the
+            # MOST RECENT regenerate's base, never a base shared by all
+            # three bands (fix-round-3: see the composite status text's
+            # own wording for why that distinction matters on screen too).
+            self.composite_base_grid = msg["base_grid"]
+            self.regenerate_status.config(
+                text=f"{band_name}: {len(valid)}/{msg['total']} valid "
+                     f"({100*len(valid)/msg['total']:.1f}%)", fg=GOOD)
+        self._log(f"[{band_name}] regenerated: {len(valid)}/{msg['total']} valid")
+        if self.active_layer == band_name:
+            self._refresh_layer_view()
+        self._refresh_composite_readout()
+
     def _on_speed_change(self, value):
         """UI2: speed slider moved. Updates both the app's own remembered
         speed_idx (so a later pin-change/new-seed worker restart carries it
@@ -1494,9 +2849,15 @@ class LatticeApp(tk.Tk):
         self.valid_frac_label.config(text="valid fraction: n/a (0 draws)")
         self.energy_trace = Trace(maxlen=self.energy_trace.xs.maxlen)
         self.valid_frac_trace = Trace(maxlen=self.valid_frac_trace.xs.maxlen)
+        # Task 6: a new seed starts a genuinely new chain -- the SCOPE
+        # panel's history must not mix pre- and post-seed draws (same
+        # reasoning as the energy/valid-fraction resets just above).
+        self.magnetization_trace = Trace(maxlen=self.magnetization_trace.xs.maxlen)
+        self.raw_draws.clear()
         self._draw_trace(self.energy_canvas, self.energy_trace, "sweep", "energy")
         self._draw_trace(self.valid_frac_canvas, self.valid_frac_trace,
                          "draw", "valid %")
+        self._refresh_scope_panel()
         self._refresh_world_status()
 
         new_seed_base = random.randint(0, 2**31 - 1)
@@ -1526,9 +2887,15 @@ class LatticeApp(tk.Tk):
         # ring buffer, drawing a plot whose x-axis runs backwards.
         self.energy_trace = Trace(maxlen=self.energy_trace.xs.maxlen)
         self.valid_frac_trace = Trace(maxlen=self.valid_frac_trace.xs.maxlen)
+        # Task 6: same reasoning -- a clamp change starts a new conditional
+        # distribution, so the SCOPE panel's history resets alongside the
+        # energy/valid-fraction traces, not just some of them.
+        self.magnetization_trace = Trace(maxlen=self.magnetization_trace.xs.maxlen)
+        self.raw_draws.clear()
         self._draw_trace(self.energy_canvas, self.energy_trace, "sweep", "energy")
         self._draw_trace(self.valid_frac_canvas, self.valid_frac_trace,
                          "draw", "valid %")
+        self._refresh_scope_panel()
         self._refresh_world_status()
 
         new_seed_base = random.randint(0, 2**31 - 1)
@@ -1544,7 +2911,8 @@ class LatticeApp(tk.Tk):
 
 def main():
     receipt = Receipt(RECEIPT_DIR)
-    app = LatticeApp(receipt)
+    overlay_receipt = Receipt(OVERLAY_RECEIPT_DIR)  # Task 7: compiled once, at load -- same as `receipt`
+    app = LatticeApp(receipt, overlay_receipt)
     app.mainloop()
 
 

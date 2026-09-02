@@ -90,6 +90,53 @@ def test_empty_patch_is_a_noop():
 #    be meaningful, sample count stated explicitly.
 # --------------------------------------------------------------------------
 
+# --------------------------------------------------------------------------
+# 5. bias_patch also works on a BINARY-domain cell (Task 4 finding): the
+#    elev_band overlay spec (specs/lattice_elev_band_8x8.yaml) declares
+#    every cell as Binary, so `enc.categorical` is EMPTY for it and every
+#    cell lives in `enc.binary_names` instead. The original bias_patch
+#    guarded ONLY on `cell not in enc.categorical`, which raised KeyError
+#    for every binary cell -- this would have made demo/elevation.py's own
+#    band_patch (which produces exactly {(cell, 1): weight} patches, see
+#    that module's docstring) unusable against the one receipt it exists
+#    to condition. Fixed to build the SAME value-1/value-0 LinearForm
+#    tsu.spec._value_indicator itself builds for a Binary domain.
+# --------------------------------------------------------------------------
+
+def _load_elev_band():
+    R = "demo/receipts/elev_band"
+    spec = load_spec(str(Path(R) / "spec.yaml"))
+    enc = encode(spec, _selected_encoding(Path(R)))
+    prog = reconstruct_program(R)
+    return spec, enc, prog
+
+
+def test_patch_works_on_a_binary_cell_not_just_categorical():
+    _, enc, prog = _load_elev_band()
+    assert enc.categorical == {}          # sanity: this receipt has none
+    assert "g0_0" in enc.binary_names     # sanity: it's a binary cell
+
+    idx = prog.ising.nodes.index("g0_0")
+    before = float(prog.ising.biases[idx])
+
+    encouraged = bias_patch(prog, enc, {("g0_0", 1): 0.5})
+    assert float(encouraged.ising.biases[idx]) == pytest.approx(before + 0.25)
+
+    discouraged = bias_patch(prog, enc, {("g0_0", 0): 0.5})
+    assert float(discouraged.ising.biases[idx]) == pytest.approx(before - 0.25)
+
+    # topology untouched, same guarantee as the categorical path
+    assert encouraged.ising.nodes == prog.ising.nodes
+    assert encouraged.ising.edges == prog.ising.edges
+    np.testing.assert_array_equal(encouraged.ising.weights, prog.ising.weights)
+
+
+def test_patch_on_unknown_binary_value_raises():
+    _, enc, prog = _load_elev_band()
+    with pytest.raises(ValueError, match="has no value"):
+        bias_patch(prog, enc, {("g0_0", 2): 0.5})
+
+
 def test_patch_statistically_shifts_the_targeted_cells_decoded_value():
     """8 chains x 80 samples = 640 draws per run (matches the scale
     demo/render_world.py already uses for this same receipt, ~0.4-1.4s per

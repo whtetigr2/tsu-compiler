@@ -164,6 +164,97 @@ def test_cell_at_last_pixel_of_grid_lands_in_last_cell():
 
 
 # ---------------------------------------------------------------------------
+# spin_cell_position: physical spin index -> (cell_x, cell_y, slot), or None
+# for a mediator spin. This is the fix for the LIVE LATTICE / DECODED WORLD
+# misalignment: each cell owns `spins_per_cell` consecutive spins, and cells
+# are emitted in row-major order, so this is the single source of truth the
+# canvas build must use instead of a bare `divmod(i, cols)`.
+# ---------------------------------------------------------------------------
+
+def test_spin_maps_to_its_own_cell_block():
+    """Spins g0_0__dw0 and g0_0__dw1 are indices 0 and 1 and both belong to
+    cell (0,0); g1_0__dw0 is index 2 and belongs to cell (1,0)."""
+    from lattice_app import spin_cell_position
+    assert spin_cell_position(0, 128, 2, 8) == (0, 0, 0)
+    assert spin_cell_position(1, 128, 2, 8) == (0, 0, 1)
+    assert spin_cell_position(2, 128, 2, 8) == (1, 0, 0)
+    assert spin_cell_position(16, 128, 2, 8) == (0, 1, 0)   # start of row y=1
+    assert spin_cell_position(127, 128, 2, 8) == (7, 7, 1)  # last world spin
+
+
+def test_mediator_spins_belong_to_no_cell():
+    """Mediators are hidden spins introduced by edge subdivision. They are not
+    part of any cell and must not be drawn as if they were."""
+    from lattice_app import spin_cell_position
+    assert spin_cell_position(128, 128, 2, 8) is None
+    assert spin_cell_position(191, 128, 2, 8) is None
+
+
+# ---------------------------------------------------------------------------
+# Canvas geometry for the redrawn LIVE LATTICE panel -- verified
+# programmatically (no GUI/screenshot access in this environment) instead of
+# by launching the app. The load-bearing claim is that cell (x, y)'s block
+# lands at the SAME pixel origin as DECODED WORLD's cell (x, y) via cell_at,
+# because both use WORLD_CELL_PX as the pitch -- that congruence is exactly
+# what makes a pinned shape read the same in both panels.
+# ---------------------------------------------------------------------------
+
+def test_cell_block_bounds_uses_world_panel_pitch():
+    from lattice_app import cell_block_bounds, WORLD_CELL_PX
+    # cell (2, 5) at 40px/cell -> [80,120) x [200,240), matching the
+    # DECODED WORLD panel's own cell (2, 5) pixel bounds exactly.
+    assert cell_block_bounds(2, 5, WORLD_CELL_PX) == (80, 200, 120, 240)
+
+
+def test_cell_block_bounds_lines_up_with_decoded_world_cell_at():
+    """A click anywhere inside cell (2, 5)'s LIVE LATTICE block, if it were
+    thrown at the DECODED WORLD canvas at the same pixel offset, resolves to
+    the SAME grid cell -- i.e. no mirror/transpose between the two panels."""
+    from lattice_app import cell_block_bounds, WORLD_CELL_PX, cell_at
+    x0, y0, x1, y1 = cell_block_bounds(2, 5, WORLD_CELL_PX)
+    midpoint = ((x0 + x1) // 2, (y0 + y1) // 2)
+    assert cell_at(*midpoint, 0, 0, WORLD_CELL_PX, 320, 320) == (2, 5)
+
+
+def test_cell_block_bounds_origin_cell():
+    from lattice_app import cell_block_bounds, WORLD_CELL_PX
+    assert cell_block_bounds(0, 0, WORLD_CELL_PX) == (0, 0, 40, 40)
+
+
+def test_spin_slot_rect_places_two_slots_side_by_side_not_stacked():
+    from lattice_app import spin_slot_rect, WORLD_CELL_PX
+    slot0 = spin_slot_rect(0, 0, 0, 2, WORLD_CELL_PX)
+    slot1 = spin_slot_rect(0, 0, 1, 2, WORLD_CELL_PX)
+    # same vertical band (not stacked)...
+    assert slot0[1] == slot1[1] and slot0[3] == slot1[3]
+    # ...but slot 1 starts where slot 0 ends (side by side, left to right).
+    assert slot1[0] >= slot0[2]
+    # both slots stay fully inside the cell's own block.
+    bx0, by0, bx1, by1 = 0, 0, WORLD_CELL_PX, WORLD_CELL_PX
+    for x0, y0, x1, y1 in (slot0, slot1):
+        assert bx0 <= x0 < x1 <= bx1
+        assert by0 <= y0 < y1 <= by1
+
+
+def test_spin_slot_rect_last_cell_last_slot_matches_cell_block_bounds():
+    """Cell (7, 7)'s last slot must stay inside the panel -- the case that
+    would previously have been drawn as extra columns spilling rightward."""
+    from lattice_app import spin_slot_rect, cell_block_bounds, WORLD_CELL_PX
+    x0, y0, x1, y1 = spin_slot_rect(7, 7, 1, 2, WORLD_CELL_PX)
+    bx0, by0, bx1, by1 = cell_block_bounds(7, 7, WORLD_CELL_PX)
+    assert bx0 <= x0 < x1 <= bx1
+    assert by0 <= y0 < y1 <= by1
+
+
+def test_mediator_slot_rect_is_row_major_not_the_worlds_8_wide_grid():
+    from lattice_app import mediator_slot_rect
+    # slot 16 (index 16, 16 cols) starts a new row, at row-major (0, 1).
+    x0, y0, x1, y1 = mediator_slot_rect(16, 16, 16)
+    assert x0 < 16  # back at column 0
+    assert y0 >= 16  # one row down
+
+
+# ---------------------------------------------------------------------------
 # infeasible-clamp detection: a pure function over classified draws
 # ---------------------------------------------------------------------------
 
@@ -302,3 +393,85 @@ def test_worker_request_step_sets_the_event():
     w = _worker()
     w.request_step()
     assert w.step_evt.is_set()
+
+
+# ---------------------------------------------------------------------------
+# Task 7: LAYERS panel pure logic -- layer_supports_temperature,
+# band_index_from_name, overlay_pin_patch, composite_missing_layers,
+# grid_to_decoded, and ClampState's per-instance `cycle` override. No Tk.
+# ---------------------------------------------------------------------------
+
+def test_layer_supports_temperature_true_for_no_mediators():
+    assert la.layer_supports_temperature(()) is True
+    assert la.layer_supports_temperature([]) is True
+
+
+def test_layer_supports_temperature_false_when_mediators_present():
+    assert la.layer_supports_temperature((1, 2, 3)) is False
+
+
+def test_band_index_from_name_parses_the_trailing_digit():
+    assert la.band_index_from_name("band0") == 0
+    assert la.band_index_from_name("band2") == 2
+
+
+def test_band_index_from_name_rejects_non_band_names():
+    import pytest
+    with pytest.raises(ValueError):
+        la.band_index_from_name("base")
+    with pytest.raises(ValueError):
+        la.band_index_from_name("composite")
+
+
+def test_overlay_pin_patch_empty_for_no_pins():
+    assert la.overlay_pin_patch([]) == {}
+
+
+def test_overlay_pin_patch_signs_match_pinned_value():
+    patch = la.overlay_pin_patch([((0, 0), 1), ((2, 3), 0)], strength=2.0)
+    assert patch[("g0_0", 1)] == 2.0    # pinned "above" -> encourage value 1
+    assert patch[("g2_3", 1)] == -2.0   # pinned "below" -> discourage value 1
+
+
+def test_composite_missing_layers_lists_base_and_every_missing_band():
+    missing = la.composite_missing_layers(None, [None, "decoded", None])
+    assert missing == ["base", "band0", "band2"]
+
+
+def test_composite_missing_layers_empty_when_everything_present():
+    assert la.composite_missing_layers("base-grid", ["b0", "b1", "b2"]) == []
+
+
+def test_grid_to_decoded_uses_gx_y_row_major_convention():
+    import numpy as np
+    grid = np.array([[0, 1], [2, 3]])  # grid[y, x]
+    d = la.grid_to_decoded(grid)
+    assert d == {"g0_0": 0, "g1_0": 1, "g0_1": 2, "g1_1": 3}
+
+
+def test_clamp_state_default_cycle_is_unchanged():
+    cs = la.ClampState()
+    assert [cs.cycle(0, 0) for _ in range(4)] == [WATER, ROCK, GRASS, None]
+
+
+def test_clamp_state_custom_cycle_for_a_binary_overlay_layer():
+    cs = la.ClampState(cycle=(0, 1))
+    assert [cs.cycle(0, 0) for _ in range(3)] == [0, 1, None]
+
+
+# ---------------------------------------------------------------------------
+# I6 (fix-round-2): Receipt must load an unmediated (bipartite) overlay
+# receipt cleanly. demo/receipts/elev_band/passes.json has a "mediation"
+# key present with value null (place() ran the mediation pass and recorded
+# "nothing to mediate", not "mediation didn't run") -- `.get("mediation")
+# or {}` folds that null the same honest way as a genuinely absent key, so
+# `med.get(...)` never runs on None. Before this test, no test anywhere in
+# this suite constructed lattice_app.Receipt at all (`grep -rn
+# "lattice_app.Receipt\|import Receipt" tests/` returned nothing) -- this
+# fix was one revert away from silently restoring an app that crashes on
+# every unmediated overlay layer, every band, every session.
+# ---------------------------------------------------------------------------
+
+def test_receipt_loads_cleanly_for_an_unmediated_bipartite_overlay():
+    r = la.Receipt(la.OVERLAY_RECEIPT_DIR)
+    assert r.mediator_count == 0
