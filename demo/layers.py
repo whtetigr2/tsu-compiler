@@ -68,17 +68,27 @@ def bias_patch(prog: SamplingProgram, enc: Encoded,
     `patch`: {(cell_name, value): weight}. weight > 0 ENCOURAGES (rewards)
     that (cell, value) pair -- it makes the compiled model MORE likely to
     decode that cell to that value; weight < 0 discourages it. `cell_name`
-    must be one of `enc`'s own categorical variables (e.g. "g3_5" on the
-    8x8 lattice spec); `value` one of that variable's domain values.
+    must be one of `enc`'s own variables -- either a categorical (e.g.
+    "g3_5" on the 8x8 k=3 lattice spec) or a BINARY one (e.g. "g3_5" on
+    the elev_band overlay spec, where the two-value domain means `enc`
+    carries it in `enc.binary_names` rather than `enc.categorical`) --
+    `value` one of that variable's domain values.
 
-    Mechanism, and why it never hand-rolls the spin mapping: for each
-    (cell, value) this builds the SAME categorical-indicator LinearForm
+    Mechanism, and why it never hand-rolls the spin mapping: for a
+    categorical cell this builds the SAME categorical-indicator LinearForm
     `encode`'s own rewrite tables consume for any ordinary spec term --
     `LinearForm({VarRef(cell, value): 1.0})` -- and rewrites it through
     `tsu.passes.encode._REWRITE[enc.encoding]` (the exact per-encoding
     table `encode()` itself uses; domain-wall or one-hot) to get a
     LinearForm over that cell's OWN physical chain spins, never any other
-    cell's. That physical form is then converted to a spin-space
+    cell's. For a BINARY cell there is no chain to rewrite through -- the
+    IR's own convention (`tsu.ir.VarRef`'s docstring: "VarRef('a') -> the
+    occupancy of binary variable a") is that the cell's physical spin IS
+    its own value-1 indicator, so this builds the identical LinearForm
+    `tsu.spec._value_indicator` itself builds for a Binary domain
+    (`VarRef(cell): 1.0` for value 1, `VarRef(cell): -1.0, const: 1.0` for
+    value 0 -- the complement) rather than inventing a second convention.
+    Either physical form is then converted to a spin-space
     (const, {index: coeff}) pair via `tsu.passes.lower._affine` -- the
     identical occupancy-to-spin affine map (`n = (s+1)/2`) `lower()` itself
     uses for every Linear term in a spec. Accumulating `weight * coeff`
@@ -110,13 +120,27 @@ def bias_patch(prog: SamplingProgram, enc: Encoded,
     rewrite = _REWRITE[enc.encoding]
 
     for (cell, value), weight in patch.items():
-        if cell not in enc.categorical:
-            raise KeyError(
-                f"{cell!r} is not a categorical cell of this encoding "
-                f"(known cells: {sorted(enc.categorical)})")
         w = float(weight)
-        physical = rewrite(LinearForm({VarRef(cell, value): 1.0}),
-                           enc.categorical)
+        if cell in enc.categorical:
+            physical = rewrite(LinearForm({VarRef(cell, value): 1.0}),
+                               enc.categorical)
+        elif cell in enc.binary_names:
+            # Same construction as tsu.spec._value_indicator for a Binary
+            # domain: the cell's own occupancy IS its value-1 indicator, and
+            # value-0 is its linear complement. No rewrite table involved --
+            # there is no chain to rewrite through for a two-value domain.
+            if value == 1:
+                physical = LinearForm({VarRef(cell): 1.0})
+            elif value == 0:
+                physical = LinearForm({VarRef(cell): -1.0}, const=1.0)
+            else:
+                raise ValueError(
+                    f"binary cell {cell!r} has no value {value!r}; binary "
+                    f"domains are {{0, 1}}")
+        else:
+            raise KeyError(
+                f"{cell!r} is not a variable of this encoding (known cells: "
+                f"{sorted(set(enc.categorical) | set(enc.binary_names))})")
         const, lin = _affine(physical, idx)
         for i, coeff in lin.items():
             biases[i] += w * coeff
