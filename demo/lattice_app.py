@@ -67,6 +67,7 @@ from tsu.simulate import reconstruct_program, _selected_encoding  # noqa: E402
 from tsu.backends.thrml_backend import sample as thrml_sample  # noqa: E402
 from worldfile import save_world  # noqa: E402 -- A2: save/load provenance-carrying worlds
 import frontier as frontier_mod  # noqa: E402 -- B1: capacity frontier panel
+from scope import beta_to_temperature  # noqa: E402 -- Task 5: temperature alongside beta
 
 # --------------------------------------------------------------------------
 # constants shared by the raw-lattice grid and the decode/render path
@@ -1222,6 +1223,27 @@ class LatticeApp(tk.Tk):
         tk.Label(gf, text=ONSAGER_ASSUMPTION_NOTE, bg=PANEL_BG, fg=WARN,
                   font=("Consolas", 8), anchor="w", justify="left",
                   wraplength=260).pack(fill="x", pady=(0, 8))
+
+        # Task 5: temperature alongside beta -- "everything being inverted
+        # is what throws me for a loop." beta is inverse temperature only
+        # because exp(-beta*E) is tidier to carry through the compiler than
+        # exp(-E/T); both belong on screen. beta<=0 is refused by
+        # beta_to_temperature itself (see demo/scope.py), never silently
+        # displayed as a blank or a guess.
+        try:
+            temp_line = (f"beta = {r.im.beta:.6g}  (temperature T = 1/beta "
+                        f"= {beta_to_temperature(r.im.beta):.3f})")
+            temp_fg = FG
+        except ValueError as exc:
+            temp_line = f"unavailable: {exc}"
+            temp_fg = WARN
+        tk.Label(gf, text=temp_line, bg=PANEL_BG, fg=temp_fg, font=MONO_B,
+                  anchor="w", wraplength=260, justify="left").pack(fill="x", pady=(0, 2))
+        tk.Label(gf, text="Higher T = hotter, more disordered. Lower T =\n"
+                            "colder, more frozen. The useful window sits\n"
+                            "between the two extremes.",
+                  bg=PANEL_BG, fg=DIM, font=("Consolas", 8), anchor="w",
+                  justify="left", wraplength=260).pack(fill="x", pady=(0, 8))
 
         tk.Label(gf, text="ENERGY TRACE (over sweeps)", bg=PANEL_BG, fg=ACCENT,
                   font=("Consolas", 8, "bold"), anchor="w").pack(fill="x")
