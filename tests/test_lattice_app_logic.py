@@ -457,3 +457,21 @@ def test_clamp_state_default_cycle_is_unchanged():
 def test_clamp_state_custom_cycle_for_a_binary_overlay_layer():
     cs = la.ClampState(cycle=(0, 1))
     assert [cs.cycle(0, 0) for _ in range(3)] == [0, 1, None]
+
+
+# ---------------------------------------------------------------------------
+# I6 (fix-round-2): Receipt must load an unmediated (bipartite) overlay
+# receipt cleanly. demo/receipts/elev_band/passes.json has a "mediation"
+# key present with value null (place() ran the mediation pass and recorded
+# "nothing to mediate", not "mediation didn't run") -- `.get("mediation")
+# or {}` folds that null the same honest way as a genuinely absent key, so
+# `med.get(...)` never runs on None. Before this test, no test anywhere in
+# this suite constructed lattice_app.Receipt at all (`grep -rn
+# "lattice_app.Receipt\|import Receipt" tests/` returned nothing) -- this
+# fix was one revert away from silently restoring an app that crashes on
+# every unmediated overlay layer, every band, every session.
+# ---------------------------------------------------------------------------
+
+def test_receipt_loads_cleanly_for_an_unmediated_bipartite_overlay():
+    r = la.Receipt(la.OVERLAY_RECEIPT_DIR)
+    assert r.mediator_count == 0

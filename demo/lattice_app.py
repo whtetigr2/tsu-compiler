@@ -44,6 +44,7 @@ import sys
 import threading
 import time
 import tkinter as tk
+import tkinter.font as tkfont
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -623,9 +624,22 @@ class Receipt:
         # and present-but-null the same honest way: a bipartite overlay's
         # Receipt must load cleanly, not crash on the exact fact (0
         # mediators) this task's temperature control depends on.
-        med = self.passes.get("mediation") or {}
+        mediation_raw = self.passes.get("mediation")
+        med = mediation_raw or {}
         self.mediator_count = med.get("mediator_count", len(self.mediator_idx))
-        self.partition_method = med.get("partition_method", "unavailable: field absent from receipt")
+        # Minor #3 (fix-round-2): "field absent from receipt" was wrong for
+        # elev_band -- its "mediation" key IS present, with value null (see
+        # comment above), not absent. Distinguish the two honestly: a
+        # present-but-null mediation pass (bipartite, 0 mediators) gets its
+        # own reason string; a genuinely absent key keeps the old one.
+        if "partition_method" in med:
+            self.partition_method = med["partition_method"]
+        elif "mediation" in self.passes and mediation_raw is None:
+            self.partition_method = ("unavailable: mediation pass recorded "
+                                      "null (bipartite receipt, 0 mediators) "
+                                      "-- no partition_method to report")
+        else:
+            self.partition_method = "unavailable: field absent from receipt"
         self.bipartite_after = med.get("bipartite_after")
         self.beta_used = med.get("beta_used", self.im.beta)
 
@@ -1184,6 +1198,27 @@ def render_sigmoid_plot(w: int, h: int, draws: Sequence[Sequence[int]], ising,
     return img, caption
 
 
+def _fit_caption_height(label: tk.Label) -> None:
+    """I3/I4 (fix-round-2): size `label`'s `height` (Tk's Label height is a
+    LINE COUNT, not pixels) to what its CURRENTLY SET text actually needs
+    at its configured wraplength/font -- measured via real Tk layout
+    (winfo_reqheight), never a guessed line count. The ACF and sigmoid
+    captions were both set with a guessed caption_lines (4 and 11) that
+    undercounted the real wrapped text (7 and 12 lines respectively) and
+    silently clipped the load-bearing sentence in each -- a caption that
+    carries one of this app's honesty disclosures must not be sized by
+    guess. Call this after every `.config(text=...)` that can change a
+    caption's content, not just once at construction, since the safety
+    net must hold for text that changes at runtime, not just today's
+    wording."""
+    label.config(height=0)  # let Tk report its OWN unclipped natural size
+    label.update_idletasks()
+    req_h = label.winfo_reqheight()
+    line_h = tkfont.Font(font=label.cget("font")).metrics("linespace")
+    n_lines = max(1, -(-req_h // max(line_h, 1)))  # ceil division
+    label.config(height=n_lines)
+
+
 class Panel(tk.Frame):
     def __init__(self, master, title: str, **kw):
         super().__init__(master, bg=PANEL_BG, highlightbackground=BORDER,
@@ -1268,6 +1303,12 @@ class LatticeApp(tk.Tk):
         self.bands: dict[str, LayerState] = {
             name: LayerState(name, ClampState(cycle=(0, 1))) for name in BAND_NAMES}
         self.layer_photo = None  # DECODED WORLD's blitted image when a band/composite is active
+        # I2 (fix-round-2): the base grid actually captured at the most
+        # recent band regenerate -- what the composite's terrain must be
+        # rendered from, NOT self.last_valid_grid (which keeps streaming
+        # after that regenerate). Set in _on_band_regenerated. See
+        # _refresh_layer_view's composite branch.
+        self.composite_base_grid: np.ndarray | None = None
 
         self._build_layout()
         self._populate_static_panels()
@@ -1438,11 +1479,27 @@ class LatticeApp(tk.Tk):
                                  "(see PINS list, tagged by layer).",
                   bg=PANEL_BG, fg=DIM, font=("Consolas", 7), anchor="w",
                   justify="left", wraplength=180).pack(fill="x", pady=(4, 0))
+        # C1 (fix-round-2): the code comment above OVERLAY_PIN_STRENGTH
+        # claims "the UI states this" (that an overlay pin is a strong
+        # nudge, not a hard constraint) -- it did not, until this label.
+        # Made true here rather than left as an aspirational comment.
+        tk.Label(sel_cell, text="Base pins are EXACT clamps. Overlay pins "
+                                 "(band0/1/2) are a STRONG BIAS NUDGE, not "
+                                 "a guarantee -- CONDITIONING STRENGTH can "
+                                 "outvote them and the pinned cell can "
+                                 "still render the other value.",
+                  bg=PANEL_BG, fg=WARN, font=("Consolas", 7), anchor="w",
+                  justify="left", wraplength=180).pack(fill="x", pady=(4, 0))
 
         # Step 3: conditioning strength + dose-response reference table.
         alpha_cell = _layers_cell("CONDITIONING STRENGTH (overlays)", width=330)
+        # Minor #4 (fix-round-2): no wraplength in a 330px cell -- the text
+        # (incl. the "-- see dose-response note below" pointer) measures
+        # ~672px and was getting cut off. Matches the other two labels in
+        # this same cell, which already wrap at 320.
         self.alpha_label = tk.Label(alpha_cell, text="", bg=PANEL_BG, fg=FG,
-                                     font=MONO, anchor="w")
+                                     font=MONO, anchor="w", justify="left",
+                                     wraplength=320)
         self.alpha_label.pack(fill="x", pady=(2, 0))
         self.alpha_scale = tk.Scale(
             alpha_cell, from_=0.0, to=4.0, resolution=0.05, orient="horizontal",
@@ -1952,10 +2009,23 @@ class LatticeApp(tk.Tk):
         PhotoImage with no surviving Python reference -- same pattern
         _update_world already uses for world_photo)."""
         energy_ys = list(self.energy_trace.ys)
-        acf_img, acf_caption = render_acf_plot(SCOPE_PLOT_W, SCOPE_PLOT_H, energy_ys)
+        # Minor #7 (fix-round-2): tsu.ess.autocorrelation (reached via
+        # integrated_autocorrelation_time, called inside render_acf_plot)
+        # raises ValueError on an exactly-constant series (zero variance --
+        # autocorrelation is undefined). Every OTHER honesty path in this
+        # panel degrades to an "unavailable: <reason>" caption; this was
+        # the one spot an exception could instead escape the Tk `after`
+        # poll callback and silently kill the whole 80ms poll loop. Guarded
+        # the same way its neighbours already degrade.
+        try:
+            acf_img, acf_caption = render_acf_plot(SCOPE_PLOT_W, SCOPE_PLOT_H, energy_ys)
+        except ValueError as exc:
+            acf_img = Image.new("RGB", (SCOPE_PLOT_W, SCOPE_PLOT_H), PLOT_BG)
+            acf_caption = f"unavailable: {exc}"
         self.acf_photo = ImageTk.PhotoImage(acf_img)
         self.acf_canvas.itemconfig("plot", image=self.acf_photo)
         self.acf_caption.config(text=acf_caption)
+        _fit_caption_height(self.acf_caption)  # I3: measured, not guessed
 
         mag_img = render_line_plot(
             SCOPE_PLOT_W, SCOPE_PLOT_H, list(self.magnetization_trace.xs),
@@ -1965,6 +2035,7 @@ class LatticeApp(tk.Tk):
         self.mag_caption.config(
             text="Mean spin per draw (s=2*occupancy-1), fixed axis [-1, 1] "
                  "-- the order parameter's own physical bounds.")
+        _fit_caption_height(self.mag_caption)
 
         hist_img = render_energy_histogram_plot(SCOPE_PLOT_W, SCOPE_PLOT_H, energy_ys)
         self.hist_photo = ImageTk.PhotoImage(hist_img)
@@ -1973,12 +2044,14 @@ class LatticeApp(tk.Tk):
             text=f"Distribution of the energy trace's own {len(energy_ys)} "
                  f"value(s) so far this session -- the trace itself only "
                  f"samples one point of this at a time.")
+        _fit_caption_height(self.hist_caption)
 
         sigmoid_img, sigmoid_caption = render_sigmoid_plot(
             SCOPE_PLOT_W, SCOPE_PLOT_H, list(self.raw_draws), self.receipt.im)
         self.sigmoid_photo = ImageTk.PhotoImage(sigmoid_img)
         self.sigmoid_canvas.itemconfig("plot", image=self.sigmoid_photo)
         self.sigmoid_caption.config(text=sigmoid_caption)
+        _fit_caption_height(self.sigmoid_caption)  # I4: measured, not guessed
 
     def _swatch(self, master, color, text):
         row = tk.Frame(master, bg=PANEL_BG)
@@ -2200,15 +2273,29 @@ class LatticeApp(tk.Tk):
         clamp = self._current_layer_clamp()
         if clamp is None:
             return
-        color_fn = self._pin_color if self.active_layer == "base" else self._band_pin_color
+        is_base = self.active_layer == "base"
+        color_fn = self._pin_color if is_base else self._band_pin_color
+        # C1 (fix-round-2): base pins are exact clamps, overlay pins are a
+        # soft nudge (see OVERLAY_PIN_STRENGTH's comment and the LAYER
+        # SELECTOR cell's disclosure label) -- a rectangle-plus-dot marker
+        # identical for both wore the affordance of a guarantee on the soft
+        # case too. Overlay pins now draw with a dashed outline and no
+        # solid dot (a hollow ring instead), so "this one can be outvoted"
+        # is visible on the canvas itself, not just in a caption.
+        rect_kw = {} if is_base else {"dash": (3, 2)}
         for (x, y), v in clamp.items():
             x0, y0 = x * WORLD_CELL_PX, y * WORLD_CELL_PX
             color = color_fn(v)
             self.world_canvas.create_rectangle(
                 x0 + 2, y0 + 2, x0 + WORLD_CELL_PX - 2, y0 + WORLD_CELL_PX - 2,
-                outline=color, width=3, tags="pin")
-            self.world_canvas.create_oval(
-                x0 + 3, y0 + 3, x0 + 11, y0 + 11, fill=color, outline=FG, tags="pin")
+                outline=color, width=3, tags="pin", **rect_kw)
+            if is_base:
+                self.world_canvas.create_oval(
+                    x0 + 3, y0 + 3, x0 + 11, y0 + 11, fill=color, outline=FG, tags="pin")
+            else:
+                self.world_canvas.create_oval(
+                    x0 + 3, y0 + 3, x0 + 11, y0 + 11, fill="", outline=color,
+                    width=2, tags="pin")
         self.world_canvas.tag_raise("pin")
 
     def _refresh_pins_panel(self):
@@ -2399,11 +2486,30 @@ class LatticeApp(tk.Tk):
                 self.layer_photo = ImageTk.PhotoImage(disp)
                 self.world_canvas.itemconfig(self.world_image_item, image=self.layer_photo)
                 self.world_canvas.itemconfig(self.world_placeholder_id, state="hidden")
+                # I1 (fix-round-2): this overlay's TaskContract declares
+                # ZERO rules (measured live below, not assumed) -- for a
+                # binary domain with no chain to violate, contract.validate
+                # is vacuously .ok=True for every codeword. "valid" here is
+                # therefore ONLY "decoded as a codeword" (a real check);
+                # dressing that as "same convention as base" implied a
+                # contract was actually checked, which for this overlay it
+                # was not. Relabelled, not deleted -- the codeword rate
+                # itself is still real.
+                n_rules = len(self.overlay_receipt.spec.contract.rules)
+                if n_rules == 0:
+                    rules_note = ("this overlay's contract declares 0 rules, "
+                                   "so \"valid\" means only \"decoded as a "
+                                   "codeword\" -- the contract-pass check is "
+                                   "vacuously true for every codeword, not "
+                                   "evidence any rule was satisfied")
+                else:
+                    rules_note = (f"{n_rules} contract rule(s) checked, same "
+                                   f"convention as base")
                 self.world_status_label.config(
                     text=f"{self.active_layer}: valid {layer.valid_count}/"
                          f"{layer.total_draws} draws so far under the current "
-                         f"conditioning/pins -- p(x | valid), same convention "
-                         f"as base (see SAMPLE LOG note)", fg=DIM)
+                         f"conditioning/pins -- p(x | valid); {rules_note} "
+                         f"(see SAMPLE LOG note)", fg=DIM)
             self.infeasible_label.config(
                 text=f"INFEASIBLE: {layer.batch_reason}" if layer.batch_infeasible else "")
             self.save_btn.config(state="disabled")  # A2 Save World stays base-only, see report
@@ -2424,15 +2530,36 @@ class LatticeApp(tk.Tk):
                 elevation = np.array(
                     [[thermometer_level(band_decoded, f"g{x}_{y}") for x in range(W)]
                      for y in range(H)])
-                img = render_elevation_world_image(self.last_valid_grid, elevation)
+                # I2 (fix-round-2): terrain now comes from
+                # composite_base_grid -- the base decode actually captured
+                # at the most recent band regenerate (see
+                # _regenerate_band_async/_on_band_regenerated) -- NOT
+                # self.last_valid_grid, which keeps streaming from base's
+                # continuous background worker while a band is selected.
+                # Rendering self.last_valid_grid here would show elevation
+                # conditioned on base-decode-A hillshaded over terrain from
+                # a LATER base-decode-B: not a draw from p(base)*p(band|
+                # base) at all. composite_base_grid is guaranteed non-None
+                # here: `missing` above is empty only once every band has a
+                # last_valid_decoded, which is set in the same handler that
+                # sets composite_base_grid.
+                terrain_grid = self.composite_base_grid
+                img = render_elevation_world_image(terrain_grid, elevation)
                 disp = img.resize((WORLD_DISPLAY_PX, WORLD_DISPLAY_PX), Image.LANCZOS)
                 self.layer_photo = ImageTk.PhotoImage(disp)
                 self.world_canvas.itemconfig(self.world_image_item, image=self.layer_photo)
+                base_is_stale = not np.array_equal(terrain_grid, self.last_valid_grid)
+                staleness_note = (
+                    " -- base has advanced since (streaming continuously); "
+                    "this terrain is NOT base's current live decode"
+                    if base_is_stale else
+                    " -- currently matches base's live decode too")
                 self.world_status_label.config(
-                    text="composite: elevation-driven hillshade over base's "
-                         "own terrain colour, built from each layer's most "
-                         "recent valid decode (see COMPOSITE VALIDATION "
-                         "below for the cross-layer check)", fg=DIM)
+                    text="composite: elevation-driven hillshade over the "
+                         "base decode the bands were ACTUALLY conditioned "
+                         "on at their most recent regenerate" + staleness_note +
+                         " (see COMPOSITE VALIDATION below for the "
+                         "cross-layer check)", fg=(WARN if base_is_stale else DIM))
             self.infeasible_label.config(text="")
             self.save_btn.config(state="disabled")
         self._redraw_pin_markers()
@@ -2545,7 +2672,14 @@ class LatticeApp(tk.Tk):
                                       "nothing to condition this band on"})
             return
         idx = band_index_from_name(band_name)
-        base_decoded = grid_to_decoded(self.last_valid_grid)
+        # I2 (fix-round-2): snapshot the grid ALONGSIDE base_decoded, here
+        # in the synchronous dispatch (not inside work(), which runs later
+        # on a worker thread while base's own background worker keeps
+        # mutating self.last_valid_grid) -- this is the exact base decode
+        # this band's conditioning patch is computed from, and it is what
+        # the composite must later render its terrain from.
+        base_grid_snapshot = self.last_valid_grid
+        base_decoded = grid_to_decoded(base_grid_snapshot)
         if idx == 0:
             prev_decoded = None
         else:
@@ -2590,7 +2724,8 @@ class LatticeApp(tk.Tk):
                     if overlay.spec.contract.validate(d).ok:
                         decoded.append(d)
             self.in_q.put({"kind": "band_regenerated", "band": band_name,
-                           "valid": decoded, "total": len(got), "patch": patch})
+                           "valid": decoded, "total": len(got), "patch": patch,
+                           "base_grid": base_grid_snapshot})
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -2614,6 +2749,11 @@ class LatticeApp(tk.Tk):
             layer.last_valid_decoded = rep
             layer.last_valid_grid = np.array(
                 [[int(rep[f"g{x}_{y}"]) for x in range(W)] for y in range(H)])
+            # I2 (fix-round-2): record the base decode THIS band was
+            # actually conditioned on, so the composite can render terrain
+            # consistent with what its elevation was built from rather than
+            # base's current (possibly since-advanced) live decode.
+            self.composite_base_grid = msg["base_grid"]
             self.regenerate_status.config(
                 text=f"{band_name}: {len(valid)}/{msg['total']} valid "
                      f"({100*len(valid)/msg['total']:.1f}%)", fg=GOOD)
