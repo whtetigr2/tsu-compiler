@@ -35,15 +35,14 @@ TASK 6 -- the SCOPE panel's four readouts:
   np.histogram -- the distribution the energy TRACE (a time series) only
   samples one point of at a time.
 
-  local_field_response(draws, ising, bins): the MEASURED analogue of
+  local_field_response(draws, ising, bins): the measurable analogue of
   Extropic's DTM paper (arXiv 2510.23972) Figure 4a, which plots P(x=1)
-  against bias voltage as an S-curve. Ours is measurable rather than
-  drawn: THRML's chromatic block Gibbs conditional sampler for a spin site
-  i is exactly P(s_i=1 | neighbours) = sigmoid(2*gamma_i), where gamma_i
-  is the LOCAL FIELD (see the thrml skill's "How the API composes" table
-  and `tsu.passes.lower`'s own sign convention, restated here since this
-  file computes gamma independently rather than importing a private
-  thrml/tsu symbol):
+  against bias voltage as an S-curve. THRML's chromatic block Gibbs
+  conditional sampler for a spin site i is exactly P(s_i=1 | neighbours)
+  = sigmoid(2*gamma_i), where gamma_i is the LOCAL FIELD (see the thrml
+  skill's "How the API composes" table and `tsu.passes.lower`'s own sign
+  convention, restated here since this file computes gamma independently
+  rather than importing a private thrml/tsu symbol):
 
       IsingModel's (b, J) are defined so that thrml's energy is
       E_thrml(s) = -beta * (sum_i b_i*s_i + sum_(i,j) J_ij*s_i*s_j).
@@ -52,15 +51,37 @@ TASK 6 -- the SCOPE panel's four readouts:
       P(s_i=1 | neighbours) = sigmoid(2*gamma_i), gamma_i = beta*(b_i +
       sum_{j~i} J_ij*s_j).
 
-  This function computes gamma_i FROM THE SAMPLER'S OWN DRAWS (the actual
-  neighbour spins that draw actually had, not an assumed or averaged
-  neighbourhood), pools (gamma, s) pairs across every spin site and every
-  draw handed in, bins by gamma, and reports the EMPIRICAL P(s=1) per bin
-  alongside its count. The caller overlays the analytic sigmoid(2*gamma)
-  on the SAME axes -- if the measured points do not sit on that curve,
-  that is a real finding about the sampler (mixing, thinning, a sign
-  error) and must be reported as such, never smoothed away by picking
-  more flattering bins.
+  IMPORTANT DISTINCTION (added after fix-round 1 -- see
+  task-5-6-report.md's "Fix round 1" section for the full investigation):
+  this function does NOT measure that conditional directly. THRML exposes
+  no public API for the local field at the moment a spin was actually
+  flipped, so gamma_i here is RECONSTRUCTED POST HOC from the final
+  recorded joint draw -- every OTHER spin's value in that same draw is
+  read as if it were "the neighbourhood s_i was conditioned on." Because
+  the reconstructed gamma is itself correlated with the very spin being
+  measured, E[s_i | gamma_reconstructed] is NOT guaranteed to equal
+  sigmoid(2*gamma_reconstructed) even for a perfectly correct sampler --
+  the gap is expected to be largest exactly where the sigmoid is
+  steepest (near gamma=0) and smallest in the saturated tails, which is
+  what was actually measured against demo/receipts/small.
+
+  A block-split check (see task-5-6-report.md) ruled OUT one specific
+  alternative explanation -- per-substep staleness (the hypothesis that
+  the LAST-updated colour block's snapshot would match the reconstructed
+  field while the FIRST-updated block's would not): both blocks showed
+  the SAME-sign, similarly-sized deviation in the SAME bins, which
+  staleness alone would not produce. It did NOT rule out a genuine
+  sampler defect -- the reconstruction artifact and a real defect are
+  currently INDISTINGUISHABLE from this function's output alone, because
+  thrml does not expose the local field at flip time. This function
+  pools (gamma, s) pairs across every spin site and every draw handed
+  in, bins by the RECONSTRUCTED gamma, and reports the EMPIRICAL P(s=1)
+  per bin alongside its count. The caller overlays the analytic
+  sigmoid(2*gamma) on the SAME axes FOR REFERENCE, not as ground truth
+  the measured points are expected to match -- see render_sigmoid_plot
+  in demo/lattice_app.py for the on-screen caption carrying this same
+  distinction. Never smooth a measured deviation away by picking more
+  flattering bins; report it, with this caveat attached.
 
   A bin with fewer than MIN_LOCAL_FIELD_BIN_COUNT pooled samples reports
   its count but NOT a probability (its probability entry is NaN, never a
@@ -131,11 +152,12 @@ def energy_histogram(series: Sequence[float], bins: int) -> tuple[list[float], l
 
 def sigmoid(x):
     """1/(1+exp(-x)), the analytic curve `local_field_response`'s
-    empirical points are checked against. A plain function (not folded
-    into local_field_response) so the demo's panel-drawing code can
-    overlay the SAME closed form it is comparing measurements to,
-    rather than a second hand-copied expression that could silently
-    drift from this one."""
+    empirical points are plotted alongside FOR REFERENCE (not as ground
+    truth they are expected to coincide with -- see that function's own
+    docstring). A plain function (not folded into local_field_response)
+    so the demo's panel-drawing code can overlay the SAME closed form
+    it is comparing measurements to, rather than a second hand-copied
+    expression that could silently drift from this one."""
     return 1.0 / (1.0 + np.exp(-np.asarray(x, dtype=float)))
 
 
@@ -150,6 +172,17 @@ def local_field_response(draws: Sequence[Sequence[int]], ising, bins: int
     occupancy, one row per raw physical sample (valid or not -- the field
     is a property of the raw chain, the same convention
     demo/lattice_app.py's energy trace already uses).
+
+    NOT the sampler's live conditional: gamma is RECONSTRUCTED POST HOC
+    from each draw's own final joint state (thrml exposes no local field
+    at flip time), so it is correlated with the spin it's paired with.
+    The empirical P(s=1) this function returns is therefore not expected
+    to equal sigmoid(2*gamma) near the transition even for a defect-free
+    sampler -- see the module docstring's "IMPORTANT DISTINCTION" section
+    for the full reasoning and the block-split evidence that ruled out
+    per-substep staleness specifically (without ruling out a genuine
+    sampler defect: the two remain indistinguishable from this output
+    alone).
 
     Returns ([], [], []) for zero draws -- no data is not zero bins of
     data, but there is nothing to bin either; an empty result is the

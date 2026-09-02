@@ -926,12 +926,29 @@ def render_energy_histogram_plot(w: int, h: int, series: Sequence[float],
 
 def render_sigmoid_plot(w: int, h: int, draws: Sequence[Sequence[int]], ising,
                         bins: int = SCOPE_LOCAL_FIELD_BINS) -> tuple[Image.Image, str]:
-    """Measured P(s=1) per local-field bin (blue points) overlaid on the
-    analytic sigmoid(2*gamma) (green curve) -- the measurable analogue of
-    Extropic's DTM paper Figure 4a. A bin with too few pooled samples
-    (see MIN_LOCAL_FIELD_BIN_COUNT in demo/scope.py) is SKIPPED here, not
-    plotted at a fabricated position -- the caption below reports how many
-    were skipped so that omission is visible, not silent."""
+    """Empirical P(s=1) per POST-HOC RECONSTRUCTED local-field bin (blue
+    points) plotted alongside the analytic sigmoid(2*gamma) (green curve,
+    FOR REFERENCE ONLY) -- the measurable analogue of Extropic's DTM
+    paper Figure 4a.
+
+    THIS IS NOT A PLOT OF THE SAMPLER'S CONDITIONAL (fix-round-1 finding,
+    see task-5-6-report.md and demo/scope.py's local_field_response
+    docstring for the full reasoning): thrml exposes no local field at
+    flip time, so gamma is reconstructed after the fact from each draw's
+    final joint state, which makes it correlated with the very spin it's
+    paired with. Measured points are therefore NOT expected to sit on
+    the reference curve near the transition even for a defect-free
+    sampler, AND a genuine sampler defect would look the same way -- the
+    two are currently indistinguishable from this plot alone. A
+    block-split measurement (task-5-6-report.md) ruled out one specific
+    alternative (per-substep staleness) but not a sampler defect in
+    general. All of this is restated in the returned caption, not just
+    here, because the brief requires it be visible ON SCREEN.
+
+    A bin with too few pooled samples (see MIN_LOCAL_FIELD_BIN_COUNT in
+    demo/scope.py) is SKIPPED here, not plotted at a fabricated position
+    -- the caption reports how many were skipped so that omission is
+    visible, not silent."""
     img = Image.new("RGB", (w, h), PLOT_BG)
     d = ImageDraw.Draw(img)
     if len(draws) < 4:
@@ -969,13 +986,20 @@ def render_sigmoid_plot(w: int, h: int, draws: Sequence[Sequence[int]], ising,
 
     d.text((pad_l, pad_t), "1.0", fill=PLOT_DIM, anchor="la")
     d.text((pad_l, pad_t + ph), "0.0", fill=PLOT_DIM, anchor="la")
-    d.text((pad_l, h - 4), f"gamma={gmin:.2f}", fill=PLOT_DIM, anchor="ls")
+    d.text((pad_l, h - 4), f"recon.gamma={gmin:.2f}", fill=PLOT_DIM, anchor="ls")
     d.text((w - pad_r, h - 4), f"{gmax:.2f}", fill=PLOT_DIM, anchor="rs")
-    d.text((w - pad_r, pad_t), "P(s=1)", fill=PLOT_DIM, anchor="ra")
+    d.text((w - pad_r, pad_t), "empirical P(s=1)", fill=PLOT_DIM, anchor="ra")
 
     caption = (
-        f"blue = measured P(s=1) per local-field bin (this sampler's own "
-        f"draws); green = analytic sigmoid(2*gamma). "
+        f"blue = empirical P(s=1) vs a POST-HOC RECONSTRUCTED local field "
+        f"(read from each draw's final state, NOT the sampler's live "
+        f"conditional -- thrml exposes no field at flip time). green = "
+        f"analytic sigmoid(2*gamma), shown FOR REFERENCE ONLY. Near the "
+        f"transition, measured points are NOT expected to sit on the "
+        f"reference curve: conditioning on a reconstructed field differs "
+        f"from the sampler's own conditional. The gap could ALSO be a "
+        f"real sampler defect -- the two explanations cannot currently "
+        f"be told apart (see task-5-6-report.md). "
         f"{n_skipped}/{len(centers)} bin(s) skipped -- fewer than "
         f"{MIN_LOCAL_FIELD_BIN_COUNT} pooled samples to report a "
         f"probability (counts are real, just too sparse to plot).")
@@ -998,10 +1022,13 @@ class LatticeApp(tk.Tk):
         super().__init__()
         self.receipt = receipt
         self.title("tsu lattice demo -- live sampling of a compiled receipt")
-        # Task 6: +260px height for the new SCOPE panel row added below the
+        # Task 6: extra height for the new SCOPE panel row added below the
         # existing content row -- every other panel's own size/position is
-        # unchanged, this only makes room for the addition.
-        self.geometry("1760x1160")
+        # unchanged, this only makes room for the addition. Grew again in
+        # fix-round 1 (1160 -> 1240) when the sigmoid cell's caption grew
+        # from 4 to 11 lines to carry the reconstruction-vs-defect
+        # disclosure on screen.
+        self.geometry("1760x1240")
         self.configure(bg=BG)
 
         self.in_q: "queue.Queue[dict]" = queue.Queue(maxsize=64)
@@ -1069,7 +1096,11 @@ class LatticeApp(tk.Tk):
         # Task 6: SCOPE panel -- a new row below the existing content row,
         # spanning every column, fixed height (grid_propagate off) so it
         # never eats into the row-0 panels' own space.
-        content.grid_rowconfigure(1, weight=0, minsize=260)
+        # Task 6 fix-round 1: minsize grew from 260 -- the sigmoid cell's
+        # caption is now 11 lines (was 4) to fit the reconstruction-vs-
+        # defect disclosure required on screen, and this row sizes to its
+        # tallest cell.
+        content.grid_rowconfigure(1, weight=0, minsize=340)
 
         left = tk.Frame(content, bg=BG, width=340)
         left.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
@@ -1129,12 +1160,12 @@ class LatticeApp(tk.Tk):
         # render_acf_plot etc. above) -- Tk canvas primitives alone can't
         # do a log axis, filled bars, or an overlaid scatter+curve well.
         self.scope_panel = Panel(content, "SCOPE  (autocorrelation / magnetization / "
-                                          "energy histogram / measured sigmoid response)")
+                                          "energy histogram / local-field response)")
         self.scope_panel.grid(row=1, column=0, columnspan=5, sticky="nsew", pady=(6, 0))
         scope_row = tk.Frame(self.scope_panel.body, bg=PANEL_BG)
         scope_row.pack(fill="both", expand=True)
 
-        def _scope_cell(title):
+        def _scope_cell(title, caption_lines=4):
             cell = tk.Frame(scope_row, bg=PANEL_BG)
             cell.pack(side="left", fill="both", expand=True, padx=4)
             tk.Label(cell, text=title, bg=PANEL_BG, fg=ACCENT,
@@ -1144,7 +1175,7 @@ class LatticeApp(tk.Tk):
             canvas.pack(pady=(2, 2))
             caption = tk.Label(cell, text="", bg=PANEL_BG, fg=DIM,
                                 font=("Consolas", 7), anchor="w", justify="left",
-                                wraplength=SCOPE_PLOT_W, height=4)
+                                wraplength=SCOPE_PLOT_W, height=caption_lines)
             caption.pack(fill="x")
             return canvas, caption
 
@@ -1154,8 +1185,17 @@ class LatticeApp(tk.Tk):
             "MAGNETIZATION (order parameter, per draw)")
         self.hist_canvas, self.hist_caption = _scope_cell(
             "ENERGY HISTOGRAM (over the session)")
+        # Task 6 fix-round 1: retitled from "measured P(s=1) vs analytic
+        # sigmoid" -- that phrasing claimed the plot showed the sampler's
+        # own conditional, which it does not (see render_sigmoid_plot's
+        # docstring and demo/scope.py's local_field_response docstring).
+        # This cell's caption is long BY REQUIREMENT (the fix-round-1
+        # ruling: the reconstruction-vs-defect distinction must be stated
+        # ON SCREEN, not only in a docstring) -- caption_lines=11 gives it
+        # room without touching any other cell's sizing.
         self.sigmoid_canvas, self.sigmoid_caption = _scope_cell(
-            "LOCAL-FIELD RESPONSE (measured P(s=1) vs analytic sigmoid)")
+            "LOCAL FIELD: EMPIRICAL P(s=1) vs SIGMOID (REFERENCE ONLY)",
+            caption_lines=11)
         for canvas in (self.acf_canvas, self.mag_canvas, self.hist_canvas,
                       self.sigmoid_canvas):
             canvas.create_image(0, 0, anchor="nw", tags="plot")
