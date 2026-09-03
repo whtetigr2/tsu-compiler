@@ -2507,13 +2507,21 @@ class LatticeApp(tk.Tk):
         # claims "the UI states this" (that an overlay pin is a strong
         # nudge, not a hard constraint) -- it did not, until this label.
         # Made true here rather than left as an aspirational comment.
-        tk.Label(sel_cell, text="Base pins are EXACT clamps. Overlay pins "
-                                 "(band0/1/2) are a STRONG BIAS NUDGE, not "
-                                 "a guarantee -- CONDITIONING STRENGTH can "
-                                 "outvote them and the pinned cell can "
-                                 "still render the other value.",
-                  bg=PANEL_BG, fg=WARN, font=(MONO_FAMILY, 7), anchor="w",
-                  justify="left", wraplength=180).pack(fill="x", pady=(4, 0))
+        # Resize-guard (2026-09): named attribute handle so a regression
+        # test can assert this disclosure stays visible (winfo_ismapped +
+        # non-trivial width/height) across window sizes -- this exact label
+        # is the one that rendered at literal (1,1)px, invisible, when
+        # _layers_cell used to call pack_propagate(False) too early (see
+        # that function's own comment above). Never matched by text/index.
+        self.overlay_pin_disclosure_label = tk.Label(
+            sel_cell, text="Base pins are EXACT clamps. Overlay pins "
+                            "(band0/1/2) are a STRONG BIAS NUDGE, not "
+                            "a guarantee -- CONDITIONING STRENGTH can "
+                            "outvote them and the pinned cell can "
+                            "still render the other value.",
+            bg=PANEL_BG, fg=WARN, font=(MONO_FAMILY, 7), anchor="w",
+            justify="left", wraplength=180)
+        self.overlay_pin_disclosure_label.pack(fill="x", pady=(4, 0))
 
         # Step 3: conditioning strength + dose-response reference table.
         alpha_cell = _layers_cell("CONDITIONING STRENGTH (overlays)", width=330)
@@ -2699,9 +2707,14 @@ class LatticeApp(tk.Tk):
         # width (via <Configure>) rather than a fixed guess, so the
         # assumed-cap disclosure is never narrower than what the window
         # actually has to give it, at any window size.
-        footer_label = tk.Label(bottom, text=FOOTER_TEXT, bg=BG, fg=DIM,
+        # Resize-guard (2026-09): named attribute (was a bare local) so a
+        # regression test can assert this survives resize -- this is the
+        # exact label the control-bar bug (bottom packed after content)
+        # squeezed toward zero along with the four buttons.
+        self.footer_label = tk.Label(bottom, text=FOOTER_TEXT, bg=BG, fg=DIM,
                                   font=(MONO_FAMILY, 8), justify="left", anchor="w")
-        footer_label.pack(side="top", fill="x", padx=(16, 0), pady=(4, 0))
+        self.footer_label.pack(side="top", fill="x", padx=(16, 0), pady=(4, 0))
+        footer_label = self.footer_label
 
         def _on_footer_row_configure(evt):
             footer_label.config(wraplength=max(evt.width - 16, 100))
