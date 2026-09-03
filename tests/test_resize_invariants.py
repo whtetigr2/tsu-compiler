@@ -1,9 +1,10 @@
 """Regression guard: critical LATTICE widgets must stay VISIBLE across a
 range of window sizes.
 
-Three separate bugs of this exact class shipped on this branch before this
-test existed, each caught only by a human launching the real app and
-looking, never by a test:
+Five separate bugs of this exact class shipped on this branch before this
+test existed (or, for #4-5, before this test's own coverage was wide
+enough to catch them), each caught only by a human launching the real app
+and looking, never by a test:
 
   1. Panels starved to 1x1px (fixed in d71cb9e / lattice-layout) -- a fixed
      3:2 / 5:5:2:5 weighted grid split, once row-0's combined content
@@ -24,6 +25,36 @@ looking, never by a test:
      a shrink below the window's natural size gave `content` first claim
      on the shortfall and squeezed `bottom` toward zero, unmapping all
      four buttons and the footer disclosure.
+  4. Row 0 unmapped entirely below ~1050-1100px window HEIGHT (fixed in
+     951cea0) -- SCOPE (minsize=340) and LAYERS (minsize=230) reserved
+     570px unconditionally, and row 0 (no minsize of its own) absorbed the
+     whole deficit once the window got short enough that grid silently
+     unmapped it, taking PIPELINE/LIVE LATTICE/DECODED WORLD/REGIME &
+     TRACES/VERIFICATION/SAMPLER/SAMPLE LOG down with it. Fixed by
+     wrapping `content` itself in a page-level scroll column (see
+     _make_scroll_column / _build_layout in lattice_app.py) so every row
+     renders at its own natural height and the page scrolls vertically to
+     reach the rest.
+  5. The same class on the WIDTH axis (fixed on lattice-width-axis): LIVE
+     LATTICE and DECODED WORLD (row 0's two weight=1 grid columns)
+     squeezed toward zero WIDTH whenever the window was narrower than row
+     0's combined natural width, while row 0's three fixed-width columns
+     (PIPELINE/FRONTIER 340 + REGIME & TRACES 300 + VERIFICATION/SAMPLER/
+     DECODED MIX/SAMPLE LOG 430 = 1070px) held their size unconditionally
+     and absorbed none of the deficit -- measured at 8px for one of them
+     at 1200x900 on unmodified master. The page-level scroll column added
+     for bug #4 above made this marginally worse (it cost ~17px of width)
+     but did not cause it -- confirmed present on unmodified master.
+     Fixed the same way as #4, one axis over: `_on_canvas_configure` in
+     the page-level `_make_scroll_column` call now floors `inner`'s width
+     at its own natural (reqwidth) size instead of always pinning it to
+     the canvas viewport, and a horizontal Scrollbar reaches whatever the
+     window is too narrow to show. This test's own coverage was
+     effectively height-oriented until this fix (no width-axis widgets in
+     the guarded set, no narrow-but-tall sizes in SIZES) -- extended
+     below, along with MIN_WIDTH_AXIS, specifically because plain MIN_DIM
+     (8) sat exactly at the collapse floor for width the way #1-4's
+     collapse floor was for height.
 
 The common pattern: content that exists in the source and passes every
 source grep, occupying zero screen pixels at runtime. This test builds the
@@ -72,11 +103,18 @@ if str(DEMO_DIR) not in sys.path:
 from lattice_app import LatticeApp, Receipt, RECEIPT_DIR, OVERLAY_RECEIPT_DIR  # noqa: E402
 
 # Task requirement: at minimum these four sizes, largest (the app's own
-# default geometry) to smallest.
+# default geometry) to smallest. 1100x900 and 900x800 (width-axis fix,
+# 2026-09) add two sizes that are narrow relative to row 0's ~1070px+ of
+# fixed-width columns while still tall enough not to also trip the
+# height-axis row-0-unmapping bug (#4 above) -- they exercise the WIDTH
+# axis specifically, which none of the original four sizes isolated (each
+# pairs a width squeeze with a height squeeze).
 SIZES = [
     (1760, 1420),
     (1200, 900),
+    (1100, 900),
     (1000, 700),
+    (900, 800),
     (800, 600),
 ]
 
@@ -85,6 +123,21 @@ SIZES = [
 # size -- it exists only to catch "collapsed to nothing", not to assert a
 # minimum design size.
 MIN_DIM = 8
+
+# Width-axis fix (2026-09): LIVE LATTICE / DECODED WORLD's measured
+# collapse was 8px -- exactly MIN_DIM, the same floor every other guarded
+# widget uses. A `width <= MIN_DIM` check technically still catches an
+# 8px reading (8 <= 8), but that is a razor's edge, not a meaningful
+# margin, for widgets whose real natural width is ~320-340px
+# (WORLD_DISPLAY_PX=320 plus panel padding -- see lattice_app.py). 150
+# sits with a comfortable margin on both sides: far above any collapse
+# reading, far below the real size.
+MIN_WIDTH_AXIS = 150
+
+# Widgets that get the stricter MIN_WIDTH_AXIS floor above, IN ADDITION TO
+# (not instead of) the general MIN_DIM floor every guarded widget's height
+# still gets.
+WIDTH_AXIS_WIDGETS = {"lattice_panel.body", "world_panel.body"}
 
 
 def _build_app() -> LatticeApp:
@@ -130,6 +183,11 @@ def _guarded_widgets(app: LatticeApp):
         ("overlay_pin_disclosure_label", app.overlay_pin_disclosure_label),
         ("sampler_panel.body", app.sampler_panel.body),
         ("verif_panel.body", app.verif_panel.body),
+        # Width-axis fix (2026-09): row 0's two weight=1 grid columns -- the
+        # ones with no fixed pixel width of their own, and therefore the
+        # ones that squeezed toward zero WIDTH (bug #5, module docstring).
+        ("lattice_panel.body", app.lattice_panel.body),
+        ("world_panel.body", app.world_panel.body),
     ]
 
 
@@ -154,10 +212,12 @@ def test_critical_widgets_stay_visible_across_resize():
                 mapped = w.winfo_ismapped()
                 width = w.winfo_width()
                 height = w.winfo_height()
-                if not mapped or width <= MIN_DIM or height <= MIN_DIM:
+                width_floor = MIN_WIDTH_AXIS if name in WIDTH_AXIS_WIDGETS else MIN_DIM
+                if not mapped or width <= width_floor or height <= MIN_DIM:
                     failures.append(
                         f"{name} at window {w_px}x{h_px}: "
-                        f"mapped={mapped} width={width} height={height}")
+                        f"mapped={mapped} width={width} height={height} "
+                        f"(width_floor={width_floor})")
         assert not failures, "widget(s) collapsed/unmapped on resize:\n" + "\n".join(failures)
     finally:
         _teardown_app(app)
