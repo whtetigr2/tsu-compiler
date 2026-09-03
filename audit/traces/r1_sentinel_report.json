@@ -1,0 +1,110 @@
+{
+  "method": "monkeypatched sentinel wrappers (NOT sys.settrace)",
+  "receipt_dir": "C:\\Users\\whtet\\Documents\\tsu-compiler\\demo\\receipts\\small",
+  "unclamped_pushed_kinds": [
+    "contract-fail"
+  ],
+  "clamped_pushed_kinds": [
+    "contract-fail",
+    "contract-fail",
+    "contract-fail",
+    "valid",
+    "valid",
+    "valid",
+    "contract-fail",
+    "contract-fail",
+    "contract-fail",
+    "valid",
+    "contract-fail",
+    "valid",
+    "contract-fail",
+    "contract-fail",
+    "non-codeword",
+    "contract-fail",
+    "non-codeword",
+    "contract-fail",
+    "batch_summary"
+  ],
+  "sentinel_call_counts": {
+    "route.insert_mediators (defining module)": 0,
+    "route.route (defining module)": 0,
+    "place.insert_mediators (re-imported alias)": 0,
+    "place.place (defining module)": 0,
+    "search.insert_mediators (re-imported alias)": 0,
+    "search.route (re-imported alias)": 0,
+    "search.place (re-imported alias)": 0,
+    "search.compile_spec (public entry point)": 0,
+    "search._compile_spec_impl": 0,
+    "search._verify (where torx_cross_check is called from)": 0,
+    "torx_backend.torx_cross_check": 0,
+    "torx.DFG.__init__": 0,
+    "torx.ChainFactor.__init__": 0,
+    "torx.TiledFactor.__init__": 0,
+    "torx.DeterministicFactor.__init__": 0,
+    "torx.AbstractFactor.__init__": 0,
+    "torx.AbstractChainFactor.__init__": 0,
+    "torx.AbstractTiledFactor.__init__": 0,
+    "torx.psc.PISING.__init__": 0,
+    "torx.psc.DiscretePCircuit.__init__": 0,
+    "torx.psc.StateVectorSimulator.__init__": 0,
+    "thrml_backend.sample": 1,
+    "thrml_backend.sample_chains": 2
+  },
+  "sentinel_call_detail": {
+    "route.insert_mediators (defining module)": [],
+    "route.route (defining module)": [],
+    "place.insert_mediators (re-imported alias)": [],
+    "place.place (defining module)": [],
+    "search.insert_mediators (re-imported alias)": [],
+    "search.route (re-imported alias)": [],
+    "search.place (re-imported alias)": [],
+    "search.compile_spec (public entry point)": [],
+    "search._compile_spec_impl": [],
+    "search._verify (where torx_cross_check is called from)": [],
+    "torx_backend.torx_cross_check": [],
+    "torx.DFG.__init__": [],
+    "torx.ChainFactor.__init__": [],
+    "torx.TiledFactor.__init__": [],
+    "torx.DeterministicFactor.__init__": [],
+    "torx.AbstractFactor.__init__": [],
+    "torx.AbstractChainFactor.__init__": [],
+    "torx.AbstractTiledFactor.__init__": [],
+    "torx.psc.PISING.__init__": [],
+    "torx.psc.DiscretePCircuit.__init__": [],
+    "torx.psc.StateVectorSimulator.__init__": [],
+    "thrml_backend.sample": [
+      {
+        "n_positional_args": 1,
+        "params": {
+          "n_chains": 1,
+          "n_samples": 1,
+          "n_warmup": 300,
+          "steps_per_sample": 4,
+          "seed": 12345
+        }
+      }
+    ],
+    "thrml_backend.sample_chains": [
+      {
+        "n_positional_args": 6,
+        "params": {
+          "n_chains": 1,
+          "n_samples": 1,
+          "n_warmup": 300,
+          "steps_per_sample": 4,
+          "seed": 12345
+        }
+      },
+      {
+        "n_positional_args": 1,
+        "params": {
+          "n_chains": 6,
+          "n_samples": 3,
+          "n_warmup": 600,
+          "steps_per_sample": 4,
+          "seed": 67891
+        }
+      }
+    ]
+  }
+}

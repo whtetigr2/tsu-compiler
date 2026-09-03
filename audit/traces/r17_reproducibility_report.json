@@ -1,0 +1,18 @@
+{
+  "test_a_same_process": {
+    "arrays_equal": true,
+    "weights_equal": true,
+    "biases_equal": true,
+    "docs_equal_excl_wall_time": true,
+    "wall_time_s_run1": 0.9827607001643628,
+    "wall_time_s_run2": 0.3673869001213461,
+    "task_validity": 0.2222222222222222,
+    "codeword_violation_rate": 0.0
+  },
+  "test_b_cross_process": {
+    "cross_process_identical_excl_wall_time": true,
+    "mismatches": {},
+    "wall_time_s_procA": 0.9776892000809312,
+    "wall_time_s_procB": 0.9607577999122441
+  }
+}
