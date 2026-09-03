@@ -2182,7 +2182,7 @@ class LatticeApp(tk.Tk):
         self.after(80, self._poll_queue)
 
     # -- layout ------------------------------------------------------
-    def _make_scroll_column(self, parent, width):
+    def _make_scroll_column(self, parent, width=None):
         """A vertically-scrollable column: Canvas + Scrollbar + inner Frame.
         Same pattern demo/explainer.py's WhatIsThisWindow already uses for
         its own scrollable body -- reused here, not reinvented. Mouse-wheel
@@ -2203,23 +2203,46 @@ class LatticeApp(tk.Tk):
         own full natural height (no more zero-sum weight competition); the
         user scrolls to reach whatever doesn't fit in the visible window.
 
+        Resize-guard (2026-09): ALSO used, with width=None, to wrap the
+        whole `content` grid (row 0 + the SCOPE/LAYERS rows) -- see
+        _build_layout's own comment at that call site for why: below
+        ~1050-1100px of window height, content's three fixed-height rows
+        (SCOPE minsize=340 + LAYERS minsize=230, both unconditional) left
+        row 0 nothing, and grid silently unmapped it entirely, taking
+        PIPELINE/SAMPLER/VERIFICATION/SAMPLE LOG down with it -- the
+        fourth instance of this exact failure class on this project. The
+        same "stop competing for a fixed budget, let real content take
+        its own natural size, and let the user scroll to reach the rest"
+        fix already applied to the PIPELINE/FRONTIER and VERIFICATION/.../
+        SAMPLE LOG stacks above now applies one level up, to `content`
+        itself.
+
         `width` is the outer footprint, unchanged from the fixed-width grid
         column this replaces, so every OTHER column's sizing (LIVE LATTICE,
-        DECODED WORLD, REGIME & TRACES) is untouched by this change.
-        Returns (outer_frame, inner_frame) -- caller grids outer_frame into
-        `content` and packs panels top-to-bottom into inner_frame.
+        DECODED WORLD, REGIME & TRACES) is untouched by this change. When
+        `width` is None (the page-level wrap only), outer instead fills
+        whatever horizontal space its own parent gives it -- pack_propagate
+        is left at its default (True) in that case, since there is no fixed
+        width to freeze; outer is always packed fill="both", expand=True by
+        its caller, so its own requested width/height don't matter.
+        Returns (outer_frame, inner_frame) -- caller grids (or packs)
+        outer_frame into its parent and packs panels top-to-bottom into
+        inner_frame.
         """
-        outer = tk.Frame(parent, bg=BG, width=width)
-        # pack_propagate (NOT grid_propagate) is the one that matters here:
-        # canvas+scrollbar below are PACKED into outer, and pack_propagate
-        # is what freezes a frame's own reqsize against its PACK-managed
-        # children (grid_propagate only governs GRID-managed children, of
-        # which outer has none -- measured the difference directly: with
-        # grid_propagate(False) alone, outer's reqwidth silently drifted to
-        # the canvas's own unset default (~395px) for BOTH the 340px and
-        # 430px columns, identically, discarding the `width` argument
-        # entirely).
-        outer.pack_propagate(False)
+        if width is not None:
+            outer = tk.Frame(parent, bg=BG, width=width)
+            # pack_propagate (NOT grid_propagate) is the one that matters
+            # here: canvas+scrollbar below are PACKED into outer, and
+            # pack_propagate is what freezes a frame's own reqsize against
+            # its PACK-managed children (grid_propagate only governs
+            # GRID-managed children, of which outer has none -- measured
+            # the difference directly: with grid_propagate(False) alone,
+            # outer's reqwidth silently drifted to the canvas's own unset
+            # default (~395px) for BOTH the 340px and 430px columns,
+            # identically, discarding the `width` argument entirely).
+            outer.pack_propagate(False)
+        else:
+            outer = tk.Frame(parent, bg=BG)
         canvas = tk.Canvas(outer, bg=BG, highlightthickness=0)
         vsb = tk.Scrollbar(outer, orient="vertical", command=canvas.yview)
         canvas.configure(yscrollcommand=vsb.set)
@@ -2269,8 +2292,40 @@ class LatticeApp(tk.Tk):
         bottom = tk.Frame(self, bg=BG)
         bottom.pack(side="bottom", fill="x", padx=8, pady=(0, 8))
 
-        content = tk.Frame(self, bg=BG)
-        content.pack(fill="both", expand=True, padx=8, pady=8)
+        # Resize-guard (2026-09): `content` (built below, all three grid
+        # rows -- row 0 plus the SCOPE/LAYERS rows) is wrapped in a
+        # page-level scroll column, same _make_scroll_column already used
+        # for the PIPELINE/FRONTIER and VERIFICATION/.../SAMPLE LOG stacks
+        # inside row 0. Root cause this fixes: SCOPE (minsize=340) and
+        # LAYERS (minsize=230) reserve 570px UNCONDITIONALLY regardless of
+        # window size, and row 0 (the only row with no minsize of its own)
+        # absorbed the entire deficit once the window got small enough --
+        # measured, below ~1050-1100px window height, that deficit reached
+        # 570px+ and grid unmapped row 0 ENTIRELY, taking PIPELINE, LIVE
+        # LATTICE, DECODED WORLD, REGIME & TRACES, VERIFICATION, SAMPLER
+        # and SAMPLE LOG down with it -- the fourth instance of "content
+        # that exists in source but occupies zero pixels" on this branch.
+        # A minsize on row 0 alone does not fix this correctly: LIVE
+        # LATTICE and DECODED WORLD (row 0, columns 1/2) are plain Panels
+        # with real fixed-size canvases (measured natural body height
+        # 555px / 486px) and no scroll fallback of their own -- capping
+        # row 0's minsize below that would silently CLIP those canvases
+        # instead of merely shrinking them, trading one invisible-content
+        # bug for another. Wrapping `content` itself removes the fixed
+        # window-height budget completely: every row (0, SCOPE, LAYERS)
+        # now renders at its own real natural height -- for row 0 that
+        # naturally comes out to LIVE LATTICE's own ~596px requirement,
+        # comfortably non-zero at every window size -- and the page
+        # scrolls (mousewheel while hovered, same <Enter>/<Leave>-scoped
+        # binding as every other scroll column here, never a bare
+        # `bind_all`) to reach whatever doesn't fit the current window.
+        # Same mechanism already documented on _make_scroll_column itself
+        # for the two inner stacks, now applied one level up.
+        page_outer, page_inner = self._make_scroll_column(self, width=None)
+        page_outer.pack(fill="both", expand=True, padx=8, pady=8)
+
+        content = tk.Frame(page_inner, bg=BG)
+        content.pack(fill="both", expand=True)
         # 0: PIPELINE+FRONTIER stack, 1: LIVE LATTICE, 2: DECODED WORLD,
         # 3: REGIME & TRACES (B2, fixed width), 4: the VERIFICATION/.../
         # SAMPLE LOG stack (also fixed width).
@@ -2507,13 +2562,21 @@ class LatticeApp(tk.Tk):
         # claims "the UI states this" (that an overlay pin is a strong
         # nudge, not a hard constraint) -- it did not, until this label.
         # Made true here rather than left as an aspirational comment.
-        tk.Label(sel_cell, text="Base pins are EXACT clamps. Overlay pins "
-                                 "(band0/1/2) are a STRONG BIAS NUDGE, not "
-                                 "a guarantee -- CONDITIONING STRENGTH can "
-                                 "outvote them and the pinned cell can "
-                                 "still render the other value.",
-                  bg=PANEL_BG, fg=WARN, font=(MONO_FAMILY, 7), anchor="w",
-                  justify="left", wraplength=180).pack(fill="x", pady=(4, 0))
+        # Resize-guard (2026-09): named attribute handle so a regression
+        # test can assert this disclosure stays visible (winfo_ismapped +
+        # non-trivial width/height) across window sizes -- this exact label
+        # is the one that rendered at literal (1,1)px, invisible, when
+        # _layers_cell used to call pack_propagate(False) too early (see
+        # that function's own comment above). Never matched by text/index.
+        self.overlay_pin_disclosure_label = tk.Label(
+            sel_cell, text="Base pins are EXACT clamps. Overlay pins "
+                            "(band0/1/2) are a STRONG BIAS NUDGE, not "
+                            "a guarantee -- CONDITIONING STRENGTH can "
+                            "outvote them and the pinned cell can "
+                            "still render the other value.",
+            bg=PANEL_BG, fg=WARN, font=(MONO_FAMILY, 7), anchor="w",
+            justify="left", wraplength=180)
+        self.overlay_pin_disclosure_label.pack(fill="x", pady=(4, 0))
 
         # Step 3: conditioning strength + dose-response reference table.
         alpha_cell = _layers_cell("CONDITIONING STRENGTH (overlays)", width=330)
@@ -2699,9 +2762,14 @@ class LatticeApp(tk.Tk):
         # width (via <Configure>) rather than a fixed guess, so the
         # assumed-cap disclosure is never narrower than what the window
         # actually has to give it, at any window size.
-        footer_label = tk.Label(bottom, text=FOOTER_TEXT, bg=BG, fg=DIM,
+        # Resize-guard (2026-09): named attribute (was a bare local) so a
+        # regression test can assert this survives resize -- this is the
+        # exact label the control-bar bug (bottom packed after content)
+        # squeezed toward zero along with the four buttons.
+        self.footer_label = tk.Label(bottom, text=FOOTER_TEXT, bg=BG, fg=DIM,
                                   font=(MONO_FAMILY, 8), justify="left", anchor="w")
-        footer_label.pack(side="top", fill="x", padx=(16, 0), pady=(4, 0))
+        self.footer_label.pack(side="top", fill="x", padx=(16, 0), pady=(4, 0))
+        footer_label = self.footer_label
 
         def _on_footer_row_configure(evt):
             footer_label.config(wraplength=max(evt.width - 16, 100))
