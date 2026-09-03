@@ -2247,6 +2247,28 @@ class LatticeApp(tk.Tk):
         return outer, inner
 
     def _build_layout(self):
+        # Controlbar-fix (2026-09): `bottom` (Pause/New seed/Step/Save world
+        # + the footer disclosure, built further down this method) is
+        # created and PACKED here, before `content`, even though its own
+        # children aren't populated until later in this method. Tk's packer
+        # hands out space in PACKING ORDER, not code order and not visual
+        # order -- same principle already applied to the detached-plot
+        # caption in _open_detach_window (packed side="bottom" before its
+        # canvas). `content` packs fill="both", expand=True and will claim
+        # every leftover pixel; if `bottom` were packed AFTER content (as it
+        # used to be), a shrink below the window's natural size gives
+        # content first claim on the shortfall and squeezes bottom -- taking
+        # the four control buttons and the footer disclosure down toward
+        # zero along with it. Packing bottom first, side="bottom", reserves
+        # its full requested height up front; content, packed after, only
+        # ever expands into whatever remains. (Not pack_propagate(False):
+        # that approach froze a disclosure at 1x1px in an earlier round on
+        # this branch -- see the LAYERS fix-report -- because it fixes a
+        # size BEFORE content exists rather than letting pack order reserve
+        # the real, current requested size.)
+        bottom = tk.Frame(self, bg=BG)
+        bottom.pack(side="bottom", fill="x", padx=8, pady=(0, 8))
+
         content = tk.Frame(self, bg=BG)
         content.pack(fill="both", expand=True, padx=8, pady=8)
         # 0: PIPELINE+FRONTIER stack, 1: LIVE LATTICE, 2: DECODED WORLD,
@@ -2605,8 +2627,10 @@ class LatticeApp(tk.Tk):
         # own row, comfortably under the window width) and the footer on
         # its own full-width row below, wraplength bound live to that row's
         # actual width so it is never narrower than what's really on screen.
-        bottom = tk.Frame(self, bg=BG)
-        bottom.pack(fill="x", padx=8, pady=(0, 8))
+        # Controlbar-fix (2026-09): `bottom` itself is now created and
+        # packed at the TOP of _build_layout, before `content` -- see the
+        # comment there. It is reused (not recreated) here; only its
+        # children are built in this part of the method.
         bottom_controls = tk.Frame(bottom, bg=BG)
         bottom_controls.pack(side="top", fill="x")
         self.pause_btn = tk.Button(bottom_controls, text="Pause", command=self._toggle_pause,
