@@ -2225,6 +2225,25 @@ class LatticeApp(tk.Tk):
         is left at its default (True) in that case, since there is no fixed
         width to freeze; outer is always packed fill="both", expand=True by
         its caller, so its own requested width/height don't matter.
+
+        Width-axis fix (2026-09): the page-level wrap (width=None) also gets
+        a horizontal Scrollbar, and `_on_canvas_configure` below never asks
+        `inner` to be NARROWER than its own natural (reqwidth) size -- only
+        wider, when the window offers more. Before this fix, every resize
+        pinned `inner` (and therefore `content`, and therefore row 0's LIVE
+        LATTICE / DECODED WORLD weight=1 grid columns) to exactly the
+        canvas's own viewport width, so a window narrower than row 0's
+        combined natural width squeezed those two weight=1 columns toward
+        0px (measured: 8px at 1200x900) while row 0's fixed-width columns
+        (PIPELINE/FRONTIER 340 + REGIME & TRACES 300 + the VERIFICATION/
+        SAMPLER/DECODED MIX/SAMPLE LOG stack 430 = 1070px) held their size
+        unconditionally, absorbing none of the deficit -- the fifth
+        instance of "exists in source, occupies zero screen pixels" on this
+        project, this time on the WIDTH axis instead of height. Same
+        remedy as the height-axis fix one level up: never shrink real
+        content below its natural size; let the user scroll (now
+        horizontally too) to reach whatever the window is too narrow to
+        show all at once.
         Returns (outer_frame, inner_frame) -- caller grids (or packs)
         outer_frame into its parent and packs panels top-to-bottom into
         inner_frame.
@@ -2246,6 +2265,16 @@ class LatticeApp(tk.Tk):
         canvas = tk.Canvas(outer, bg=BG, highlightthickness=0)
         vsb = tk.Scrollbar(outer, orient="vertical", command=canvas.yview)
         canvas.configure(yscrollcommand=vsb.set)
+        if width is None:
+            # Width-axis fix (2026-09): only the page-level wrap needs a
+            # horizontal scrollbar -- every other caller has a fixed pixel
+            # `width` (pack_propagate(False) above), so its content already
+            # wraps/fits at that width and never needs horizontal reach.
+            hsb = tk.Scrollbar(outer, orient="horizontal", command=canvas.xview)
+            canvas.configure(xscrollcommand=hsb.set)
+            hsb.pack(side="bottom", fill="x")
+        else:
+            hsb = None
         vsb.pack(side="right", fill="y")
         canvas.pack(side="left", fill="both", expand=True)
 
@@ -2256,7 +2285,15 @@ class LatticeApp(tk.Tk):
             canvas.configure(scrollregion=canvas.bbox("all"))
 
         def _on_canvas_configure(evt):
-            canvas.itemconfigure(inner_id, width=evt.width)
+            if hsb is not None:
+                # Width-axis fix (2026-09): floor at inner's own natural
+                # width -- never shrink it to the (possibly narrower)
+                # canvas viewport, only grow it to fill a wider one. See
+                # this method's own docstring for the full defect.
+                target_w = max(evt.width, inner.winfo_reqwidth())
+            else:
+                target_w = evt.width
+            canvas.itemconfigure(inner_id, width=target_w)
 
         inner.bind("<Configure>", _on_inner_configure)
         canvas.bind("<Configure>", _on_canvas_configure)
