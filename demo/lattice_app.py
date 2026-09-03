@@ -2182,6 +2182,70 @@ class LatticeApp(tk.Tk):
         self.after(80, self._poll_queue)
 
     # -- layout ------------------------------------------------------
+    def _make_scroll_column(self, parent, width):
+        """A vertically-scrollable column: Canvas + Scrollbar + inner Frame.
+        Same pattern demo/explainer.py's WhatIsThisWindow already uses for
+        its own scrollable body -- reused here, not reinvented. Mouse-wheel
+        is bound to THIS canvas only while the pointer is over it
+        (<Enter>/<Leave>-scoped bind_all/unbind_all), the exact fix
+        explainer.py's own comment documents: a bare `canvas.bind_all(...)`
+        stays application-scoped and outlives the widget, so it must be
+        scoped to "pointer is actually over this canvas", never left global.
+
+        Used for the PIPELINE/FRONTIER stack and the VERIFICATION/SAMPLER/
+        DECODED MIX/SAMPLE LOG stack: measured (layout-fix-report.md), each
+        stack's combined natural height vastly exceeds the fixed row-0
+        height available (e.g. PIPELINE 373px + FRONTIER 907px = 1280px
+        needed vs 738px available) -- a previous round tried fixing this
+        with row-weight ratios and found every ratio that helped one panel
+        collapsed the other, because the deficit is a real space shortage,
+        not a distribution problem. Every panel below now renders at its
+        own full natural height (no more zero-sum weight competition); the
+        user scrolls to reach whatever doesn't fit in the visible window.
+
+        `width` is the outer footprint, unchanged from the fixed-width grid
+        column this replaces, so every OTHER column's sizing (LIVE LATTICE,
+        DECODED WORLD, REGIME & TRACES) is untouched by this change.
+        Returns (outer_frame, inner_frame) -- caller grids outer_frame into
+        `content` and packs panels top-to-bottom into inner_frame.
+        """
+        outer = tk.Frame(parent, bg=BG, width=width)
+        # pack_propagate (NOT grid_propagate) is the one that matters here:
+        # canvas+scrollbar below are PACKED into outer, and pack_propagate
+        # is what freezes a frame's own reqsize against its PACK-managed
+        # children (grid_propagate only governs GRID-managed children, of
+        # which outer has none -- measured the difference directly: with
+        # grid_propagate(False) alone, outer's reqwidth silently drifted to
+        # the canvas's own unset default (~395px) for BOTH the 340px and
+        # 430px columns, identically, discarding the `width` argument
+        # entirely).
+        outer.pack_propagate(False)
+        canvas = tk.Canvas(outer, bg=BG, highlightthickness=0)
+        vsb = tk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=vsb.set)
+        vsb.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+
+        inner = tk.Frame(canvas, bg=BG)
+        inner_id = canvas.create_window((0, 0), window=inner, anchor="nw")
+
+        def _on_inner_configure(_evt=None):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def _on_canvas_configure(evt):
+            canvas.itemconfigure(inner_id, width=evt.width)
+
+        inner.bind("<Configure>", _on_inner_configure)
+        canvas.bind("<Configure>", _on_canvas_configure)
+
+        def _on_mousewheel(evt):
+            canvas.yview_scroll(int(-1 * (evt.delta / 120)), "units")
+
+        canvas.bind("<Enter>", lambda _e: canvas.bind_all("<MouseWheel>", _on_mousewheel))
+        canvas.bind("<Leave>", lambda _e: canvas.unbind_all("<MouseWheel>"))
+
+        return outer, inner
+
     def _build_layout(self):
         content = tk.Frame(self, bg=BG)
         content.pack(fill="both", expand=True, padx=8, pady=8)
@@ -2200,20 +2264,22 @@ class LatticeApp(tk.Tk):
         # tallest cell.
         content.grid_rowconfigure(1, weight=0, minsize=340)
 
-        left = tk.Frame(content, bg=BG, width=340)
+        # Layout-fix (2026-09): PIPELINE + FRONTIER's combined natural
+        # height (373 + 907 = 1280px, measured) vastly exceeds the 738px
+        # row-0 has to offer -- see _make_scroll_column's own docstring.
+        # Scrollable column instead of a fixed 3:2 grid split (which,
+        # measured, gave PIPELINE's body only 2px and dropped its nine
+        # stage rows entirely -- see layout-fix-report.md).
+        left, left_inner = self._make_scroll_column(content, width=340)
         left.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
-        left.grid_propagate(False)
-        left.grid_rowconfigure(0, weight=3)
-        left.grid_rowconfigure(1, weight=2)
-        left.grid_columnconfigure(0, weight=1)
-        self.pipeline_panel = Panel(left, "PIPELINE  (compiled once, at load)")
-        self.pipeline_panel.grid(row=0, column=0, sticky="nsew", pady=(0, 4))
+        self.pipeline_panel = Panel(left_inner, "PIPELINE  (compiled once, at load)")
+        self.pipeline_panel.pack(fill="x", pady=(0, 4))
         # B1: the capacity frontier -- headroom + next-increment cost, read
         # from demo/frontier.py's own build_frontier_report/render_text so
         # this panel can never drift from what `python demo/frontier.py`
         # prints on the command line.
-        self.frontier_panel = Panel(left, "FRONTIER  (headroom + next increment)")
-        self.frontier_panel.grid(row=1, column=0, sticky="nsew", pady=(4, 0))
+        self.frontier_panel = Panel(left_inner, "FRONTIER  (headroom + next increment)")
+        self.frontier_panel.pack(fill="x", pady=(4, 0))
 
         self.lattice_panel = Panel(content, "LIVE LATTICE  (raw physical spin state)")
         self.lattice_panel.grid(row=0, column=1, sticky="nsew", padx=6)
@@ -2223,33 +2289,38 @@ class LatticeApp(tk.Tk):
 
         # B2: beta/beta_c siting (Onsager, labelled as an orienting estimate
         # only) plus the energy and valid-fraction traces.
-        regime_frame = tk.Frame(content, bg=BG, width=300)
+        # Layout-fix (2026-09): same scrollable treatment as left/right --
+        # measured, REGIME & TRACES' own natural height (683px) modestly
+        # exceeds row-0's available height once LAYERS' real height (fixed
+        # above, was silently masked at ~230px, actually needs ~310px) and
+        # the two-row footer (fixed above) are honestly accounted for
+        # (56px shortfall measured -- see layout-fix-report.md). Same
+        # mechanism, not a special case.
+        regime_frame, regime_inner = self._make_scroll_column(content, width=300)
         regime_frame.grid(row=0, column=3, sticky="nsew", padx=6)
-        regime_frame.grid_propagate(False)
-        regime_frame.grid_rowconfigure(0, weight=1)
-        regime_frame.grid_columnconfigure(0, weight=1)
-        self.regime_panel = Panel(regime_frame, "REGIME & TRACES")
-        self.regime_panel.grid(row=0, column=0, sticky="nsew")
+        self.regime_panel = Panel(regime_inner, "REGIME & TRACES")
+        self.regime_panel.pack(fill="both", expand=True)
 
-        right = tk.Frame(content, bg=BG, width=430)
+        # Layout-fix (2026-09): same over-subscription as PIPELINE/FRONTIER
+        # -- VERIFICATION + SAMPLER + DECODED MIX + SAMPLE LOG's combined
+        # natural height (407+455+143+314 = 1319px, measured) vastly
+        # exceeds the 738px row-0 has to offer. The previous weighted grid
+        # (5:5:2:5) hid this: VERIFICATION's diversity_* rows, most of
+        # SAMPLER's UI2 disclosures, and SAMPLE LOG's own running-log
+        # Listbox all collapsed to 1x1 (invisible), not merely clipped --
+        # see layout-fix-report.md. Scrollable column instead, same
+        # mechanism as left/PIPELINE above.
+        right, right_inner = self._make_scroll_column(content, width=430)
         right.grid(row=0, column=4, sticky="nsew", padx=(6, 0))
-        right.grid_propagate(False)
-        # VERIFICATION (~15 rows) and SAMPLE LOG (scrolling) need room;
-        # DECODED MIX holds at most k lines. An even 4-way split collapsed
-        # MIX to zero height, so weight them by actual content.
-        for r, w in ((0, 5), (1, 5), (2, 2), (3, 5)):
-            right.grid_rowconfigure(r, weight=w)
-        right.grid_rowconfigure(2, minsize=150)
-        right.grid_columnconfigure(0, weight=1)
 
-        self.verif_panel = Panel(right, "VERIFICATION")
-        self.verif_panel.grid(row=0, column=0, sticky="nsew", pady=(0, 4))
-        self.sampler_panel = Panel(right, "SAMPLER")
-        self.sampler_panel.grid(row=1, column=0, sticky="nsew", pady=4)
-        self.mix_panel = Panel(right, "DECODED MIX")
-        self.mix_panel.grid(row=2, column=0, sticky="nsew", pady=4)
-        self.log_panel = Panel(right, "SAMPLE LOG")
-        self.log_panel.grid(row=3, column=0, sticky="nsew", pady=(4, 0))
+        self.verif_panel = Panel(right_inner, "VERIFICATION")
+        self.verif_panel.pack(fill="x", pady=(0, 4))
+        self.sampler_panel = Panel(right_inner, "SAMPLER")
+        self.sampler_panel.pack(fill="x", pady=4)
+        self.mix_panel = Panel(right_inner, "DECODED MIX")
+        self.mix_panel.pack(fill="x", pady=4)
+        self.log_panel = Panel(right_inner, "SAMPLE LOG")
+        self.log_panel.pack(fill="x", pady=(4, 0))
 
         # Task 6: SCOPE panel -- autocorrelation (semi-log, tau + the 5000
         # reliability threshold), magnetization trace, energy histogram,
@@ -2377,10 +2448,22 @@ class LatticeApp(tk.Tk):
         layers_row.pack(fill="both", expand=True)
 
         def _layers_cell(title, width=None):
+            # Layout-fix (2026-09): pack_propagate(False) used to be called
+            # here immediately after creation -- BEFORE any content (radio
+            # buttons, disclosure labels) was packed into the cell, INCLUDING
+            # everything the caller packs in after this function returns.
+            # That froze the cell's HEIGHT at whatever tiny default size a
+            # brand-new empty Frame has, forever -- not at its real content
+            # height. Measured, real-app consequence: the overlay-pin "can
+            # be outvoted" disclosure in LAYER SELECTOR (sel_cell) rendered
+            # at literal (1,1)px, completely invisible, regardless of
+            # window size -- a content bug hiding as a space bug (see
+            # layout-fix-report.md). `width` is kept as an initial sizing
+            # hint (every cell's own labels already wrap close to it via
+            # their own wraplength), but is no longer frozen -- each cell's
+            # true content now determines its own real height.
             cell = tk.Frame(layers_row, bg=PANEL_BG, width=width)
             cell.pack(side="left", fill="both", expand=(width is None), padx=6)
-            if width is not None:
-                cell.pack_propagate(False)
             tk.Label(cell, text=title, bg=PANEL_BG, fg=ACCENT,
                       font=(MONO_FAMILY, 8, "bold"), anchor="w").pack(fill="x")
             return cell
@@ -2509,13 +2592,28 @@ class LatticeApp(tk.Tk):
                                          justify="left", wraplength=340)
         self.composite_label.pack(fill="x", pady=(2, 0))
 
+        # Layout-fix (2026-09): `bottom` used to pack every button, the
+        # speed control, AND the footer disclosure into ONE side="left" row
+        # -- measured naturally requiring 2417px (the buttons + speed
+        # control + the footer text laid out at its wraplength=900), which
+        # is what drove the app's OWN reqwidth to ~2433px against a 1760px
+        # actual window (see layout-fix-report.md). Since pack gives later
+        # children whatever's left over, the footer -- carrying the
+        # assumed-cap disclosure ("|J| and |b| caps are assumed project
+        # values...") -- was the one squeezed, down to ~203px wide. Split
+        # into two stacked rows: controls (unchanged content, now on its
+        # own row, comfortably under the window width) and the footer on
+        # its own full-width row below, wraplength bound live to that row's
+        # actual width so it is never narrower than what's really on screen.
         bottom = tk.Frame(self, bg=BG)
         bottom.pack(fill="x", padx=8, pady=(0, 8))
-        self.pause_btn = tk.Button(bottom, text="Pause", command=self._toggle_pause,
+        bottom_controls = tk.Frame(bottom, bg=BG)
+        bottom_controls.pack(side="top", fill="x")
+        self.pause_btn = tk.Button(bottom_controls, text="Pause", command=self._toggle_pause,
                                     bg=PANEL_BG, fg=FG, activebackground=BORDER,
                                     activeforeground=FG, relief="flat", padx=12, pady=4)
         self.pause_btn.pack(side="left")
-        self.seed_btn = tk.Button(bottom, text="New seed", command=self._new_seed,
+        self.seed_btn = tk.Button(bottom_controls, text="New seed", command=self._new_seed,
                                    bg=PANEL_BG, fg=FG, activebackground=BORDER,
                                    activeforeground=FG, relief="flat", padx=12, pady=4)
         self.seed_btn.pack(side="left", padx=(6, 0))
@@ -2526,7 +2624,7 @@ class LatticeApp(tk.Tk):
         # already tracks in _refresh_world_status -- so a saved file can
         # never silently be evidence for a clamp it wasn't actually drawn
         # under, or claim a world that never came back valid.
-        self.save_btn = tk.Button(bottom, text="Save world", command=self._on_save_world,
+        self.save_btn = tk.Button(bottom_controls, text="Save world", command=self._on_save_world,
                                    bg=PANEL_BG, fg=FG, activebackground=BORDER,
                                    activeforeground=FG, relief="flat", padx=12, pady=4,
                                    state="disabled")
@@ -2534,12 +2632,12 @@ class LatticeApp(tk.Tk):
         # UI2: Step -- runs exactly one batch and re-pauses, for
         # frame-by-frame inspection. Pauses first if currently playing,
         # since "step" only means something from a stopped state.
-        self.step_btn = tk.Button(bottom, text="Step", command=self._on_step,
+        self.step_btn = tk.Button(bottom_controls, text="Step", command=self._on_step,
                                    bg=PANEL_BG, fg=FG, activebackground=BORDER,
                                    activeforeground=FG, relief="flat", padx=12, pady=4)
         self.step_btn.pack(side="left", padx=(6, 0))
         # Task 9: "What is this?" -- a newcomer's tour, in its own Toplevel.
-        self.explainer_btn = tk.Button(bottom, text="What is this?",
+        self.explainer_btn = tk.Button(bottom_controls, text="What is this?",
                                         command=self._on_show_explainer,
                                         bg=PANEL_BG, fg=ACCENT, activebackground=BORDER,
                                         activeforeground=ACCENT, relief="flat",
@@ -2552,7 +2650,7 @@ class LatticeApp(tk.Tk):
         # n_chains/n_samples per call and the pause between calls, never
         # n_warmup or steps_per_sample -- so it cannot change what is being
         # sampled, only how fast the same distribution scrolls by.
-        speed_frame = tk.Frame(bottom, bg=BG)
+        speed_frame = tk.Frame(bottom_controls, bg=BG)
         speed_frame.pack(side="left", padx=(16, 0))
         tk.Label(speed_frame, text="speed:", bg=BG, fg=DIM,
                   font=(MONO_FAMILY, 8)).pack(side="left")
@@ -2572,9 +2670,19 @@ class LatticeApp(tk.Tk):
         self.speed_label.pack(side="left")
         self._refresh_speed_label()
 
-        tk.Label(bottom, text=FOOTER_TEXT, bg=BG, fg=DIM,
-                  font=(MONO_FAMILY, 8), wraplength=900, justify="left"
-                  ).pack(side="left", padx=(16, 0))
+        # Its own full-width row below the controls (see the `bottom`
+        # comment above) -- wraplength bound live to this row's own actual
+        # width (via <Configure>) rather than a fixed guess, so the
+        # assumed-cap disclosure is never narrower than what the window
+        # actually has to give it, at any window size.
+        footer_label = tk.Label(bottom, text=FOOTER_TEXT, bg=BG, fg=DIM,
+                                  font=(MONO_FAMILY, 8), justify="left", anchor="w")
+        footer_label.pack(side="top", fill="x", padx=(16, 0), pady=(4, 0))
+
+        def _on_footer_row_configure(evt):
+            footer_label.config(wraplength=max(evt.width - 16, 100))
+
+        bottom.bind("<Configure>", _on_footer_row_configure)
 
     # -- static (receipt-only) panel content --------------------------
     def _populate_static_panels(self):
@@ -2753,8 +2861,15 @@ class LatticeApp(tk.Tk):
                           f"limit={fmt_value(g.get('limit'))}")
             else:
                 detail = "verdict recorded; measurement not stored in receipt"
+            # Layout-fix: this Label had no wraplength -- "PASS colouring
+            # measured=unavailable: field absent from receipt" (492px
+            # natural width) silently overran the panel's own ~395px
+            # content width with no wrap and no visible warning (measured;
+            # see layout-fix-report.md). Matches the wraplength already
+            # used on the verification-metrics loop just below.
             tk.Label(vf, text=f"{status:<4} {g['gate']:<13} {detail}{extra_s}",
-                      bg=PANEL_BG, fg=color, font=(MONO_FAMILY, 8), anchor="w"
+                      bg=PANEL_BG, fg=color, font=(MONO_FAMILY, 8), anchor="w",
+                      justify="left", wraplength=395
                       ).pack(fill="x")
         tk.Label(vf, text="", bg=PANEL_BG).pack()
         v = r.verification
@@ -2818,8 +2933,14 @@ class LatticeApp(tk.Tk):
 
         # SAMPLE LOG ------------------------------------------------------
         lgf = self.log_panel.body
+        # Layout-fix: no wraplength meant the live text (which grows with
+        # every draw -- "valid=N contract-fail=N non-codeword=N total=N")
+        # could silently overrun the panel's ~395px content width with no
+        # wrap (measured overflowing to 524px natural width once counts
+        # grew multi-digit; see layout-fix-report.md).
         self.valid_frac_label = tk.Label(lgf, text="valid fraction: n/a (0 draws)",
-                                           bg=PANEL_BG, fg=FG, font=MONO_B, anchor="w")
+                                           bg=PANEL_BG, fg=FG, font=MONO_B, anchor="w",
+                                           justify="left", wraplength=395)
         self.valid_frac_label.pack(fill="x")
         tk.Label(lgf, text="Displayed worlds are drawn from p(x | valid),\n"
                             "NOT p(x): only valid draws are ever rendered,\n"
