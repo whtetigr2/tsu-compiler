@@ -35,10 +35,27 @@ def test_ideal_control_always_runs_and_is_recorded():
     assert c.ideal_report is not None
 
 
-def test_too_strong_fails_on_an_assumed_gate_and_compiles_with_override():
-    s = load_spec("specs/too_strong.yaml")
+def test_too_strong_bias_fails_on_an_assumed_gate_and_compiles_with_override():
+    """P-3/F-A5 + I-9a/F-R7: was test_too_strong_fails_on_an_assumed_gate_
+    and_compiles_with_override, using specs/too_strong.yaml -- but that
+    spec's coupling violation is no longer an "assumed gate" scenario at
+    all (max_abs_coupling is now Extropic-documented; see the test below).
+    specs/too_strong_bias.yaml is the replacement fixture: a bias, not a
+    coupling, past the cap, so it still exercises the genuinely-assumed
+    max_abs_bias field."""
+    s = load_spec("specs/too_strong_bias.yaml")
     assert compile_spec(s, Z1).verdict == "HARDWARE"
     assert compile_spec(s, Z1, allow_assumed=True).verdict == "COMPILED"
+
+
+def test_too_strong_coupling_violation_is_not_overridable_now_that_it_is_sourced():
+    """P-3/F-A5 + I-9a/F-R7: |J| <= 6.0 is now Extropic-documented (not
+    assumed) -- specs/too_strong.yaml's coupling violation must stay
+    HARDWARE even with --allow-assumed, the opposite of the bias violation
+    above and of this spec's own pre-fix behaviour."""
+    s = load_spec("specs/too_strong.yaml")
+    assert compile_spec(s, Z1).verdict == "HARDWARE"
+    assert compile_spec(s, Z1, allow_assumed=True).verdict == "HARDWARE"
 
 
 def test_mediated_candidate_carries_the_post_mediation_report_on_placement_failure(

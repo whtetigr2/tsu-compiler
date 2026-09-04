@@ -12,7 +12,7 @@
     "passed": true,
     "measured": 0.5,
     "limit": 6.0,
-    "assumed": true,
+    "assumed": false,
     "downgraded": false
   },
   {

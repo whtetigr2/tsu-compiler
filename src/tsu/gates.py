@@ -4,12 +4,21 @@ Gates whose threshold comes from a Sourced field marked "assumed" are tagged and
 overridable via --allow-assumed. Gates backed by a real fact id are NOT overridable
 (spec section 7.1).
 
-The spec's hardware gate is "any |J| OR |b| exceeds target.max_abs_coupling"
-(section 7.1) -- both magnitudes share the same cap. C2 of the final review found
-`check_gates` gating |J| only, so a model whose bias alone blew past the cap
-compiled clean with no gate failure at all. `_magnitude_gate` below is shared by
-both the `coupling_cap` and `field_cap` checks so the two can never drift apart
-again the way they did the first time.
+The spec's hardware gate is "any |J| OR |b| exceeds its own cap" (section 7.1).
+C2 of the final review found `check_gates` gating |J| only, so a model whose bias
+alone blew past the cap compiled clean with no gate failure at all.
+`_magnitude_gate` below is shared by both the `coupling_cap` and `field_cap`
+checks so the two can never drift apart again the way they did the first time.
+
+P-3/F-A5 + I-9a/F-R7: `coupling_cap` (|J|) and `field_cap` (|b|) read TWO
+separate `TargetProfile` fields -- `max_abs_coupling` and `max_abs_bias` -- not
+one shared cap. They happen to carry the identical numeric value (6.0) but
+different provenance: |J|'s cap is an Extropic-documented Z1 hardware fact
+(not overridable via --allow-assumed, same as `degree`); |b|'s cap remains a
+genuine, unsourced project assumption (overridable, same as before). Before
+this split there was exactly one `Sourced` field feeding both checks, which is
+why both were disclaimed identically everywhere in the app even after |J|'s
+provenance was independently confirmed.
 """
 from __future__ import annotations
 
@@ -40,11 +49,15 @@ class GateCheck:
 
 
 def _magnitude_gate(gate: str, label: str, peak: float, cap: float,
-                    assumed: bool, source: str, allow_assumed: bool,
+                    assumed: bool, source: str, target_field: str,
+                    allow_assumed: bool,
                     encoding_hint: str) -> tuple[GateCheck, GateFailure | None]:
     """One `|value| <= cap` gate, shared by the |J| and |b| checks (C2). Returns
     the GateCheck (always) and a GateFailure (only when the gate fails and is not
-    downgraded)."""
+    downgraded). `target_field` is the NAME of the TargetProfile.Sourced field
+    this particular call is checking ("max_abs_coupling" or "max_abs_bias",
+    P-3/F-A5 + I-9a/F-R7) -- named explicitly, not hardcoded, so a remediation
+    for one gate can never tell a user to relax the OTHER gate's field."""
     fails = peak > cap
     downgraded = fails and assumed and allow_assumed
     check = GateCheck(gate=gate, passed=not fails, measured=peak, limit=cap,
@@ -53,12 +66,12 @@ def _magnitude_gate(gate: str, label: str, peak: float, cap: float,
         return check, None
 
     rems = [Remediation("change encoding", encoding_hint, {"note": "estimate"}),
-            Remediation("relax target", f"target.max_abs_coupling >= {peak}")]
+            Remediation("relax target", f"target.{target_field} >= {peak}")]
     if assumed:
         rems.append(Remediation(
             "override",
             f"pass --allow-assumed to downgrade this gate; "
-            f"max_abs_coupling is source={source}"))
+            f"{target_field} is source={source}"))
     failure = GateFailure(
         gate=gate,
         cause=f"{label} = {peak} exceeds {cap} (source={source})",
@@ -91,26 +104,34 @@ def _evaluate(ising: IsingModel, report: GraphReport, target: TargetProfile,
                             f"target.degree >= {report.max_degree}"),
             )))
 
-    cap = target.max_abs_coupling.value
-    cap_assumed = target.is_assumed("max_abs_coupling")
-    cap_source = target.max_abs_coupling.source
+    # P-3/F-A5 + I-9a/F-R7: coupling_cap and field_cap now read their OWN
+    # Sourced field -- max_abs_coupling (|J|, Extropic-documented, not
+    # overridable) and max_abs_bias (|b|, a genuine project assumption,
+    # overridable). Both are gated unconditionally -- NEITHER is nested
+    # inside a "does this model have any edges" check, because a model with
+    # zero edges still has biases that must be gated (C2).
+    cap_J = target.max_abs_coupling.value
+    cap_J_assumed = target.is_assumed("max_abs_coupling")
+    cap_J_source = target.max_abs_coupling.source
 
-    # |J| and |b| share the same cap (spec section 7.1: "any |J| or |b| exceeds
-    # target.max_abs_coupling"). Both are gated unconditionally -- NEITHER is
-    # nested inside a "does this model have any edges" check, because a model
-    # with zero edges still has biases that must be gated (C2).
     peak_J = float(np.abs(ising.weights).max()) if len(ising.weights) else 0.0
     j_check, j_failure = _magnitude_gate(
-        "coupling_cap", "|J|max", peak_J, cap, cap_assumed, cap_source,
-        allow_assumed, "a local encoding keeps |J| bounded independent of size")
+        "coupling_cap", "|J|max", peak_J, cap_J, cap_J_assumed, cap_J_source,
+        "max_abs_coupling", allow_assumed,
+        "a local encoding keeps |J| bounded independent of size")
     checks.append(j_check)
     if j_failure:
         fails.append(j_failure)
 
+    cap_b = target.max_abs_bias.value
+    cap_b_assumed = target.is_assumed("max_abs_bias")
+    cap_b_source = target.max_abs_bias.source
+
     peak_b = float(np.abs(ising.biases).max()) if len(ising.biases) else 0.0
     b_check, b_failure = _magnitude_gate(
-        "field_cap", "|b|max", peak_b, cap, cap_assumed, cap_source,
-        allow_assumed, "a local encoding keeps |b| bounded independent of size")
+        "field_cap", "|b|max", peak_b, cap_b, cap_b_assumed, cap_b_source,
+        "max_abs_bias", allow_assumed,
+        "a local encoding keeps |b| bounded independent of size")
     checks.append(b_check)
     if b_failure:
         fails.append(b_failure)

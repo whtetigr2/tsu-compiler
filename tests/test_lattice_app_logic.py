@@ -1178,3 +1178,48 @@ def test_render_heatmap_image_handles_all_nan_honestly():
     img, caption = la.render_heatmap_image(200, 200, occ)
     assert img.size == (200, 200)
     assert "unavailable" in caption.lower()
+
+
+# ---------------------------------------------------------------------------
+# P-3/F-A5 + I-9a/F-R7: the TargetProfile schema split. |J| <= 6.0 is
+# Extropic-documented (Thermalizers 2608.01615v1.pdf, Fig. 12 cap-sweep axis
+# annotated "6 (Z1)"); |b| <= 6.0 remains a genuine, unsourced project
+# assumption. FOOTER_TEXT used to disclaim both identically; this is now
+# false for |J|.
+# ---------------------------------------------------------------------------
+
+def test_footer_text_gives_coupling_and_field_caps_distinct_provenance():
+    assert "|J| and |b| caps are assumed project values" not in la.FOOTER_TEXT
+    assert "Extropic-documented" in la.FOOTER_TEXT
+    assert "assumed project value" in la.FOOTER_TEXT.lower()  # |b| still is
+
+
+def test_verification_panel_receipts_mark_coupling_cap_sourced_not_assumed():
+    """Site (f) of the six: the VERIFICATION panel's '(assumed limit)' tag
+    is driven entirely by each receipt's own FROZEN gates.json (read once
+    at startup, never recomputed live -- see Receipt.__init__), not by
+    live gates.py logic. A fresh compile with the fixed gates.py would
+    write coupling_cap.assumed=false -- but this task may never run `tsu
+    compile`, so the checked-in receipts must be corrected directly to
+    match what gates.py now actually computes for the SAME already-frozen
+    measured/limit values (neither of which changes). field_cap stays
+    assumed=true in every receipt -- it is still a genuine assumption."""
+    import json
+    from tsu.target import Z1
+
+    assert Z1.is_assumed("max_abs_coupling") is False
+    assert Z1.is_assumed("max_abs_bias") is True
+
+    receipts_dir = REPO_ROOT / "demo" / "receipts"
+    receipt_dirs = [d for d in receipts_dir.iterdir() if d.is_dir()]
+    assert receipt_dirs, "no receipt directories found"
+    for d in receipt_dirs:
+        gates = json.loads((d / "gates.json").read_text())
+        by_gate = {g["gate"]: g for g in gates}
+        assert by_gate["coupling_cap"]["assumed"] is False, (
+            f"{d.name}/gates.json: coupling_cap still marked assumed=true")
+        assert by_gate["field_cap"]["assumed"] is True, (
+            f"{d.name}/gates.json: field_cap should still be assumed=true")
+        # the underlying MEASUREMENT must be untouched by the provenance fix
+        assert by_gate["coupling_cap"]["limit"] == 6.0
+        assert by_gate["field_cap"]["limit"] == 6.0

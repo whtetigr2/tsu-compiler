@@ -232,6 +232,29 @@ def test_build_frontier_report_runs_end_to_end_on_the_small_receipt():
     assert "domain_wall" in text
 
 
+def test_render_text_gives_coupling_and_field_caps_distinct_provenance():
+    """P-3/F-A5 + I-9a/F-R7: render_text's own footer line used to read
+    '|J| <= 6.0 and |b| <= 6.0 are ASSUMED project values, not sourced
+    Extropic figures' -- true for |b|, now false for |J| (Extropic-
+    documented, Thermalizers 2608.01615v1.pdf Fig. 12 cap-sweep, '6 (Z1)')."""
+    report = fr.build_frontier_report(SMALL)
+    text = fr.render_text(report)
+    assert "|J| <= 6.0 and |b| <= 6.0 are ASSUMED project values" not in text
+    assert "Extropic-documented" in text
+    assert "ASSUMED project value" in text  # |b| still is
+
+
+def test_frontier_module_docstring_gives_coupling_and_field_caps_distinct_provenance():
+    """Same fix, the module docstring's own copy of the claim (a third,
+    independently-typed site beyond render_text and frontier_gauge_specs'
+    foot_text -- provenance.md's P-3 counted all three as separate
+    instances of the same disclaimer, not one shared constant)."""
+    doc = fr.__doc__ or ""
+    assert "remain ASSUMED project values, not sourced Extropic figures" not in doc
+    assert "Extropic-documented" in doc
+    assert "ASSUMED project value" in doc
+
+
 # ===========================================================================
 # B2: Onsager beta_c siting and the trace ring buffer (pure math only --
 # the Tk canvas plots themselves are verified by inspection per the brief).
@@ -529,13 +552,25 @@ def test_frontier_gauge_specs_predicted_labels_name_their_law_never_bare():
                 or "floor" in s.predicted_label)
 
 
-def test_frontier_gauge_specs_assumed_cap_note_appears_for_coupling_and_field():
-    """|J| <= 6.0 and |b| <= 6.0 are ASSUMED project values, not sourced
-    Extropic figures -- every gauge that shows either cap must say so."""
+# P-3/F-A5 + I-9a/F-R7: replaces
+# test_frontier_gauge_specs_assumed_cap_note_appears_for_coupling_and_field,
+# which asserted BOTH gauges say "assumed project value" -- that is now
+# false for coupling_cap. |J| <= 6.0 is Extropic-documented (Thermalizers
+# 2608.01615v1.pdf, Fig. 12 cap-sweep axis annotated "6 (Z1)"); |b| <= 6.0
+# remains a genuine, unsourced project assumption.
+
+def test_frontier_gauge_specs_field_cap_note_still_says_assumed():
     report = _small_report()
     by_gate = {s.gate: s for s in la.frontier_gauge_specs(report)}
-    assert "assumed project value" in by_gate["coupling_cap"].foot_text.lower()
     assert "assumed project value" in by_gate["field_cap"].foot_text.lower()
+
+
+def test_frontier_gauge_specs_coupling_cap_note_says_documented_not_assumed():
+    report = _small_report()
+    by_gate = {s.gate: s for s in la.frontier_gauge_specs(report)}
+    foot = by_gate["coupling_cap"].foot_text.lower()
+    assert "assumed project value" not in foot
+    assert "documented" in foot
 
 
 def test_binding_gate_name_matches_the_reports_own_headline_exactly():

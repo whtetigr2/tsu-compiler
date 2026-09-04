@@ -33,9 +33,12 @@ VERIFIES it by actually building the larger model with `encode`/`lower`/
 number back -- `verify_increment` below. Predicted and observed are always
 shown side by side; a mismatch is reported as a mismatch, not smoothed over.
 
-|J| <= 6.0 and |b| <= 6.0 (this module reads them from the receipt's own
-gates.json / from `tsu.target.Z1`, never hardcodes them) remain ASSUMED
-project values, not sourced Extropic figures -- every display below says so.
+|J| <= 6.0 (this module reads it from the receipt's own gates.json / from
+`tsu.target.Z1.max_abs_coupling`, never hardcodes it) is an Extropic-documented
+Z1 hardware cap (Thermalizers paper, Fig. 12 cap-sweep axis annotated
+"6 (Z1)"). `tsu.target.Z1.max_abs_bias`, the |b| <= 6.0 cap, remains an
+ASSUMED project value, not a sourced Extropic figure -- every display below
+says which is which.
 """
 from __future__ import annotations
 
@@ -510,8 +513,11 @@ def render_text(r: FrontierReport) -> str:
             lines.append(f"    |b|max observed: {v.observed_field:.2f} "
                          f"(no field-law prediction for a p-increment)")
     lines.append("")
-    lines.append("|J| <= 6.0 and |b| <= 6.0 are ASSUMED project values, not "
-                 "sourced Extropic figures (spec section 4.9 / project note).")
+    lines.append("|J| <= 6.0 is an Extropic-documented Z1 hardware cap "
+                 "(Thermalizers paper, Fig. 12 cap-sweep, annotated "
+                 "\"6 (Z1)\"); |b| <= 6.0 remains an ASSUMED project value, "
+                 "not a sourced Extropic figure (spec section 4.9 / project "
+                 "note).")
     return "\n".join(lines)
 
 

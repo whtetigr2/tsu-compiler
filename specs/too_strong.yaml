@@ -1,7 +1,10 @@
 name: too_strong
 description: >
-  Two variables with a coupling of 40, far above the assumed Jmax of 6. IDEAL
-  passes; Z1 must fail with an ASSUMED-GATE tag.
+  Two variables with a coupling of 40, far above Z1's Jmax of 6. IDEAL
+  passes; Z1 must fail with a SOURCED-GATE tag (P-3/I-9a: Jmax is now
+  Extropic-documented, not a project assumption -- this gate is NOT
+  downgradable via --allow-assumed; see specs/too_strong_bias.yaml for the
+  still-genuinely-assumed |b| cap).
 variables:
   a: {domain: binary}
   b: {domain: binary}

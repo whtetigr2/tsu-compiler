@@ -50,10 +50,14 @@ def test_sample_json_is_empty_when_verification_never_ran(tmp_path):
 
 
 def test_target_json_preserves_provenance_including_assumed(tmp_path):
+    """P-3/F-A5 + I-9a/F-R7: max_abs_coupling is no longer "assumed" (it is
+    now Extropic-documented, Thermalizers Fig. 12 cap-sweep) -- max_abs_bias
+    is the field that stays a genuine project assumption now."""
     c = compile_spec(load_spec("specs/toy.yaml"), Z1)
     d = write_receipt(c, tmp_path / "r")
     t = json.loads((Path(d) / "target.json").read_text())
-    assert t["max_abs_coupling"]["source"] == "assumed"
+    assert t["max_abs_bias"]["source"] == "assumed"
+    assert t["max_abs_coupling"]["source"] != "assumed"
     assert t["degree"]["source"] == "F-14"
 
 
@@ -77,12 +81,19 @@ def test_allow_assumed_receipt_records_the_override_and_replays_clean(tmp_path):
     """C4: --allow-assumed was invisible in the receipt (gates.json was always
     `[]` on a COMPILED verdict), and `replay` always recompiled WITHOUT the
     flag, so an override receipt hit the downgraded gate on replay and reported
-    DIVERGED for a compile that was not actually wrong. too_strong.yaml's |J|=40
-    term lowers (via the occupancy-to-spin substitution) to |J|max=10.0,
-    still well past Z1's assumed cap of 6.0 -- it fails z1 outright without the
-    override and compiles clean with it, exactly the case the spec's replay
-    guarantee exists for."""
-    c = compile_spec(load_spec("specs/too_strong.yaml"), Z1, allow_assumed=True)
+    DIVERGED for a compile that was not actually wrong.
+
+    P-3/F-A5 + I-9a/F-R7: this test used to exercise too_strong.yaml's |J|=40
+    term against the coupling_cap gate -- but coupling_cap (max_abs_coupling)
+    is now Extropic-documented, not assumed, so it is no longer overridable
+    via --allow-assumed at all (same treatment as `degree`; see
+    tests/test_gates.py::test_coupling_cap_gate_is_not_overridable_by_allow_assumed).
+    too_strong_bias.yaml's |b|=40 term is the replacement fixture: it lowers
+    (via the occupancy-to-spin substitution) to |b|max=20.0, still well past
+    Z1's genuinely ASSUMED max_abs_bias cap of 6.0 -- it fails z1 outright
+    without the override and compiles clean with it, exactly the case the
+    spec's replay guarantee exists for."""
+    c = compile_spec(load_spec("specs/too_strong_bias.yaml"), Z1, allow_assumed=True)
     assert c.verdict == "COMPILED"
     d = write_receipt(c, tmp_path / "r")
 
@@ -92,8 +103,8 @@ def test_allow_assumed_receipt_records_the_override_and_replays_clean(tmp_path):
     gates = json.loads((Path(d) / "gates.json").read_text())
     downgraded = [g for g in gates if g["downgraded"]]
     assert downgraded, "the receipt must record which gate(s) allow_assumed downgraded"
-    assert downgraded[0]["gate"] == "coupling_cap"
-    assert downgraded[0]["measured"] == pytest.approx(10.0)
+    assert downgraded[0]["gate"] == "field_cap"
+    assert downgraded[0]["measured"] == pytest.approx(20.0)
     assert downgraded[0]["limit"] == pytest.approx(6.0)
 
     # every gate the compile evaluated is present, not only failures/downgrades

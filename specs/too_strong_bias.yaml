@@ -1,0 +1,13 @@
+name: too_strong_bias
+description: >
+  One variable with a linear bias of 40, far above Z1's ASSUMED |b| cap of
+  6 (max_abs_bias -- unlike max_abs_coupling, the |J| cap, which is now
+  Extropic-documented and non-overridable; see P-3/I-9a). IDEAL passes; Z1
+  must fail with an ASSUMED-GATE tag on field_cap, downgradable with
+  --allow-assumed.
+variables:
+  a: {domain: binary}
+terms:
+  - {kind: linear, form: {a: 1.0}, weight: 40.0}
+contract:
+  validate: []

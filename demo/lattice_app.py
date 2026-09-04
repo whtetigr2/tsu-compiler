@@ -138,8 +138,10 @@ PASS_ORDER = ("encode", "lower", "analyse", "gate_checks", "place",
               "route", "build_program", "regime", "verify")
 
 FOOTER_TEXT = ("Simulated on CPU via thrml. No TSU silicon. No hardware "
-               "speed or energy claims. |J| and |b| caps are assumed "
-               "project values, not sourced Extropic figures.")
+               "speed or energy claims. |J| <= 6.0 is an Extropic-documented "
+               "Z1 hardware cap (Thermalizers paper, Fig. 12 cap-sweep); "
+               "|b| <= 6.0 is an assumed project value, not a sourced "
+               "Extropic figure.")
 
 # Live sampling parameters used for a CLAMPED batch (after a pin changes).
 # Verified working: simulate("demo/receipts/small", n_chains=6, n_samples=30,
@@ -602,11 +604,19 @@ FRONTIER_GAUGE_LABELS = {
     "node_budget": "NODE BUDGET",
 }
 
-# Verbatim FOOTER_TEXT's own assumed-cap disclosure (not a second, drifting
-# phrasing of the same fact) -- |J| and |b| are project assumptions, not
-# sourced Extropic figures, and every gauge that shows one says so.
-ASSUMED_CAP_NOTE = ("assumed project limit -- |J| and |b| caps are assumed "
-                     "project values, not sourced Extropic figures")
+# P-3/F-A5 + I-9a/F-R7: |J| and |b| no longer share one disclosure -- |J| is
+# Extropic-documented (Thermalizers Fig. 12 cap-sweep, "6 (Z1)"), |b| remains
+# a genuine, unsourced project assumption. Was one ASSUMED_CAP_NOTE constant
+# reused for both gauges (a second, drifting phrasing of FOOTER_TEXT's own
+# claim) -- reusing one string for two now-differently-sourced facts is
+# exactly the bug this split exists to fix, so there are two constants now,
+# each read by only its own gate below.
+COUPLING_CAP_NOTE = ("documented Z1 hardware limit -- |J| <= 6.0 is an "
+                     "Extropic-documented cap (Thermalizers paper, Fig. 12 "
+                     "cap-sweep, annotated \"6 (Z1)\"), not a project "
+                     "assumption")
+FIELD_CAP_NOTE = ("assumed project limit -- |b| <= 6.0 is an assumed "
+                  "project value, not a sourced Extropic figure")
 
 # When a gate's predicted next value sits PAST its own cap, the track is
 # compressed to this fraction of the gauge's width (0..cap) and a hatched
@@ -763,8 +773,10 @@ def frontier_gauge_specs(report: Any) -> list[GaugeSpec]:
                 foot_parts.append(
                     f"OBSERVED ({report.encoding}): |b|max "
                     f"{selected_verified.observed_field:.2f} ({floor_ok})")
-        if h.gate in ("coupling_cap", "field_cap"):
-            foot_parts.append(ASSUMED_CAP_NOTE)
+        if h.gate == "coupling_cap":
+            foot_parts.append(COUPLING_CAP_NOTE)
+        elif h.gate == "field_cap":
+            foot_parts.append(FIELD_CAP_NOTE)
         if h.gate == "node_budget":
             if tag_kind == "ok":
                 foot_parts.append("p-bits are not the constraint here")
