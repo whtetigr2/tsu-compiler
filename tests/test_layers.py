@@ -11,6 +11,8 @@ These tests exercise demo/layers.py directly against the real compiled
 receipt at demo/receipts/small -- no synthetic/toy model, no fabricated
 data, per project epistemic discipline.
 """
+import dataclasses
+import importlib
 import sys
 from pathlib import Path
 
@@ -24,7 +26,9 @@ from tsu.spec import load_spec
 from tsu.passes.encode import encode
 from tsu.simulate import reconstruct_program, _selected_encoding
 from tsu.backends.thrml_backend import sample as thrml_sample
+import tsu.target as target_mod
 
+import layers
 from layers import bias_patch, FieldCapExceeded, FIELD_CAP
 
 R = "demo/receipts/small"
@@ -172,3 +176,34 @@ def test_patch_statistically_shifts_the_targeted_cells_decoded_value():
           f"patched freq(g0_0==2)={patched_freq:.3f}")
 
     assert patched_freq > base_freq
+
+
+# --------------------------------------------------------------------------
+# 6. F-R2: FIELD_CAP must read TargetProfile.max_abs_bias (the |b| cap) --
+#    not max_abs_coupling (the |J| cap), and not a bare hardcoded literal.
+#    Both real-profile fields currently hold the identical value 6.0 (see
+#    tsu/target.py's Z1), so a test against the real profile alone cannot
+#    tell a correct wiring from a wrong one -- FIELD_CAP would read 6.0
+#    either way. This test builds a synthetic TargetProfile where the two
+#    fields DIVERGE and reloads demo/layers.py against it, so the
+#    assertion can only pass if the module genuinely reads max_abs_bias.
+# --------------------------------------------------------------------------
+
+def test_field_cap_reads_max_abs_bias_not_max_abs_coupling(monkeypatch):
+    diverging = dataclasses.replace(
+        target_mod.Z1,
+        max_abs_bias=target_mod.Sourced(9.0, "test", "synthetic, this test only"),
+        max_abs_coupling=target_mod.Sourced(3.0, "test", "synthetic, this test only"),
+    )
+    monkeypatch.setattr(target_mod, "Z1", diverging)
+
+    try:
+        importlib.reload(layers)
+        assert layers.FIELD_CAP == pytest.approx(9.0), (
+            "FIELD_CAP must track TargetProfile.max_abs_bias (9.0 in this "
+            f"synthetic profile), got {layers.FIELD_CAP!r}")
+        assert layers.FIELD_CAP != pytest.approx(3.0), (
+            "FIELD_CAP must NOT track TargetProfile.max_abs_coupling "
+            "(3.0 in this synthetic profile)")
+    finally:
+        importlib.reload(layers)  # restore the real Z1-backed FIELD_CAP
