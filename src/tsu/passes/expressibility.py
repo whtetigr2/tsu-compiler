@@ -76,13 +76,34 @@ def analyse_rule(rule: Rule) -> Verdict:
     )
 
 
+_PAIRWISE_TERMS_UNAVAILABLE = (
+    "unavailable: Rule.measurement carries no field for how many variables "
+    "the rule's own LinearForm sums over, so the post-lowering pairwise "
+    "(edge) count cannot be computed from a bare Rule -- it depends on the "
+    "actual construction's scope (e.g. audit/expressibility_matrix.md row "
+    "#11 measures 2016 edges for a squared_deviation over 64 variables, "
+    "not 1); see the matrix for the real, lowered-and-measured cost of a "
+    "given construction"
+)
+
+
 def _squared_deviation(rule: Rule) -> Verdict:
     """(target - value)^2 is a squared linear form: Product(L, L, weight),
-    which is pairwise with no change of meaning -- the honest EXACT case."""
+    which is pairwise with no change of meaning -- the honest EXACT case.
+
+    I8 (code review, 2026-09-04-lattice-rule-taxonomy): `cost` used to
+    hardcode `pairwise_terms: 1` for every squared_deviation rule regardless
+    of how many variables it actually sums over -- wrong for anything but
+    the smallest possible instance, and silently wrong at scale
+    (`statistical`'s own matrix row measures 2016, not 1). A bare `Rule`
+    carries no field this pass could use to compute the real number, so per
+    this plan's own rule ("Verification never fabricates. Any unmeasured
+    quantity reads `unavailable: <reason>`"), it reports that honestly
+    instead of guessing."""
     return Verdict(
         rule_id=rule.id,
         status="EXACT",
-        cost={"term_kind": "Product", "pairwise_terms": 1},
+        cost={"term_kind": "Product", "pairwise_terms": _PAIRWISE_TERMS_UNAVAILABLE},
         distortion=None,
         reason=(
             "(target - value)^2 is a squared linear form -> "
@@ -108,7 +129,7 @@ def _one_sided_threshold(rule: Rule) -> Verdict:
     return Verdict(
         rule_id=rule.id,
         status="DISTORTED",
-        cost={"term_kind": "Product", "pairwise_terms": 1},
+        cost={"term_kind": "Product", "pairwise_terms": _PAIRWISE_TERMS_UNAVAILABLE},
         distortion=distortion,
         reason=(
             "max(0, target - N) has a kink and is not a polynomial at any "

@@ -43,6 +43,46 @@ def test_unregistered_measurement_kind_is_unknown_not_inexpressible():
     assert "neighbourhood_count" in v.reason
 
 
+def test_squared_deviation_cost_does_not_hardcode_a_wrong_pairwise_term_count():
+    """I8 (code review, 2026-09-04-lattice-rule-taxonomy): `Verdict.cost` used
+    to hardcode `{"pairwise_terms": 1}` for EVERY squared_deviation rule --
+    but `audit/expressibility_matrix.md` row #11 (`statistical`) measured
+    2016 pairwise EDGES for the identical IR shape (Product(L, L, w) with L
+    summing 64 variables). A `Rule`'s `measurement` mapping carries no field
+    for how many variables its own LinearForm sums over, so `analyse_rule`
+    has no way to compute the real post-lowering edge count from the Rule
+    alone -- hardcoding 1 regardless is not a measurement, it is a guess
+    dressed up as one. Per this plan's own rule ("Verification never
+    fabricates. Any unmeasured quantity reads `unavailable: <reason>`"),
+    the honest cost must say it cannot be computed from a bare Rule, not
+    assert a specific number it has no basis for."""
+    from tsu.rules import Rule
+    from tsu.passes.expressibility import analyse_rule
+    r = Rule(id="balance", rule_class="statistical", scope="global", hard=False,
+             weight=1.0,
+             measurement={"kind": "squared_deviation", "target": 4, "value": 1},
+             provenance="test")
+    v = analyse_rule(r)
+    assert v.cost["pairwise_terms"] != 1
+    assert isinstance(v.cost["pairwise_terms"], str)
+    assert v.cost["pairwise_terms"].startswith("unavailable:")
+
+
+def test_one_sided_threshold_cost_does_not_hardcode_a_wrong_pairwise_term_count():
+    """Same defect (I8), same fix, for the DISTORTED path -- `_one_sided_threshold`
+    hardcoded the identical wrong constant."""
+    from tsu.rules import Rule
+    from tsu.passes.expressibility import analyse_rule
+    r = Rule(id="min_patch", rule_class="morphology", scope="neighbourhood",
+             hard=False, weight=2.5,
+             measurement={"kind": "one_sided_threshold", "target": 4, "value": 1},
+             provenance="test")
+    v = analyse_rule(r)
+    assert v.cost["pairwise_terms"] != 1
+    assert isinstance(v.cost["pairwise_terms"], str)
+    assert v.cost["pairwise_terms"].startswith("unavailable:")
+
+
 def test_one_sided_threshold_is_distorted_and_names_the_distortion():
     """max(0, target - N) has a kink and is not a polynomial at any degree.
     The nearest pairwise form is symmetric, which changes the rule's meaning.
