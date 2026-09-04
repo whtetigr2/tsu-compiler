@@ -184,20 +184,30 @@ def test_a_rejected_candidates_own_measurements_are_used_not_blanket_unavailable
 
 
 def test_a_downgraded_gate_does_not_read_as_a_hardware_failure_on_a_compiled_receipt(tmp_path):
-    """too_strong.yaml's coupling exceeds Z1's ASSUMED cap and fails outright,
-    but compiles clean with --allow-assumed (test_search.py's own regression).
-    A downgraded gate (passed=False, downgraded=True) did not block the
-    compile -- the report's HARDWARE line must read as passing, and the
-    Reason block must not blame a candidate for a compile that succeeded."""
-    c = compile_spec(load_spec("specs/too_strong.yaml"), Z1, allow_assumed=True)
+    """too_strong_bias.yaml's bias exceeds Z1's ASSUMED |b| cap and fails
+    outright, but compiles clean with --allow-assumed (test_search.py's own
+    regression). A downgraded gate (passed=False, downgraded=True) did not
+    block the compile -- the report's HARDWARE line must read as passing,
+    and the Reason block must not blame a candidate for a compile that
+    succeeded.
+
+    P-3/F-A5 + I-9a/F-R7: was specs/too_strong.yaml, checking the "Coupling
+    range:" line -- but max_abs_coupling (|J|) is now Extropic-documented,
+    not assumed, so it is no longer downgradable via --allow-assumed at
+    all (see tests/test_search.py::
+    test_too_strong_coupling_violation_is_not_overridable_now_that_it_is_sourced).
+    specs/too_strong_bias.yaml exercises the still-genuinely-assumed
+    max_abs_bias (|b|) field instead, so this checks the "Field range:"
+    line."""
+    c = compile_spec(load_spec("specs/too_strong_bias.yaml"), Z1, allow_assumed=True)
     assert c.verdict == "COMPILED"
     d = write_receipt(c, tmp_path / "r")
     text = render_report(d)
     lines = text.splitlines()
     hardware_line = next(l for l in lines if l.strip().endswith("HARDWARE"))
     assert "✓" in hardware_line
-    coupling_line = next(l for l in lines if l.strip().startswith("Coupling range:"))
-    assert "downgraded" in coupling_line.lower()
+    field_line = next(l for l in lines if l.strip().startswith("Field range:"))
+    assert "downgraded" in field_line.lower()
 
 
 def test_cli_report_subcommand_prints_the_same_render(tmp_path, capsys):

@@ -33,11 +33,20 @@ Thermodynamic Models make (chained simple EBM layers instead of one
 monolithic model), and it must be stated plainly, never glossed as "the
 joint distribution."
 
-`FIELD_CAP` (|b| <= 6.0) is an ASSUMED project working value carried over
-from demo/receipts/small/target.json's own `max_abs_coupling` entry (tagged
-"assumed" there, "NOT a sourced Extropic figure" in that file's own words)
--- not a sourced Extropic figure here either. Every value this module prints
-against it says so.
+`FIELD_CAP` (|b| <= 6.0) reads `tsu.target.Z1.max_abs_bias` (F-R2; see
+demo/frontier.py's module docstring for this same read-from-the-target-
+profile pattern applied to its own |J| cap). `max_abs_bias` is the |b| cap
+specifically -- P-3/F-A5 + I-9a/F-R7 split it from `max_abs_coupling` (the
+|J| cap) into two independent `Sourced` fields (tsu/target.py) because they
+carry different provenance even though both currently hold 6.0:
+`max_abs_coupling` is Extropic-documented (Thermalizers 2608.01615v1.pdf
+p.22, Fig. 12 cap-sweep axis: "6 (Z1)"), while `max_abs_bias` remains a
+genuine, unsourced project assumption (hmax is named symbolically in the
+same paper but no numeric value for it appears anywhere). `FIELD_CAP` gates
+a bias (`bias_patch` below bounds |b|max, never a coupling -- see its own
+docstring), so it must read `max_abs_bias`, never `max_abs_coupling`, even
+though the two agree numerically today. Every value this module prints
+against it says which cap it is.
 """
 from __future__ import annotations
 
@@ -50,10 +59,12 @@ from tsu.ir import LinearForm, VarRef
 from tsu.passes.encode import Encoded, _REWRITE
 from tsu.passes.lower import _affine
 from tsu.passes.program import SamplingProgram
+from tsu.target import Z1
 
-# Assumed project working value (see module docstring); not a sourced
-# Extropic figure.
-FIELD_CAP = 6.0
+# The |b| cap specifically (F-R2) -- see module docstring. NOT
+# Z1.max_abs_coupling (the |J| cap): the two are separate Sourced fields
+# that happen to share a value today, never to be conflated again.
+FIELD_CAP = Z1.max_abs_bias.value
 
 
 class FieldCapExceeded(ValueError):
@@ -150,9 +161,10 @@ def bias_patch(prog: SamplingProgram, enc: Encoded,
     if bmax > field_cap:
         raise FieldCapExceeded(
             f"patched |b|max = {bmax:.4f} exceeds the target's assumed "
-            f"field cap {field_cap} (project working value from "
-            f"target.json's own 'assumed' max_abs_coupling entry, NOT a "
-            f"sourced Extropic figure); refusing this patch rather than "
+            f"field cap {field_cap} (tsu.target.Z1.max_abs_bias -- a "
+            f"project working value, NOT a sourced Extropic figure, and a "
+            f"separate field from max_abs_coupling even though both "
+            f"currently hold 6.0); refusing this patch rather than "
             f"returning a model that could not run on the hardware we "
             f"claim to target")
 

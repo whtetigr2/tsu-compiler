@@ -8,8 +8,11 @@ inside LatticeApp.__init__ / main(), never at import time), and every test
 here calls only pure functions/classes, never LatticeApp itself.
 """
 import queue
+import re
 import sys
 from pathlib import Path
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEMO = REPO_ROOT / "demo"
@@ -396,6 +399,282 @@ def test_worker_request_step_sets_the_event():
 
 
 # ---------------------------------------------------------------------------
+# RP-1: SampleWorker._run_clamped_batch is the ONLY live code path that
+# calls tsu.simulate.simulate() -- once per pin change -- against
+# self.receipt.path, which in the real app is demo/receipts/small, a
+# git-tracked, frozen compile-time evidence directory. This is the
+# CALLER, not simulate() itself: it must never leave a mark on the
+# receipt directory it was constructed with, however simulate() itself
+# is capable of behaving when called directly.
+# ---------------------------------------------------------------------------
+
+def _copied_receipt_dir(tmp_path):
+    """A private COPY of the real demo/receipts/small -- same grid-shaped
+    (g{x}_{y}) spec classify_draw expects, so this exercises the actual
+    live code path faithfully, but any write lands on the copy, never on
+    the git-tracked original."""
+    import shutil
+    src = REPO_ROOT / "demo" / "receipts" / "small"
+    dst = tmp_path / "small"
+    shutil.copytree(src, dst)
+    return dst
+
+
+def _snapshot(d):
+    """{filename: bytes} for every file directly in d -- catches an
+    in-place overwrite of an existing tracked file (e.g. simulation.json),
+    which a bare filename-set comparison would miss entirely."""
+    return {p.name: p.read_bytes() for p in d.iterdir() if p.is_file()}
+
+
+def test_run_clamped_batch_never_writes_inside_the_receipt_directory(tmp_path):
+    d = _copied_receipt_dir(tmp_path)
+    before = _snapshot(d)
+    receipt = la.Receipt(d)
+    worker = la.SampleWorker(receipt, queue.Queue(), seed_base=0, clamp={"g0_0": 0})
+    worker._run_clamped_batch()
+    after = _snapshot(d)
+    assert after == before, (
+        f"receipt dir mutated by the clamped path: "
+        f"{[n for n in before if before[n] != after.get(n)]}")
+
+
+# ---------------------------------------------------------------------------
+# I-2/F-R6 + F1/F-R10: the continuity-implying polyline, root cause. A
+# clamped batch flattens CLAMP_N_CHAINS independent parallel chains
+# chain-major (tsu.simulate.simulate -> sample_chains(...).reshape(-1,
+# ...)): row i belongs to chain i // n_samples, so only row i where
+# i % n_samples == 0 genuinely starts a new chain relative to the row
+# pushed immediately before it. An unclamped tick is even stricter --
+# N_SAMPLES_PER_CALL is always 1, so EVERY row is its own one-sample
+# chain, a fresh independent restart of the sampler (fresh seed, fresh
+# n_warmup=300 warmup). These tests exercise SampleWorker's real methods
+# against a real (copied) receipt -- same pattern as the RP-1 tests just
+# above -- and check the chain_break flag SampleWorker attaches to every
+# pushed draw, which is what the trace renderers (tested separately in
+# tests/test_frontier.py) rely on instead of assuming continuity.
+# ---------------------------------------------------------------------------
+
+def _drain(q):
+    msgs = []
+    while True:
+        try:
+            msgs.append(q.get_nowait())
+        except queue.Empty:
+            return msgs
+
+
+def test_run_clamped_batch_marks_chain_break_at_every_chain_boundary(tmp_path):
+    """speed_idx=0 (Slow) -> clamp_samples=3, CLAMP_N_CHAINS=6 -> 18 rows,
+    chain-major: rows 0,3,6,9,12,15 start a new chain (6 chains of 3).
+    Reverting SampleWorker to mark every row a break (or none) would leave
+    the trace renderers technically correct but silently reintroduce
+    exactly the false continuity -- or the false discontinuity -- this fix
+    exists to remove."""
+    d = _copied_receipt_dir(tmp_path)
+    receipt = la.Receipt(d)
+    q = queue.Queue()
+    worker = la.SampleWorker(receipt, q, seed_base=0, clamp={"g0_0": 0}, speed_idx=0)
+    worker._run_clamped_batch()
+    draws = [m for m in _drain(q) if m.get("kind") in
+             ("valid", "contract-fail", "non-codeword")]
+    assert len(draws) == 18
+    expected = [i % 3 == 0 for i in range(18)]
+    actual = [m["chain_break"] for m in draws]
+    assert actual == expected, (
+        f"expected chain_break at rows {[i for i, e in enumerate(expected) if e]}, "
+        f"got chain_break={actual}")
+
+
+def test_run_unclamped_tick_marks_every_row_as_a_chain_break(tmp_path):
+    """N_SAMPLES_PER_CALL is always 1 (a module constant) -- no row from a
+    single unclamped tick is ever a genuine continuation of another; each
+    is a different parallel chain's own single sample. This is the same
+    structural fact C-1's fix (render_acf_plot) already established for
+    why the tau claim had to be dropped entirely rather than reshaped."""
+    d = _copied_receipt_dir(tmp_path)
+    receipt = la.Receipt(d)
+    q = queue.Queue()
+    worker = la.SampleWorker(receipt, q, seed_base=0, speed_idx=2)  # Fast: chains=4
+    worker._run_unclamped_tick()
+    draws = _drain(q)
+    assert len(draws) == 4
+    assert all(m["chain_break"] for m in draws), (
+        f"expected every unclamped row to be its own chain_break, got "
+        f"{[m['chain_break'] for m in draws]}")
+
+
+# ---------------------------------------------------------------------------
+# I-2/F-R6: _draw_trace (the energy trace's own Tk renderer) must honour
+# the same chain_break boundaries. _FakeCanvas stands in for tk.Canvas --
+# _draw_trace touches no `self.*` attribute (its body only uses `canvas`,
+# `trace`, and module-level constants), so it can be called unbound with a
+# throwaway first argument and never needs a real Tk display.
+# ---------------------------------------------------------------------------
+
+class _FakeCanvas:
+    def __init__(self, width=260, height=110):
+        self._cfg = {"width": str(width), "height": str(height)}
+        self.line_calls = []
+        self.oval_calls = []
+
+    def __getitem__(self, key):
+        return self._cfg[key]
+
+    def delete(self, *_a, **_kw):
+        pass
+
+    def create_text(self, *_a, **_kw):
+        pass
+
+    def create_line(self, *coords, **_kw):
+        self.line_calls.append(coords)
+
+    def create_oval(self, *coords, **_kw):
+        self.oval_calls.append(coords)
+
+
+def test_draw_trace_never_draws_one_line_across_a_chain_break():
+    trace = la.Trace(maxlen=10)
+    trace.append(0, 1.0, chain_break=True)
+    trace.append(1, 2.0, chain_break=False)    # continues chain 1
+    trace.append(2, 30.0, chain_break=True)    # NEW chain
+    trace.append(3, 31.0, chain_break=False)   # continues chain 2
+    canvas = _FakeCanvas()
+    la.LatticeApp._draw_trace(None, canvas, trace, "draw", "energy")
+    assert len(canvas.line_calls) == 2, (
+        f"expected one create_line call per physical chain (2 chains of "
+        f"2 points each), got {len(canvas.line_calls)} -- the old code "
+        f"drew every point as ONE connected polyline regardless of "
+        f"chain_break")
+    assert all(len(coords) == 4 for coords in canvas.line_calls)
+
+
+def test_draw_trace_draws_a_marker_for_every_point_even_isolated_ones():
+    """Every point gets a dot regardless of chain membership -- unclamped
+    mode's own N_SAMPLES_PER_CALL==1 makes EVERY draw its own one-point
+    chain (see the SampleWorker test above), so without per-point markers
+    the energy trace would render nothing at all in the app's default,
+    unclamped mode."""
+    trace = la.Trace(maxlen=10)
+    for i in range(4):
+        trace.append(i, float(i), chain_break=True)
+    canvas = _FakeCanvas()
+    la.LatticeApp._draw_trace(None, canvas, trace, "draw", "energy")
+    assert len(canvas.line_calls) == 0
+    assert len(canvas.oval_calls) == 4
+
+
+def test_energy_trace_x_axis_label_is_not_sweep_at_any_call_site():
+    """I-2: 'sweep' implies successive draws step forward one chain's own
+    physical relaxation -- false for a trace that mixes independent
+    restarts and parallel chains (see the chain_break tests above). Every
+    call site drawing the energy trace must use the same honest label its
+    sibling SCOPE traces (valid fraction, magnetization) already use."""
+    src = (REPO_ROOT / "demo" / "lattice_app.py").read_text()
+    calls = re.findall(
+        r'_draw_trace\(self\.energy_canvas, self\.energy_trace, "([^"]+)"', src)
+    assert calls, "no _draw_trace(self.energy_canvas, ...) call sites found"
+    assert all(label == "draw" for label in calls), (
+        f"energy trace x-axis label(s) found: {sorted(set(calls))}")
+
+
+def test_scope_panel_magnetization_render_call_passes_chain_breaks():
+    """F1/F-R10, caller/contract boundary: render_line_plot's own break
+    logic (tested directly in tests/test_frontier.py) is dead code unless
+    its ONE production call site (_refresh_scope_panel's mag_img) actually
+    passes chain_breaks -- omitting it falls back to the safe "every point
+    isolated" default, which is honest but would silently turn the live
+    magnetization plot into scatter-only forever, never showing even a
+    clamped batch's genuine same-chain runs. Exactly the kind of gap R19
+    warned about: a renderer's own unit tests give zero coverage of
+    whether its one real caller actually wires up what it needs."""
+    src = (REPO_ROOT / "demo" / "lattice_app.py").read_text()
+    assert "list(self.magnetization_trace.chain_breaks)" in src, (
+        "the live magnetization renderer call does not wire up "
+        "chain_breaks from magnetization_trace")
+
+
+# ---------------------------------------------------------------------------
+# C-1: render_acf_plot is the SCOPE panel's live tau/ACF renderer, and its
+# only possible input (self.energy_trace) is never a single Markov chain's
+# own successive draws -- it is either independent restarts (unclamped,
+# one sample per chain per tick) or independent parallel chains flattened
+# chain-major (clamped batches). tsu.ess's own module contract says a
+# caller "must NOT flatten multiple chains into one series" before calling
+# its single-chain estimator. R19 found NO test anywhere calls
+# render_acf_plot with data shaped like the live app's real energy_trace --
+# this is that caller/contract-boundary test, not another estimator test
+# (test_ess.py's own estimator tests are already potent per R19; they give
+# zero coverage of this boundary).
+# ---------------------------------------------------------------------------
+
+def _app_realistic_chain_concatenated_series(tmp_path, n_ticks=30, n_chains=4):
+    """Exactly the shape self.energy_trace is actually built from by
+    SampleWorker._run_unclamped_tick: N independent restarts (fresh seed,
+    short warmup, one sample per chain each), concatenated end to end in
+    arrival order -- never one chain's own successive draws."""
+    from tsu.passes.search import compile_spec
+    from tsu.receipt import write_receipt
+    from tsu.spec import load_spec
+    from tsu.target import Z1
+    from tsu.simulate import reconstruct_program
+    from tsu.backends.thrml_backend import sample_chains
+
+    c = compile_spec(load_spec(str(REPO_ROOT / "specs" / "toy.yaml")), Z1)
+    d = write_receipt(c, tmp_path / "r")
+    prog = reconstruct_program(d)
+    im = prog.ising
+
+    def _energy(row):
+        s = 2.0 * row.astype(float) - 1.0
+        total = im.offset
+        total -= float((im.biases * s).sum())
+        for k, (u, v) in enumerate(im.edges):
+            total -= im.weights[k] * s[u] * s[v]
+        return total
+
+    series = []
+    for tick_seed in range(n_ticks):
+        rows = sample_chains(prog, n_chains=n_chains, n_samples=1, n_warmup=20,
+                             steps_per_sample=2, seed=tick_seed)
+        for row in rows.reshape(-1, rows.shape[-1]):
+            series.append(_energy(row))
+    return series
+
+
+def test_render_acf_plot_never_calls_the_single_chain_estimator(tmp_path, monkeypatch):
+    """Before the fix, render_acf_plot called tsu.ess's single-chain
+    estimator (integrated_autocorrelation_time, and demo.scope's own
+    autocorrelation wrapper around tsu.ess.autocorrelation) directly on
+    this exact shape of series -- that IS finding C-1: a confident tau/ACF
+    claim computed on data the estimator's own contract rules out, with
+    effective_sample_size's reliability gate unreachable from this call
+    site by construction. This asserts neither is ever called by
+    render_acf_plot, on realistic multi-restart data, regardless of how a
+    future regression might reintroduce the call."""
+    series = _app_realistic_chain_concatenated_series(tmp_path)
+
+    def _boom(*a, **k):
+        raise AssertionError(
+            "render_acf_plot called tsu.ess's single-chain estimator on a "
+            "chain-concatenated series -- C-1 regression")
+
+    # raising=False: the fix removes these as lattice_app-level imports
+    # entirely (render_acf_plot no longer needs them) -- this still must
+    # catch a future regression that reintroduces either name, imported
+    # or not, since render_acf_plot resolves a bare name against its own
+    # module globals at call time regardless of when/whether it was ever
+    # imported at the top of this file.
+    monkeypatch.setattr(la, "integrated_autocorrelation_time", _boom, raising=False)
+    monkeypatch.setattr(la, "autocorrelation", _boom, raising=False)
+
+    img, caption = la.render_acf_plot(200, 100, series)
+    assert "unavailable" in caption.lower()
+    assert "tau~" not in caption
+
+
+# ---------------------------------------------------------------------------
 # Task 7: LAYERS panel pure logic -- band_index_from_name, overlay_pin_patch,
 # composite_missing_layers, grid_to_decoded, and ClampState's per-instance
 # `cycle` override. No Tk. (layer_supports_temperature, formerly tested
@@ -433,6 +712,41 @@ def test_composite_missing_layers_lists_base_and_every_missing_band():
 
 def test_composite_missing_layers_empty_when_everything_present():
     assert la.composite_missing_layers("base-grid", ["b0", "b1", "b2"]) == []
+
+
+# ---------------------------------------------------------------------------
+# F-R12/R13: layers.py's own MANDATORY CAVEAT -- stacking samples
+# p(base)*p(band|base), a directed/ancestral factorization, NEVER the joint
+# Boltzmann distribution over both layers -- existed only in a source
+# docstring and never reached the screen where a composite is displayed.
+# Production change that would make these fail: dropping
+# COMPOSITE_ANCESTRAL_CAVEAT from composite_status_text's return value (the
+# caveat text itself, not merely the words "ancestral"/"directed" in
+# isolation -- the assertions below check the exact governing phrase so a
+# vaguer rewrite that still contains one of those words would not
+# accidentally satisfy this test).
+# ---------------------------------------------------------------------------
+
+def test_composite_status_text_states_the_mandatory_ancestral_factorization_caveat():
+    text = la.composite_status_text(base_is_stale=False)
+    assert "p(base)*p(band|base)" in text
+    assert "directed/ancestral factorization" in text
+    assert "NOT one joint Boltzmann sample" in text
+
+
+def test_composite_status_text_keeps_the_staleness_disclosure_when_base_is_current():
+    """C4: an existing disclosure may not lose prominence -- the caveat
+    must be APPENDED to the pre-existing staleness text, not replace it."""
+    text = la.composite_status_text(base_is_stale=False)
+    assert " -- currently matches base's live decode too" in text
+    assert "directed/ancestral factorization" in text
+
+
+def test_composite_status_text_keeps_the_staleness_disclosure_when_base_is_stale():
+    text = la.composite_status_text(base_is_stale=True)
+    assert ("base has advanced since (streaming continuously); this "
+            "terrain is NOT base's current live decode") in text
+    assert "directed/ancestral factorization" in text
 
 
 def test_grid_to_decoded_uses_gx_y_row_major_convention():
@@ -901,3 +1215,160 @@ def test_render_heatmap_image_handles_all_nan_honestly():
     img, caption = la.render_heatmap_image(200, 200, occ)
     assert img.size == (200, 200)
     assert "unavailable" in caption.lower()
+
+
+# ---------------------------------------------------------------------------
+# P-3/F-A5 + I-9a/F-R7: the TargetProfile schema split. |J| <= 6.0 is
+# Extropic-documented (Thermalizers 2608.01615v1.pdf, Fig. 12 cap-sweep axis
+# annotated "6 (Z1)"); |b| <= 6.0 remains a genuine, unsourced project
+# assumption. FOOTER_TEXT used to disclaim both identically; this is now
+# false for |J|.
+# ---------------------------------------------------------------------------
+
+def test_footer_text_gives_coupling_and_field_caps_distinct_provenance():
+    assert "|J| and |b| caps are assumed project values" not in la.FOOTER_TEXT
+    assert "Extropic-documented" in la.FOOTER_TEXT
+    assert "assumed project value" in la.FOOTER_TEXT.lower()  # |b| still is
+
+
+def test_verification_panel_receipts_mark_coupling_cap_sourced_not_assumed():
+    """Site (f) of the six: the VERIFICATION panel's '(assumed limit)' tag
+    is driven entirely by each receipt's own FROZEN gates.json (read once
+    at startup, never recomputed live -- see Receipt.__init__), not by
+    live gates.py logic. A fresh compile with the fixed gates.py would
+    write coupling_cap.assumed=false -- but this task may never run `tsu
+    compile`, so the checked-in receipts must be corrected directly to
+    match what gates.py now actually computes for the SAME already-frozen
+    measured/limit values (neither of which changes). field_cap stays
+    assumed=true in every receipt -- it is still a genuine assumption."""
+    import json
+    from tsu.target import Z1
+
+    assert Z1.is_assumed("max_abs_coupling") is False
+    assert Z1.is_assumed("max_abs_bias") is True
+
+    receipts_dir = REPO_ROOT / "demo" / "receipts"
+    receipt_dirs = [d for d in receipts_dir.iterdir() if d.is_dir()]
+    assert receipt_dirs, "no receipt directories found"
+    for d in receipt_dirs:
+        gates = json.loads((d / "gates.json").read_text())
+        by_gate = {g["gate"]: g for g in gates}
+        assert by_gate["coupling_cap"]["assumed"] is False, (
+            f"{d.name}/gates.json: coupling_cap still marked assumed=true")
+        assert by_gate["field_cap"]["assumed"] is True, (
+            f"{d.name}/gates.json: field_cap should still be assumed=true")
+        # the underlying MEASUREMENT must be untouched by the provenance fix
+        assert by_gate["coupling_cap"]["limit"] == 6.0
+        assert by_gate["field_cap"]["limit"] == 6.0
+
+
+# ---------------------------------------------------------------------------
+# F-R11 / R19 F2: fmt_value applied blanket 6-significant-figure formatting
+# to SAMPLING-MEASURED proportions (task_validity, codeword_violation_rate)
+# alike with DERIVED/EXACT floats (beta, j_max, onsager_betac, ...).
+# Verified live at n=6400: binomial SE = 0.0054 (task_validity) and 0.0014
+# (codeword_violation_rate) -- roughly three orders of magnitude less
+# precision than a 6-s.f. display claims. The fix is a category distinction
+# (la.Sampled), not a global format change -- an unwrapped float keeps its
+# existing 6-s.f. behaviour exactly.
+#
+# Production change that would make each test fail, and confirmation it
+# does: removing the `isinstance(v, Sampled)` branch from fmt_value (so it
+# falls through to `return str(v)`, since a Sampled instance is neither
+# None/bool/float) -- confirmed directly below by temporarily deleting that
+# branch and rerunning: every "rounds a sampled proportion"/"falls back"
+# test failed on a `Sampled(value=..., uncertainty=...)` repr instead of
+# the expected rounded string, and every "verification_display_value"
+# potency test regressed the same way when its own wrapping branch was
+# disabled in turn.
+# ---------------------------------------------------------------------------
+
+def test_fmt_value_still_gives_derived_exact_floats_six_sig_figs():
+    """Unwrapped floats are untouched -- the fix is a category distinction,
+    never a global format change."""
+    assert la.fmt_value(0.247030958) == "0.247031"
+    assert la.fmt_value(3.14159265) == "3.14159"
+
+
+def test_binomial_se_matches_the_audits_own_verified_numbers():
+    assert la._binomial_se(0.247030958, 6400) == pytest.approx(0.0054, abs=0.0005)
+    assert la._binomial_se(0.0132812, 6400) == pytest.approx(0.0014, abs=0.0005)
+
+
+def test_fmt_value_rounds_a_sampled_task_validity_to_its_binomial_se():
+    se = la._binomial_se(0.247030958, 6400)
+    text = la.fmt_value(la.Sampled(0.247030958, se))
+    assert text == "0.247"           # NOT "0.247031" (the removed 6 s.f.)
+
+
+def test_fmt_value_rounds_a_sampled_codeword_violation_rate_to_its_binomial_se():
+    se = la._binomial_se(0.0132812, 6400)
+    text = la.fmt_value(la.Sampled(0.0132812, se))
+    assert text == "0.013"           # NOT "0.0132812"
+
+
+def test_fmt_value_falls_back_to_a_documented_fixed_precision_with_no_usable_uncertainty():
+    """No fabricated confidence interval: a non-finite/non-positive
+    uncertainty (sample size unknown or invalid) must not keep the removed
+    6-s.f. behaviour, nor invent a precision from nothing -- it falls back
+    to a deliberately conservative, documented fixed precision (3 s.f.).
+    12.3456 is chosen so 3-s.f. ("12.3") is visibly different from both
+    6-s.f. ("12.3456") and from rounding to 3 DECIMALS ("12.346"), so this
+    test can only pass if the fallback path itself ran."""
+    assert la.fmt_value(la.Sampled(12.3456, float("nan"))) == "12.3"
+    assert la.fmt_value(la.Sampled(12.3456, 0.0)) == "12.3"
+    assert la.fmt_value(la.Sampled(12.3456, -1.0)) == "12.3"
+
+
+def test_verification_display_value_wraps_task_validity_using_the_receipts_own_sample_size():
+    cost = {"sampler": {"params": {"n_chains": 32, "n_samples": 200}}}
+    out = la._verification_display_value("task_validity", 0.247030958, {}, cost)
+    assert isinstance(out, la.Sampled)
+    assert out.value == 0.247030958
+    assert out.uncertainty == pytest.approx(la._binomial_se(0.247030958, 6400))
+
+
+def test_verification_display_value_wraps_codeword_violation_rate_the_same_way():
+    cost = {"sampler": {"params": {"n_chains": 32, "n_samples": 200}}}
+    out = la._verification_display_value("codeword_violation_rate", 0.0132812, {}, cost)
+    assert isinstance(out, la.Sampled)
+    assert out.uncertainty == pytest.approx(la._binomial_se(0.0132812, 6400))
+
+
+def test_verification_display_value_wraps_execution_tv_using_its_own_noise_floor():
+    """execution_tv reuses the receipt's OWN already-measured
+    execution_noise_floor -- a real recorded number, never an invented
+    one."""
+    verification = {"execution_noise_floor": 0.0031}
+    out = la._verification_display_value("execution_tv", 0.02, verification, {})
+    assert out == la.Sampled(0.02, 0.0031)
+
+
+def test_verification_display_value_leaves_energy_tv_untouched():
+    """energy_tv is an EXACT enumeration agreement (search.py's own
+    computation compares the IR's energy against the lowered Ising model's
+    over every state, not a finite sample) -- not a sampling-measured
+    proportion, so it must NOT be wrapped, unlike task_validity/
+    codeword_violation_rate/execution_tv."""
+    out = la._verification_display_value("energy_tv", 4.44e-16, {}, {})
+    assert out == 4.44e-16
+
+
+def test_verification_display_value_passes_through_when_sample_size_unavailable():
+    """No fabricated sample size: an infeasible/uncompiled receipt's
+    cost.json (see demo/receipts/l1_infeasible/cost.json) has an EMPTY
+    sampler dict -- task_validity must pass through UNWRAPPED, never
+    wrapped with an invented n."""
+    out = la._verification_display_value("task_validity", 0.5, {}, {"sampler": {}})
+    assert out == 0.5
+    out2 = la._verification_display_value("task_validity", 0.5, {}, {})
+    assert out2 == 0.5
+
+
+def test_verification_display_value_passes_through_non_float_values_unwrapped():
+    """A string ('unavailable: ...') or int must never be wrapped -- only
+    a genuine measured float proportion is a candidate."""
+    cost = {"sampler": {"params": {"n_chains": 32, "n_samples": 200}}}
+    assert la._verification_display_value(
+        "task_validity", "unavailable: not recorded", {}, cost
+    ) == "unavailable: not recorded"

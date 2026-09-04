@@ -100,6 +100,21 @@ def test_clipboard_text_is_a_single_nonempty_string():
     assert text.strip()
 
 
+def test_hardware_gates_section_gives_coupling_and_field_caps_distinct_provenance():
+    """P-3/F-A5 + I-9a/F-R7: section 05 used to say '|J| <= 6.0 and |b| <=
+    6.0 specifically are ASSUMED project values, not sourced Extropic
+    figures -- every place this app displays them says so' -- true for
+    |b|, now false for |J| (Extropic-documented, Thermalizers
+    2608.01615v1.pdf Fig. 12 cap-sweep axis annotated '6 (Z1)'). The old
+    sentence's claim of universal identical treatment is itself the thing
+    that became false."""
+    sections = ex.explainer_sections()
+    body = next(b for t, b in sections if t.startswith("05"))
+    assert "specifically are ASSUMED project values" not in body
+    assert "Extropic-documented" in body
+    assert "ASSUMED project value" in body  # |b| still is
+
+
 def test_explainer_diagram_functions_return_images_of_consistent_size():
     """Static PNGs (numpy/PIL), not live renders -- per the tokens spec's
     own buildability note ('explainer diagrams (static, not live)'). Every

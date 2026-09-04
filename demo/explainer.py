@@ -314,9 +314,11 @@ def explainer_sections() -> list[tuple[str, str]]:
          "utilisation (that one is tagged separately, and the two need not "
          "be the same gate: this receipt's own DEGREE gate currently runs "
          "hotter, at 56%, than the FIELD CAP gate that is actually "
-         "predicted to bind first, at 27%). |J| <= 6.0 and |b| <= 6.0 "
-         "specifically are ASSUMED project values, not sourced Extropic "
-         "figures -- every place this app displays them says so."),
+         "predicted to bind first, at 27%). |J| <= 6.0 is an "
+         "Extropic-documented Z1 hardware cap (Thermalizers paper, Fig. 12 "
+         "cap-sweep, annotated \"6 (Z1)\"); |b| <= 6.0 remains an ASSUMED "
+         "project value, not a sourced Extropic figure -- every place this "
+         "app displays either cap says which is which."),
 
         ("06  WHY SOME READOUTS SAY 'unavailable'",
          "This is the one most worth reading carefully: an 'unavailable: "

@@ -90,6 +90,11 @@
     "source": "assumed",
     "quote": "project working value; NOT a sourced Extropic figure"
   },
+  "max_abs_bias": {
+    "value": 6.0,
+    "source": "assumed",
+    "quote": "project working value; NOT a sourced Extropic figure"
+  },
   "coupling_bits": {
     "value": 6,
     "source": "assumed",

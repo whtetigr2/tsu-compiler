@@ -41,6 +41,7 @@ import math
 import queue
 import random
 import sys
+import tempfile
 import threading
 import time
 import tkinter as tk
@@ -61,6 +62,18 @@ DEMO_DIR = REPO_ROOT / "demo"
 RECEIPT_DIR = DEMO_DIR / "receipts" / "small"
 OVERLAY_RECEIPT_DIR = DEMO_DIR / "receipts" / "elev_band"  # Task 7: elevation bands
 WORLDS_DIR = DEMO_DIR / "worlds"
+
+# RP-1: demo/receipts/small (RECEIPT_DIR above) is git-tracked, frozen
+# compile-time evidence -- program.json, verification.json, etc, written
+# ONCE by `tsu compile` and never touched again. SampleWorker's clamped
+# path calls `tsu.simulate.simulate()` once per pin change, and that call
+# writes a simulation.json purely as a side effect this app never reads
+# back (it uses simulate()'s returned samples directly) -- so that output
+# belongs nowhere near RECEIPT_DIR. tempfile.gettempdir() (not a repo
+# path) with a fixed, reused name so a long interactive session doesn't
+# accumulate one throwaway directory per pin change/reseed (a fresh
+# SampleWorker is constructed on every one of those, see _start_worker).
+SIM_OUTPUT_DIR = Path(tempfile.gettempdir()) / "tsu_lattice_app_sim_output"
 sys.path.insert(0, str(SRC))
 sys.path.insert(0, str(DEMO_DIR))
 
@@ -73,12 +86,14 @@ from worldfile import save_world  # noqa: E402 -- A2: save/load provenance-carry
 import frontier as frontier_mod  # noqa: E402 -- B1: capacity frontier panel
 import theme  # noqa: E402 -- Task 0: theme foundation, see theme.py's own docstring
 from scope import (beta_to_temperature, temperature_control_state,  # noqa: E402
-                    autocorrelation, magnetization,
-                    energy_histogram, local_field_response, sigmoid,
-                    per_cell_occupancy,
+                    magnetization, energy_histogram, local_field_response,
+                    sigmoid, per_cell_occupancy,
                     MIN_LOCAL_FIELD_BIN_COUNT)  # Task 5/6/8/10
-from tsu.ess import (integrated_autocorrelation_time,  # noqa: E402
-                     RELIABILITY_MIN_N_OVER_TAU)  # SCOPE panel's tau readout
+# C-1 fix: tsu.ess.integrated_autocorrelation_time / RELIABILITY_MIN_N_OVER_TAU
+# and scope.autocorrelation are deliberately NOT imported here any more --
+# render_acf_plot no longer calls tsu.ess's single-chain estimator on this
+# app's live energy_trace (see that function's own docstring for why: the
+# trace can never be one chain's own successive draws).
 from layers import FIELD_CAP, FieldCapExceeded, bias_patch  # noqa: E402 -- Task 7
 from elevation import band_patch, thermometer_level, monotonicity_violations  # noqa: E402
 from elevation_world import render_elevation_world_image  # noqa: E402 -- composite view, reused verbatim
@@ -123,8 +138,10 @@ PASS_ORDER = ("encode", "lower", "analyse", "gate_checks", "place",
               "route", "build_program", "regime", "verify")
 
 FOOTER_TEXT = ("Simulated on CPU via thrml. No TSU silicon. No hardware "
-               "speed or energy claims. |J| and |b| caps are assumed "
-               "project values, not sourced Extropic figures.")
+               "speed or energy claims. |J| <= 6.0 is an Extropic-documented "
+               "Z1 hardware cap (Thermalizers paper, Fig. 12 cap-sweep); "
+               "|b| <= 6.0 is an assumed project value, not a sourced "
+               "Extropic figure.")
 
 # Live sampling parameters used for a CLAMPED batch (after a pin changes).
 # Verified working: simulate("demo/receipts/small", n_chains=6, n_samples=30,
@@ -248,8 +265,6 @@ SCOPE_RAW_DRAWS_MAXLEN = 600                # ring buffer of raw spin rows,
 # feeds local_field_response -- 600 draws * up to ~200 spins/draw pools
 # comfortably past MIN_LOCAL_FIELD_BIN_COUNT per bin without growing
 # unbounded over a long session.
-SCOPE_ACF_MAX_LAG = 40                      # lag window drawn on the
-# semi-log ACF plot; tau is marked separately even if it falls outside it
 SCOPE_ENERGY_HIST_BINS = 24
 SCOPE_LOCAL_FIELD_BINS = 16
 SCOPE_REDRAW_EVERY_N_DRAWS = 5              # throttle: local_field_response
@@ -589,11 +604,19 @@ FRONTIER_GAUGE_LABELS = {
     "node_budget": "NODE BUDGET",
 }
 
-# Verbatim FOOTER_TEXT's own assumed-cap disclosure (not a second, drifting
-# phrasing of the same fact) -- |J| and |b| are project assumptions, not
-# sourced Extropic figures, and every gauge that shows one says so.
-ASSUMED_CAP_NOTE = ("assumed project limit -- |J| and |b| caps are assumed "
-                     "project values, not sourced Extropic figures")
+# P-3/F-A5 + I-9a/F-R7: |J| and |b| no longer share one disclosure -- |J| is
+# Extropic-documented (Thermalizers Fig. 12 cap-sweep, "6 (Z1)"), |b| remains
+# a genuine, unsourced project assumption. Was one ASSUMED_CAP_NOTE constant
+# reused for both gauges (a second, drifting phrasing of FOOTER_TEXT's own
+# claim) -- reusing one string for two now-differently-sourced facts is
+# exactly the bug this split exists to fix, so there are two constants now,
+# each read by only its own gate below.
+COUPLING_CAP_NOTE = ("documented Z1 hardware limit -- |J| <= 6.0 is an "
+                     "Extropic-documented cap (Thermalizers paper, Fig. 12 "
+                     "cap-sweep, annotated \"6 (Z1)\"), not a project "
+                     "assumption")
+FIELD_CAP_NOTE = ("assumed project limit -- |b| <= 6.0 is an assumed "
+                  "project value, not a sourced Extropic figure")
 
 # When a gate's predicted next value sits PAST its own cap, the track is
 # compressed to this fraction of the gauge's width (0..cap) and a hatched
@@ -750,8 +773,10 @@ def frontier_gauge_specs(report: Any) -> list[GaugeSpec]:
                 foot_parts.append(
                     f"OBSERVED ({report.encoding}): |b|max "
                     f"{selected_verified.observed_field:.2f} ({floor_ok})")
-        if h.gate in ("coupling_cap", "field_cap"):
-            foot_parts.append(ASSUMED_CAP_NOTE)
+        if h.gate == "coupling_cap":
+            foot_parts.append(COUPLING_CAP_NOTE)
+        elif h.gate == "field_cap":
+            foot_parts.append(FIELD_CAP_NOTE)
         if h.gate == "node_budget":
             if tag_kind == "ok":
                 foot_parts.append("p-bits are not the constraint here")
@@ -880,6 +905,46 @@ def composite_missing_layers(base_decoded, band_decodeds: Sequence) -> list[str]
         missing.append("base")
     missing.extend(f"band{i}" for i, d in enumerate(band_decodeds) if d is None)
     return missing
+
+
+# F-R12/R13: demo/layers.py's own MANDATORY CAVEAT -- stacking samples
+# p(base)*p(band|base), a DIRECTED/ANCESTRAL factorization, NOT the joint
+# Boltzmann distribution over both layers at once -- used to exist only in
+# a source docstring (demo/layers.py, demo/stacked_world.py) and never
+# reached the screen where a composite is actually displayed. Stated here,
+# reusing layers.py's own wording rather than inventing new phrasing that
+# could drift from it, and kept short enough to survive the layout.
+COMPOSITE_ANCESTRAL_CAVEAT = (
+    "MANDATORY: this stack samples p(base)*p(band|base) -- a directed/"
+    "ancestral factorization, NOT one joint Boltzmann sample.")
+
+
+def composite_status_text(base_is_stale: bool) -> str:
+    """The world-status text shown while the composite layer is on screen
+    -- extracted to a pure function so the C4 requirement (an existing
+    disclosure may not lose prominence) and the new mandatory caveat above
+    are both independently testable without a live Tk app. `base_is_stale`
+    is whether composite_base_grid (the base decode the most-recently-
+    regenerated band was conditioned on) still matches base's current live
+    decode -- see the call site's own long comment for why that, and not
+    self.last_valid_grid, is the correct terrain source.
+
+    The pre-existing staleness disclosure (fix-round-3) is reproduced
+    verbatim below, unchanged and undiminished -- C4 forbids an existing
+    disclosure losing prominence, so the caveat is APPENDED, never
+    substituted for it."""
+    staleness_note = (
+        " -- base has advanced since (streaming continuously); "
+        "this terrain is NOT base's current live decode"
+        if base_is_stale else
+        " -- currently matches base's live decode too")
+    return ("composite: elevation-driven hillshade over the "
+            "base decode the MOST RECENTLY REGENERATED band "
+            "was conditioned on" + staleness_note +
+            " -- the OTHER bands may have been conditioned on "
+            "a DIFFERENT base draw (each band regenerates "
+            "independently; see COMPOSITE VALIDATION below "
+            "for the cross-layer check). " + COMPOSITE_ANCESTRAL_CAVEAT)
 
 
 class LayerState:
@@ -1048,15 +1113,34 @@ class Trace:
     data, no Tk here (see tests/test_frontier.py). `bounds()` is what a
     renderer MUST use to label its axes: the brief is explicit that an
     unlabelled sparkline is decoration, not instrumentation, so no canvas
-    drawing code in this file is allowed to skip calling it."""
+    drawing code in this file is allowed to skip calling it.
+
+    I-2/F-R6 + F1/F-R10: `chain_breaks` is a THIRD parallel ring buffer,
+    one bool per point, recording whether that point may be honestly drawn
+    as a continuation of the point before it. A connected line between two
+    points asserts they are successive draws of ONE physical Markov chain
+    -- true within a clamped batch's own chain-major run, false at every
+    restart and every chain boundary. See `trace_runs` below, which both
+    live renderers (_draw_trace, render_line_plot) call to turn this into
+    actual line segments rather than each re-deriving the grouping."""
 
     def __init__(self, maxlen: int = 300):
         self.xs: deque = deque(maxlen=maxlen)
         self.ys: deque = deque(maxlen=maxlen)
+        self.chain_breaks: deque = deque(maxlen=maxlen)
 
-    def append(self, x: float, y: float) -> None:
+    def append(self, x: float, y: float, chain_break: bool = True) -> None:
+        """chain_break defaults to True -- the SAFE default. A caller that
+        does not explicitly know this point continues the same physical
+        chain as the one before it must never silently get a connected
+        line; that silent assumption is exactly the bug this fix removes.
+        Pass chain_break=False only where continuity is actually true
+        (e.g. valid_frac_trace's own running cumulative statistic, which
+        is a genuine single well-defined sequence, not a physical
+        trajectory sampled from possibly-different chains)."""
         self.xs.append(x)
         self.ys.append(y)
+        self.chain_breaks.append(chain_break)
 
     def __len__(self) -> int:
         return len(self.xs)
@@ -1067,6 +1151,29 @@ class Trace:
         if not self.xs:
             return None
         return (min(self.xs), max(self.xs), min(self.ys), max(self.ys))
+
+
+def trace_runs(chain_breaks: Sequence[bool]) -> list[tuple[int, int]]:
+    """[(start, end_exclusive), ...] index ranges, one per maximal run of
+    points that may be honestly drawn as ONE connected line segment. A run
+    boundary starts at every index whose own chain_breaks value is True --
+    always true, trivially, for index 0 (there is no earlier point to
+    connect it to, regardless of its own flag). This is the ONE place
+    either trace renderer decides what counts as "the same physical
+    chain" -- both `LatticeApp._draw_trace` and `render_line_plot` call
+    this rather than each re-deriving the grouping, which is exactly the
+    duplication-without-a-shared-helper that let F-R10 (the identical bug
+    in a second renderer) go unnoticed after F-R6 was fixed."""
+    runs: list[tuple[int, int]] = []
+    start: int | None = None
+    for i, brk in enumerate(chain_breaks):
+        if start is None or brk:
+            if start is not None:
+                runs.append((start, i))
+            start = i
+    if start is not None:
+        runs.append((start, len(chain_breaks)))
+    return runs
 
 
 def energy_of_draw(im, row) -> float:
@@ -1086,18 +1193,113 @@ def energy_of_draw(im, row) -> float:
     return float(total)
 
 
+@dataclass(frozen=True)
+class Sampled:
+    """F-R11 / R19 F2: marks a float as a SAMPLING-MEASURED value (a
+    proportion, or a TV distance measured against a finite sample) so
+    fmt_value can round it to the precision its own `uncertainty` supports,
+    instead of the blanket 6-significant-figure formatting every other
+    float gets. `uncertainty` must be a REAL, already-computed number -- a
+    binomial standard error (`_binomial_se`), or a noise floor the receipt
+    itself measured (e.g. `execution_noise_floor`) -- NEVER fabricated.
+
+    Verified live at n=6400 (the fixed `_VERIFY_SAMPLE_PARAMS` in
+    passes/search.py: n_chains=32 * n_samples=200): task_validity's
+    binomial SE is 0.0054 and codeword_violation_rate's is 0.0014, against
+    the removed blanket 6-s.f. display -- roughly three orders of
+    magnitude more precision than either measurement supports. A DERIVED/
+    EXACT float (beta, j_max, onsager_betac, energy_tv -- see
+    `_verification_display_value`'s own docstring for why energy_tv is
+    excluded) is never wrapped and keeps its existing precision: the fix
+    is this category distinction, not a global format change."""
+    value: float
+    uncertainty: float
+
+
+def _binomial_se(p: float, n: int) -> float:
+    """Standard error of a proportion measured over n i.i.d. draws --
+    sqrt(p*(1-p)/n). A real, computable uncertainty (never invented)
+    whenever n is a known, positive sample size; NaN otherwise so callers
+    can detect "no usable uncertainty" the same way they detect any other
+    non-finite value, rather than by a separate sentinel."""
+    if not (isinstance(n, int) and n > 0) or not math.isfinite(p):
+        return float("nan")
+    p = min(max(p, 0.0), 1.0)
+    return math.sqrt(p * (1.0 - p) / n)
+
+
+def _fmt_sampled(value: float, uncertainty: float) -> str:
+    """Round `value` to the decimal place its `uncertainty` supports.
+    A non-finite or non-positive uncertainty means no usable sample-size
+    information reached this call -- rather than either fabricating a
+    precision claim or silently keeping the removed blanket 6
+    significant figures, this falls back to a DELIBERATELY conservative,
+    explicitly documented fixed precision: 3 significant figures (chosen
+    to still read as "a real number", while being conspicuously coarser
+    than the removed 6-s.f. default -- there is no receipt-derived
+    justification for any more)."""
+    if not math.isfinite(uncertainty) or uncertainty <= 0:
+        return f"{value:.3g}"
+    decimals = max(0, -math.floor(math.log10(uncertainty)))
+    return f"{value:.{decimals}f}"
+
+
 def fmt_value(v: Any) -> str:
     """Render a receipt scalar for display. A string is ALREADY either a
     real value's repr or an 'unavailable: <reason>' message written by the
     compiler itself (see verification.json/regime.json) -- passed through
-    verbatim either way, never re-interpreted or replaced."""
+    verbatim either way, never re-interpreted or replaced.
+
+    F-R11 / R19 F2: a bare float is DERIVED/EXACT and keeps its full
+    6-significant-figure precision, unchanged. A `Sampled` value is a
+    SAMPLING-MEASURED number and is instead rounded to the precision its
+    own `uncertainty` supports -- see `Sampled`/`_fmt_sampled` above."""
     if v is None:
         return "unavailable: field absent from receipt"
+    if isinstance(v, Sampled):
+        return _fmt_sampled(v.value, v.uncertainty)
     if isinstance(v, bool):
         return str(v)
     if isinstance(v, float):
         return f"{v:.6g}"
     return str(v)
+
+
+def _verification_display_value(key: str, val: Any, verification: dict,
+                                cost: dict) -> Any:
+    """Which value a VERIFICATION-panel row should hand to `fmt_value` for
+    `key` (F-R11 / R19 F2). task_validity/codeword_violation_rate are
+    wrapped as `Sampled` against the SAME sampler params (cost.json's
+    sampler.params.n_chains * n_samples) the receipt's own compile-time
+    verification run actually drew -- never a fabricated sample size, and
+    never present for a receipt whose compile never reached that point
+    (see demo/receipts/l1_infeasible/cost.json: `"sampler": {}`), in which
+    case the value passes through unwrapped. execution_tv reuses its own
+    already-measured `execution_noise_floor` (also a real receipt field,
+    not invented here). energy_tv is deliberately NEVER wrapped: it is an
+    EXACT enumeration agreement (search.py's `_verify` compares the IR's
+    energy against the lowered Ising model's over every reachable state,
+    not a finite sample of it) -- a different kind of number entirely,
+    for which high precision is the correct, honest display (see R3's own
+    "agrees to 4.4e-16" framing). cross_check_tv and the diversity_*
+    fields have no comparable already-recorded uncertainty and are left
+    untouched rather than have one invented for them."""
+    if not isinstance(val, float):
+        return val
+    if key in ("task_validity", "codeword_violation_rate"):
+        params = (cost.get("sampler") or {}).get("params") or {}
+        n_chains, n_samples = params.get("n_chains"), params.get("n_samples")
+        if (isinstance(n_chains, int) and isinstance(n_samples, int)
+                and n_chains > 0 and n_samples > 0):
+            n = n_chains * n_samples
+            return Sampled(val, _binomial_se(val, n))
+        return val
+    if key == "execution_tv":
+        floor = verification.get("execution_noise_floor")
+        if isinstance(floor, float):
+            return Sampled(val, floor)
+        return val
+    return val
 
 
 # --------------------------------------------------------------------------
@@ -1123,6 +1325,12 @@ class Receipt:
         self.regime = load("regime.json")
         self.workload = load("workload.json")
         self.environment = load("environment.json")
+        # F-R11 / R19 F2: cost.json's sampler.params carries the exact
+        # n_chains/n_samples the compile-time verification run drew --
+        # the real, receipt-recorded sample size _verification_display_
+        # value uses to size task_validity/codeword_violation_rate's
+        # display precision, never a fabricated one.
+        self.cost = load("cost.json")
 
         self.spec = load_spec(str(path / "spec.yaml"))
         self.encoding_name = _selected_encoding(path)
@@ -1255,6 +1463,29 @@ def classify_draw(receipt: Receipt, row: np.ndarray, seed: int) -> dict:
             "image": image, "mix": mix}
 
 
+def _chain_break_at(row_idx: int, samples_per_chain: int) -> bool:
+    """I-2/F-R6 + F1/F-R10: True at the FIRST row of every physical chain
+    within one SampleWorker call -- the point that must NOT be drawn as a
+    continuation of whatever the trace already holds. Both
+    `_run_unclamped_tick` and `_run_clamped_batch` share this rather than
+    each re-deriving the chain-major row-index arithmetic separately --
+    that kind of near-identical-but-separately-maintained logic at two
+    call sites is exactly how F-R10 (the same continuity bug, missed in a
+    second renderer) came to exist.
+
+    `_run_clamped_batch`'s own `got` is chain-major flattened
+    (tsu.simulate.simulate -> sample_chains(...).reshape(-1, ...)): row i
+    belongs to chain i // samples_per_chain, so row i starts a new chain
+    exactly when i % samples_per_chain == 0. `_run_unclamped_tick` calls
+    this with samples_per_chain=N_SAMPLES_PER_CALL, which is always 1 (a
+    module constant) -- every row_idx % 1 == 0, so every row is correctly
+    its own chain: N_SAMPLES_PER_CALL==1 means no unclamped row is EVER a
+    genuine continuation of another, structurally, regardless of session
+    length (the same fact C-1's fix already established for why the tau
+    claim had to be dropped rather than reshaped)."""
+    return samples_per_chain <= 0 or row_idx % samples_per_chain == 0
+
+
 def should_abort_batch(*, stopping: bool, paused: bool, is_step: bool) -> bool:
     """UI2: the pure decision inside a batch's row-by-row push loop --
     True means "stop pushing further rows from the batch that is ALREADY
@@ -1354,7 +1585,8 @@ class SampleWorker(threading.Thread):
             except queue.Full:
                 continue
 
-    def _classify_and_push(self, row, seed, sampler_params: dict) -> dict:
+    def _classify_and_push(self, row, seed, sampler_params: dict,
+                           chain_break: bool) -> dict:
         self.draw_counter += 1
         d = classify_draw(self.receipt, row, seed)
         d["draw_idx"] = self.draw_counter
@@ -1363,6 +1595,13 @@ class SampleWorker(threading.Thread):
         # batch to batch, and Save World (below) must record what really
         # produced the saved grid, not what Full speed would have used.
         d["sampler_params"] = sampler_params
+        # I-2/F-R6 + F1/F-R10: whether THIS draw may be honestly drawn as
+        # a continuation of the draw pushed immediately before it -- see
+        # _chain_break_at's own docstring for the chain-major arithmetic
+        # this is computed from. The live SCOPE trace renderers read this
+        # (via Trace.append) instead of assuming every draw continues the
+        # last one.
+        d["chain_break"] = chain_break
         self._put(d)
         return d
 
@@ -1414,14 +1653,16 @@ class SampleWorker(threading.Thread):
             self._put({"kind": "error", "message": str(exc)})
             self.stop_evt.set()
             return
-        for row in rows:
+        for row_idx, row in enumerate(rows):
             # UI2: checked BEFORE pushing, not after -- see
             # should_abort_batch's docstring for why this is the actual
             # responsive-pause fix, not just the speed control.
             if should_abort_batch(stopping=self.stop_evt.is_set(),
                                    paused=self.pause.is_set(), is_step=is_step):
                 return
-            self._classify_and_push(row, seed, sampler_params)
+            self._classify_and_push(
+                row, seed, sampler_params,
+                chain_break=_chain_break_at(row_idx, N_SAMPLES_PER_CALL))
 
     def _run_clamped_batch(self, is_step: bool = False) -> None:
         from tsu.simulate import simulate  # local: keeps this app's only
@@ -1437,17 +1678,20 @@ class SampleWorker(threading.Thread):
                                         n_samples=n_samples,
                                         n_warmup=CLAMP_N_WARMUP,
                                         steps_per_sample=STEPS_PER_SAMPLE,
-                                        seed=seed, clamp=self.clamp)
+                                        seed=seed, clamp=self.clamp,
+                                        output_dir=SIM_OUTPUT_DIR)
         except Exception as exc:  # surfaced in the UI, never swallowed
             self._put({"kind": "error", "message": str(exc)})
             self.stop_evt.set()
             return
         draws = []
-        for row in got:
+        for row_idx, row in enumerate(got):
             if should_abort_batch(stopping=self.stop_evt.is_set(),
                                    paused=self.pause.is_set(), is_step=is_step):
                 break
-            draws.append(self._classify_and_push(row, seed, sampler_params))
+            draws.append(self._classify_and_push(
+                row, seed, sampler_params,
+                chain_break=_chain_break_at(row_idx, n_samples)))
         infeasible, reason = batch_feasibility(draws)
         valid = sum(1 for d in draws if d["kind"] == "valid")
         self._put({"kind": "batch_summary", "infeasible": infeasible, "reason": reason,
@@ -1516,81 +1760,78 @@ PLOT_BAD = _rgb(BAD)
 # where PIL's small bitmap font would be unreadable.
 # --------------------------------------------------------------------------
 
-def render_acf_plot(w: int, h: int, series: Sequence[float],
-                    max_lag: int = SCOPE_ACF_MAX_LAG, floor: float = 1e-3
-                    ) -> tuple[Image.Image, str]:
-    """Semi-log (log-y) autocorrelation plot: x=lag (linear), y=|rho(lag)|
-    on a log scale -- matches Extropic's DTM paper (arXiv 2510.23972)
-    Figure 4b's own semi-log-with-decorrelation-time-marked convention
-    (see demo/scope.py's module docstring). rho values <= `floor` are
-    FLOORED to `floor` so the log axis has something to plot (a log scale
-    cannot show zero or negative values) -- floored points are marked with
-    a small warn-coloured dot so the flooring is visible, not hidden.
-    tau (Sokal's windowed estimate) is marked as a vertical line when it
-    falls within the plotted lag range."""
+def render_acf_plot(w: int, h: int, series: Sequence[float]) -> tuple[Image.Image, str]:
+    """C-1 fix: this panel's only possible input, self.energy_trace, is
+    NEVER one Markov chain's own successive draws -- it cannot be, by
+    construction of the two callers that append to it. Every UNCLAMPED
+    tick (_run_unclamped_tick) is an independent restart: a fresh seed and
+    a fresh n_warmup=300 warmup, contributing exactly one sample per
+    chain, every tick. Every CLAMPED batch (_run_clamped_batch ->
+    tsu.simulate.simulate -> thrml_backend.sample_chains(...).reshape(-1,
+    ...)) flattens n_chains mutually independent parallel chains
+    chain-major into one run of consecutive rows. tsu.ess's own module
+    contract is explicit that this is not a valid input --
+    effective_sample_size's docstring says outright "callers must NOT
+    flatten multiple chains into one series before calling this" -- and
+    this app's live energy_trace is exactly that flattening, every time,
+    with no exception. Previously this function called
+    tsu.ess.integrated_autocorrelation_time (via demo.scope.autocorrelation,
+    and directly) on that series anyway: audit finding C-1, a
+    confident-looking tau/ACF number computed on data the estimator's own
+    contract rules out, with tsu.ess.effective_sample_size's reliability
+    gate unreachable from this call site by construction (this function
+    never called it -- it called integrated_autocorrelation_time
+    directly). There is no way to fix that by reshaping THIS data -- a
+    live, continuously-streaming, restart-heavy panel structurally has no
+    genuine (n_chains, n_samples) buffer of one chain's own draws to
+    offer. So this function no longer calls tsu.ess or demo.scope's
+    autocorrelation machinery at all, on any input, and makes no tau/ACF
+    claim of any kind. A genuine, gated measurement of this receipt's own
+    tau exists -- demo/ess_run.py: one sample_chains() call collecting a
+    real (n_chains, n_samples) buffer, routed through
+    tsu.ess.effective_sample_size so its reliability gate applies -- see
+    the VERIFICATION panel above for that receipt-level, compile-time
+    result; this live panel has no equivalent to show."""
     img = Image.new("RGB", (w, h), PLOT_BG)
     d = ImageDraw.Draw(img)
-    if len(series) < 12:
-        d.text((10, h // 2 - 6), "(not enough draws yet)", fill=PLOT_DIM)
-        return img, "waiting for more draws before an ACF can be estimated..."
-
-    lag_cap = min(max_lag, len(series) - 1)
-    acf = autocorrelation(list(series), max_lag=lag_cap)
-    iat = integrated_autocorrelation_time(np.asarray(series, dtype=float))
-    n = len(series)
-    n_over_tau = (n / iat.tau) if iat.tau > 0 else float("inf")
-
-    pad_l, pad_r, pad_t, pad_b = 40, 8, 8, 16
-    pw, ph = w - pad_l - pad_r, h - pad_t - pad_b
-    ylo, yhi = math.log10(floor), 0.0  # rho[0] == 1.0 always -> log10(1)=0
-
-    def px(lag): return pad_l + (lag / lag_cap) * pw if lag_cap else pad_l
-
-    def py(v):
-        vv = max(v, floor)
-        return pad_t + (1.0 - (math.log10(vv) - ylo) / (yhi - ylo)) * ph
-
-    pts = [(px(k), py(v)) for k, v in enumerate(acf)]
-    if len(pts) >= 2:
-        d.line(pts, fill=PLOT_ACCENT, width=1)
-    for k, v in enumerate(acf):
-        if v <= floor:
-            x, y = px(k), py(v)
-            d.ellipse([x - 1.5, y - 1.5, x + 1.5, y + 1.5], fill=PLOT_WARN)
-
-    tau_in_range = 0 < iat.tau <= lag_cap
-    if tau_in_range:
-        xp = px(iat.tau)
-        d.line([(xp, pad_t), (xp, pad_t + ph)], fill=PLOT_WARN, width=1)
-        d.text((min(xp + 2, w - 40), pad_t), f"tau~{iat.tau:.1f}", fill=PLOT_WARN)
-
-    d.text((pad_l, pad_t), "1.0", fill=PLOT_DIM, anchor="la")
-    d.text((pad_l, pad_t + ph), f"{floor:g}", fill=PLOT_DIM, anchor="la")
-    d.text((pad_l, h - 4), "lag=0", fill=PLOT_DIM, anchor="ls")
-    d.text((w - pad_r, h - 4), f"{lag_cap}", fill=PLOT_DIM, anchor="rs")
-    d.text((w - pad_r, pad_t), "rho (log)", fill=PLOT_DIM, anchor="ra")
-
-    reliable = n_over_tau >= RELIABILITY_MIN_N_OVER_TAU
+    d.text((10, h // 2 - 6), "tau/ACF: unavailable", fill=PLOT_DIM)
     caption = (
-        f"tau~={iat.tau:.2f} (Sokal window={iat.window}"
-        f"{'*, saturated -- see tsu.ess' if iat.window_saturated else ''})"
-        f"{'  (beyond the plotted window)' if not tau_in_range else ''}  "
-        f"N={n}  N/tau={n_over_tau:.3g}  reliability threshold (tsu.ess."
-        f"RELIABILITY_MIN_N_OVER_TAU)=5000: {'MET' if reliable else 'NOT MET'}. "
-        f"This is this LIVE session's own energy trace (ring buffer, "
-        f"maxlen={SCOPE_ENERGY_TRACE_MAXLEN}) -- a SEPARATE measurement from "
-        f"the receipt's own precomputed ess in the VERIFICATION panel above, "
-        f"not a live update of it.")
+        f"unavailable: this LIVE energy trace (ring buffer, "
+        f"maxlen={SCOPE_ENERGY_TRACE_MAXLEN}, N={len(series)} draws so "
+        f"far) is not a single Markov chain's own successive draws -- "
+        f"every unclamped tick restarts fresh (new seed, new warmup, one "
+        f"sample per chain) and every clamped batch flattens n_chains "
+        f"independent parallel chains chain-major, so tsu.ess's "
+        f"autocorrelation/tau estimator (which requires one chain's own "
+        f"draws -- see tsu.ess.effective_sample_size's own docstring) "
+        f"cannot be validly applied to it, at any sample count. See "
+        f"demo/ess_run.py for how a genuine, gated tau measurement looks, "
+        f"and the VERIFICATION panel above for this receipt's own frozen "
+        f"result -- a SEPARATE, compile-time-only measurement this live "
+        f"panel does not and cannot live-update.")
     return img, caption
 
 
 def render_line_plot(w: int, h: int, xs: Sequence[float], ys: Sequence[float],
                      xlabel: str, ylabel: str,
-                     y_range: tuple[float, float] | None = None) -> Image.Image:
+                     y_range: tuple[float, float] | None = None,
+                     chain_breaks: Sequence[bool] | None = None) -> Image.Image:
     """Linear x/y line plot -- used for the magnetization trace, with
     y_range fixed to (-1, 1) (the order parameter's own physical bounds,
     a more honest axis than autoscaling to whatever range happened to be
-    observed so far)."""
+    observed so far).
+
+    F1/F-R10: `chain_breaks` (one bool per point, see Trace/trace_runs)
+    says which points are genuine successive draws of the SAME physical
+    chain -- a magnetization trace is chain-major flattened / restart-
+    interleaved exactly like the energy trace (I-2/F-R6's own fix), so a
+    single polyline through every point regardless of chain_breaks would
+    assert continuous single-trajectory dynamics that do not exist. Every
+    point still gets a small dot marker (drawn regardless of run
+    membership) so an all-singleton-run trace -- the app's default,
+    unclamped mode, where every draw is its own one-sample chain -- still
+    shows something. `chain_breaks=None` (no provenance given) is treated
+    as EVERY point breaking -- the safe default, never assumed-connected."""
     img = Image.new("RGB", (w, h), PLOT_BG)
     d = ImageDraw.Draw(img)
     if len(xs) < 2:
@@ -1608,7 +1849,13 @@ def render_line_plot(w: int, h: int, xs: Sequence[float], ys: Sequence[float],
     def py(y): return pad_t + (1.0 - (y - ymin) / yspan) * ph
 
     pts = [(px(x), py(y)) for x, y in zip(xs, ys)]
-    d.line(pts, fill=PLOT_ACCENT, width=1)
+    breaks = list(chain_breaks) if chain_breaks is not None else [True] * len(pts)
+    for start, end in trace_runs(breaks):
+        if end - start >= 2:
+            d.line(pts[start:end], fill=PLOT_ACCENT, width=1)
+    r = 1.5
+    for x, y in pts:
+        d.ellipse([x - r, y - r, x + r, y + r], fill=PLOT_ACCENT)
     d.text((pad_l, pad_t), f"{ymax:.3g}", fill=PLOT_DIM, anchor="la")
     d.text((pad_l, pad_t + ph), f"{ymin:.3g}", fill=PLOT_DIM, anchor="la")
     d.text((pad_l, h - 4), f"{xlabel}={xmin:.0f}", fill=PLOT_DIM, anchor="ls")
@@ -2116,11 +2363,15 @@ class LatticeApp(tk.Tk):
         self.batch_infeasible = False
         self.batch_reason = ""
 
-        # B2: live traces -- energy over sweeps (every draw, valid or not:
+        # B2: live traces -- energy over draws (every draw, valid or not:
         # mixing is a property of the raw chain, not the conditional-valid
         # subset) and valid fraction over the session (recomputed at the
         # SAME cadence, from self.valid_count/self.total_draws already
         # tracked above). Bounded ring buffers, see Trace's own docstring.
+        # I-2/F-R6: "over draws", not "over sweeps" -- consecutive draws
+        # are routinely from different chains or different restarts
+        # entirely (chain-major flattening / restart-interleaving, see
+        # Trace's own docstring), never one chain's own physical sweep.
         self.energy_trace = Trace(maxlen=SCOPE_ENERGY_TRACE_MAXLEN)
         self.valid_frac_trace = Trace(maxlen=SCOPE_ENERGY_TRACE_MAXLEN)
 
@@ -3006,7 +3257,14 @@ class LatticeApp(tk.Tk):
                     "execution_tv", "cross_check_tv", "diversity_distinct",
                     "diversity_valid_samples", "diversity_reachable"):
             val = v.get(key, None)
-            text = fmt_value(val) if key in v else "unavailable: field absent from receipt"
+            # F-R11 / R19 F2: task_validity/codeword_violation_rate/
+            # execution_tv are SAMPLING-MEASURED -- displayed at the
+            # precision their own (receipt-derived, never fabricated)
+            # uncertainty supports, not a blanket 6 s.f. See
+            # _verification_display_value's own docstring for why
+            # energy_tv is deliberately excluded.
+            text = (fmt_value(_verification_display_value(key, val, v, r.cost))
+                    if key in v else "unavailable: field absent from receipt")
             fg = DIM if isinstance(val, str) else FG
             tk.Label(vf, text=f"{key}: {text}", bg=PANEL_BG, fg=fg,
                       font=(MONO_FAMILY, 8), anchor="w", justify="left", wraplength=395
@@ -3204,7 +3462,7 @@ class LatticeApp(tk.Tk):
                   bg=PANEL_BG, fg=DIM, font=(MONO_FAMILY, 8), anchor="w",
                   justify="left", wraplength=260).pack(fill="x", pady=(0, 8))
 
-        tk.Label(gf, text="ENERGY TRACE (over sweeps)", bg=PANEL_BG, fg=ACCENT,
+        tk.Label(gf, text="ENERGY TRACE (over draws)", bg=PANEL_BG, fg=ACCENT,
                   font=(MONO_FAMILY, 8, "bold"), anchor="w").pack(fill="x")
         self.energy_canvas = tk.Canvas(gf, width=260, height=110, bg=theme.INSET,
                                          highlightthickness=0)
@@ -3220,7 +3478,7 @@ class LatticeApp(tk.Tk):
                             "instrumentation.",
                   bg=PANEL_BG, fg=DIM, font=(MONO_FAMILY, 8), anchor="w",
                   justify="left").pack(fill="x")
-        self._draw_trace(self.energy_canvas, self.energy_trace, "sweep", "energy")
+        self._draw_trace(self.energy_canvas, self.energy_trace, "draw", "energy")
         self._draw_trace(self.valid_frac_canvas, self.valid_frac_trace,
                          "draw", "valid %")
 
@@ -3286,7 +3544,19 @@ class LatticeApp(tk.Tk):
                     ylabel: str) -> None:
         """Redraw one line plot from `trace`'s current contents. Axis
         min/max are read from `trace.bounds()` and drawn as text -- never
-        skipped, per the brief's own instrumentation-not-decoration rule."""
+        skipped, per the brief's own instrumentation-not-decoration rule.
+
+        I-2/F-R6: draws each of `trace_runs(trace.chain_breaks)`'s runs as
+        its own `create_line` call -- never one polyline across a chain or
+        restart boundary, which would assert continuous single-trajectory
+        dynamics between draws that are frequently not even from the same
+        chain (see Trace's own docstring). Every point additionally gets a
+        small dot marker regardless of run membership, so a trace made
+        entirely of one-point runs (unclamped mode, where
+        N_SAMPLES_PER_CALL==1 makes EVERY draw its own chain) still shows
+        something instead of going blank. This method touches no `self.*`
+        attribute -- callable unbound in tests, see
+        tests/test_lattice_app_logic.py."""
         canvas.delete("all")
         w = int(canvas["width"]) or 260
         h = int(canvas["height"]) or 110
@@ -3301,10 +3571,17 @@ class LatticeApp(tk.Tk):
         yspan = (ymax - ymin) or (abs(ymax) or 1.0)
         px = lambda x: pad_l + (x - xmin) / xspan * (w - pad_l - pad_r)
         py = lambda y: h - pad_b - (y - ymin) / yspan * (h - pad_t - pad_b)
-        pts = []
-        for x, y in zip(trace.xs, trace.ys):
-            pts.extend((px(x), py(y)))
-        canvas.create_line(*pts, fill=ACCENT, width=1)
+        xs_list = list(trace.xs)
+        ys_list = list(trace.ys)
+        pts = [(px(x), py(y)) for x, y in zip(xs_list, ys_list)]
+        for start, end in trace_runs(list(trace.chain_breaks)):
+            if end - start >= 2:
+                seg = []
+                for i in range(start, end):
+                    seg.extend(pts[i])
+                canvas.create_line(*seg, fill=ACCENT, width=1)
+        for cx, cy in pts:
+            canvas.create_oval(cx - 1, cy - 1, cx + 1, cy + 1, fill=ACCENT, outline="")
         canvas.create_text(pad_l, pad_t, text=f"{ymax:.4g}", fill=DIM,
                             font=(MONO_FAMILY, 7), anchor="nw")
         canvas.create_text(pad_l, h - pad_b, text=f"{ymin:.4g}", fill=DIM,
@@ -3342,26 +3619,24 @@ class LatticeApp(tk.Tk):
             label.config(text=text)
             _fit_caption_height(label)
 
-        # Minor #7 (fix-round-2): tsu.ess.autocorrelation (reached via
-        # integrated_autocorrelation_time, called inside render_acf_plot)
-        # raises ValueError on an exactly-constant series (zero variance --
-        # autocorrelation is undefined). Every OTHER honesty path in this
-        # panel degrades to an "unavailable: <reason>" caption; this was
-        # the one spot an exception could instead escape the Tk `after`
-        # poll callback and silently kill the whole 80ms poll loop. Guarded
-        # the same way its neighbours already degrade.
-        try:
-            acf_img, acf_caption = render_acf_plot(SCOPE_PLOT_W, SCOPE_PLOT_H, energy_ys)
-        except ValueError as exc:
-            acf_img = Image.new("RGB", (SCOPE_PLOT_W, SCOPE_PLOT_H), PLOT_BG)
-            acf_caption = f"unavailable: {exc}"
+        # C-1 fix: render_acf_plot no longer calls tsu.ess/demo.scope's
+        # autocorrelation machinery at all (see its own docstring for why
+        # this LIVE trace can never be a valid single-chain input) -- it
+        # always returns an honest "unavailable" caption, never raises.
+        # The try/except this call site used to need (a constant series
+        # made the old autocorrelation() path raise ValueError) no longer
+        # applies; every other honesty path in this panel degrades to an
+        # "unavailable: <reason>" caption the same way, without needing a
+        # guard at the call site.
+        acf_img, acf_caption = render_acf_plot(SCOPE_PLOT_W, SCOPE_PLOT_H, energy_ys)
         self.acf_photo = ImageTk.PhotoImage(acf_img)
         self.acf_canvas.itemconfig("plot", image=self.acf_photo)
         _set_caption(self.acf_caption, acf_caption)  # I3: measured, not guessed
 
         mag_img = render_line_plot(
             SCOPE_PLOT_W, SCOPE_PLOT_H, list(self.magnetization_trace.xs),
-            list(self.magnetization_trace.ys), "draw", "M", y_range=(-1.0, 1.0))
+            list(self.magnetization_trace.ys), "draw", "M", y_range=(-1.0, 1.0),
+            chain_breaks=list(self.magnetization_trace.chain_breaks))
         self.mag_photo = ImageTk.PhotoImage(mag_img)
         self.mag_canvas.itemconfig("plot", image=self.mag_photo)
         _set_caption(
@@ -3451,18 +3726,27 @@ class LatticeApp(tk.Tk):
         idx = msg["draw_idx"]
         self._update_lattice(raw)
 
+        # I-2/F-R6 + F1/F-R10: chain_break, as computed by SampleWorker
+        # (_chain_break_at) for THIS specific draw -- missing (msg.get's
+        # default) is treated the same safe way Trace.append's own default
+        # is: never assume continuity with whatever the trace already
+        # holds.
+        chain_break = msg.get("chain_break", True)
+
         # B2: energy trace over EVERY draw (valid or not -- mixing is a
         # property of the raw chain, the same convention the compiler's own
         # verify pass uses, see energy_of_draw's own docstring), plotted
-        # against this app's own running draw counter as "sweep".
-        self.energy_trace.append(self.total_draws, energy_of_draw(self.receipt.im, raw))
+        # against this app's own running draw counter.
+        self.energy_trace.append(self.total_draws, energy_of_draw(self.receipt.im, raw),
+                                 chain_break=chain_break)
 
         # Task 6: magnetization trace and the raw-draw pool for
         # local_field_response -- SAME "every draw, valid or not" convention
         # as the energy trace just above (mixing/the order parameter/the
         # local field are all properties of the raw chain, not of the
         # conditional-valid subset).
-        self.magnetization_trace.append(self.total_draws, magnetization([raw])[0])
+        self.magnetization_trace.append(self.total_draws, magnetization([raw])[0],
+                                        chain_break=chain_break)
         self.raw_draws.append(raw)
 
         if kind == "valid":
@@ -3508,8 +3792,14 @@ class LatticeApp(tk.Tk):
             text=f"valid fraction: {frac:.1f}%  "
                  f"(valid={self.valid_count} contract-fail={self.contract_fail_count} "
                  f"non-codeword={self.noncodeword_count} total={self.total_draws})")
-        self.valid_frac_trace.append(self.total_draws, frac)
-        self._draw_trace(self.energy_canvas, self.energy_trace, "sweep", "energy")
+        # chain_break=False (always connect): unlike energy/magnetization,
+        # this is one genuine cumulative running statistic -- each point
+        # is a well-defined function of the point before it
+        # (valid_count/total_draws so far), not a per-draw physical
+        # quantity sampled from a possibly-different chain. Connecting it
+        # makes no continuity claim about the underlying chains at all.
+        self.valid_frac_trace.append(self.total_draws, frac, chain_break=False)
+        self._draw_trace(self.energy_canvas, self.energy_trace, "draw", "energy")
         self._draw_trace(self.valid_frac_canvas, self.valid_frac_trace,
                          "draw", "valid %")
         if self.active_layer == "base":
@@ -3957,19 +4247,12 @@ class LatticeApp(tk.Tk):
                 self.layer_photo = ImageTk.PhotoImage(disp)
                 self.world_canvas.itemconfig(self.world_image_item, image=self.layer_photo)
                 base_is_stale = not np.array_equal(terrain_grid, self.last_valid_grid)
-                staleness_note = (
-                    " -- base has advanced since (streaming continuously); "
-                    "this terrain is NOT base's current live decode"
-                    if base_is_stale else
-                    " -- currently matches base's live decode too")
+                # F-R12/R13: composite_status_text also states the
+                # MANDATORY ancestral-factorization caveat (layers.py's own
+                # docstring) alongside the pre-existing staleness
+                # disclosure -- see that function's own docstring.
                 self.world_status_label.config(
-                    text="composite: elevation-driven hillshade over the "
-                         "base decode the MOST RECENTLY REGENERATED band "
-                         "was conditioned on" + staleness_note +
-                         " -- the OTHER bands may have been conditioned on "
-                         "a DIFFERENT base draw (each band regenerates "
-                         "independently; see COMPOSITE VALIDATION below "
-                         "for the cross-layer check)",
+                    text=composite_status_text(base_is_stale),
                     fg=(WARN if base_is_stale else DIM))
             self.infeasible_label.config(text="")
             self.save_btn.config(state="disabled")
@@ -4442,7 +4725,7 @@ class LatticeApp(tk.Tk):
         # reasoning as the energy/valid-fraction resets just above).
         self.magnetization_trace = Trace(maxlen=self.magnetization_trace.xs.maxlen)
         self.raw_draws.clear()
-        self._draw_trace(self.energy_canvas, self.energy_trace, "sweep", "energy")
+        self._draw_trace(self.energy_canvas, self.energy_trace, "draw", "energy")
         self._draw_trace(self.valid_frac_canvas, self.valid_frac_trace,
                          "draw", "valid %")
         self._refresh_scope_panel()
@@ -4480,7 +4763,7 @@ class LatticeApp(tk.Tk):
         # energy/valid-fraction traces, not just some of them.
         self.magnetization_trace = Trace(maxlen=self.magnetization_trace.xs.maxlen)
         self.raw_draws.clear()
-        self._draw_trace(self.energy_canvas, self.energy_trace, "sweep", "energy")
+        self._draw_trace(self.energy_canvas, self.energy_trace, "draw", "energy")
         self._draw_trace(self.valid_frac_canvas, self.valid_frac_trace,
                          "draw", "valid %")
         self._refresh_scope_panel()

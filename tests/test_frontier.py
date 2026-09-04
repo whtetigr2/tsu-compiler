@@ -221,6 +221,47 @@ def test_binding_forecast_predicts_field_cap_first_for_small_receipt():
     assert "field_cap" in forecast.headline
 
 
+# ---------------------------------------------------------------------------
+# F-R13: build_frontier_report's own `field_cap` used to read
+# Z1.max_abs_coupling (the |J| cap) and feed it to predict_first_binding_gate,
+# which compares it against predicted_field_one_hot_floor -- a prediction of
+# |b|, NOT |J|. Per gates.py's own convention (field_cap gate <-> max_abs_bias,
+# coupling_cap gate <-> max_abs_coupling) this is the SAME conflation F-R2
+# fixed one file over (demo/layers.py's FIELD_CAP). Both real Z1 fields
+# currently hold 6.0 -- inert, exactly as F-R2 was inert before its fix -- so
+# a test against the real profile alone cannot tell a correct wiring from a
+# wrong one. This builds a synthetic TargetProfile with the two caps
+# deliberately diverged (mirrors tests/test_layers.py's F-R2 test, same
+# 9.0/3.0 values), chosen so the two wirings predict DIFFERENT binding k's:
+#   penalty=10.0 (SMALL's own coefficient_scale=1.0), k0=3 -> field floor is
+#   5*(k-2): 5.0 at k=3, 10.0 at k=4.
+#   correct wiring (field_cap=max_abs_bias=9.0):    5.0<=9.0, 10.0>9.0
+#                                                    -> binds_at_k == 4
+#   buggy wiring   (field_cap=max_abs_coupling=3.0): 5.0>3.0 already
+#                                                    -> binds_at_k == 3
+# so the assertion below can only pass if build_frontier_report genuinely
+# reads max_abs_bias for field_cap.
+# ---------------------------------------------------------------------------
+
+def test_build_frontier_report_field_cap_reads_max_abs_bias_not_max_abs_coupling(
+        monkeypatch):
+    import dataclasses
+    from tsu.target import Sourced
+
+    diverging = dataclasses.replace(
+        fr.Z1,
+        max_abs_bias=Sourced(9.0, "test", "synthetic, this test only"),
+        max_abs_coupling=Sourced(3.0, "test", "synthetic, this test only"),
+    )
+    monkeypatch.setattr(fr, "Z1", diverging)
+
+    report = fr.build_frontier_report(SMALL)
+    assert report.binding.field_binds_at_k == 4, (
+        "field_cap must track TargetProfile.max_abs_bias (9.0 in this "
+        f"synthetic profile), got field_binds_at_k={report.binding.field_binds_at_k!r} "
+        "(3 would mean it is still reading max_abs_coupling=3.0)")
+
+
 def test_build_frontier_report_runs_end_to_end_on_the_small_receipt():
     report = fr.build_frontier_report(SMALL)
     assert report.encoding == "domain_wall"
@@ -230,6 +271,29 @@ def test_build_frontier_report_runs_end_to_end_on_the_small_receipt():
     text = fr.render_text(report)
     assert "FRONTIER" in text
     assert "domain_wall" in text
+
+
+def test_render_text_gives_coupling_and_field_caps_distinct_provenance():
+    """P-3/F-A5 + I-9a/F-R7: render_text's own footer line used to read
+    '|J| <= 6.0 and |b| <= 6.0 are ASSUMED project values, not sourced
+    Extropic figures' -- true for |b|, now false for |J| (Extropic-
+    documented, Thermalizers 2608.01615v1.pdf Fig. 12 cap-sweep, '6 (Z1)')."""
+    report = fr.build_frontier_report(SMALL)
+    text = fr.render_text(report)
+    assert "|J| <= 6.0 and |b| <= 6.0 are ASSUMED project values" not in text
+    assert "Extropic-documented" in text
+    assert "ASSUMED project value" in text  # |b| still is
+
+
+def test_frontier_module_docstring_gives_coupling_and_field_caps_distinct_provenance():
+    """Same fix, the module docstring's own copy of the claim (a third,
+    independently-typed site beyond render_text and frontier_gauge_specs'
+    foot_text -- provenance.md's P-3 counted all three as separate
+    instances of the same disclaimer, not one shared constant)."""
+    doc = fr.__doc__ or ""
+    assert "remain ASSUMED project values, not sourced Extropic figures" not in doc
+    assert "Extropic-documented" in doc
+    assert "ASSUMED project value" in doc
 
 
 # ===========================================================================
@@ -282,6 +346,103 @@ def test_trace_bounds_reports_axis_range():
     t.append(1, -2.0)
     t.append(2, 7.0)
     assert t.bounds() == (0, 2, -2.0, 7.0)
+
+
+# ---------------------------------------------------------------------------
+# I-2/F-R6 + F1/F-R10: the continuity-implying polyline. `_draw_trace`
+# (energy) and `render_line_plot` (magnetization) each used to draw ONE
+# connected polyline through the whole trace regardless of where the data
+# actually came from -- but SampleWorker's own draws are chain-major
+# flattened (a clamped batch) or restart-interleaved (every unclamped
+# tick), so consecutive trace points are routinely NOT successive draws of
+# one physical chain. A connected line asserts continuous single-trajectory
+# dynamics that do not exist. Trace.chain_break is the boundary metadata
+# both renderers now read instead of each re-deriving (or forgetting to
+# derive -- see F-R10's own history) what counts as "the same chain".
+# ---------------------------------------------------------------------------
+
+def test_trace_append_defaults_chain_break_true():
+    """The safe default: a point appended with no explicit provenance must
+    NOT be assumed continuous with the point before it -- a caller that
+    forgets to state chain_break must never silently get a connected line
+    (the exact failure mode this whole fix exists to remove)."""
+    t = la.Trace(maxlen=10)
+    t.append(0, 1.0)
+    assert list(t.chain_breaks) == [True]
+
+
+def test_trace_append_records_explicit_chain_break_value():
+    t = la.Trace(maxlen=10)
+    t.append(0, 1.0, chain_break=True)
+    t.append(1, 2.0, chain_break=False)
+    assert list(t.chain_breaks) == [True, False]
+
+
+def test_trace_chain_breaks_ring_buffer_truncates_alongside_xs_ys():
+    t = la.Trace(maxlen=3)
+    for i in range(5):
+        t.append(i, float(i), chain_break=(i % 2 == 0))
+    assert list(t.xs) == [2, 3, 4]
+    assert list(t.chain_breaks) == [True, False, True]
+
+
+def test_trace_runs_groups_points_into_contiguous_connectable_segments():
+    """The ONE shared boundary-computation helper both _draw_trace and
+    render_line_plot call, rather than each re-deriving the run-grouping
+    logic separately -- that duplication-without-a-shared-helper is
+    literally how F-R10 came to exist (Wave 2 fixed _draw_trace's version
+    of this bug; nobody checked whether render_line_plot had its own copy
+    until Wave 4). chain_break=True at index i means index i must not be
+    connected to index i-1; index 0 always starts a run regardless of its
+    own flag (there is nothing before it to connect to)."""
+    assert la.trace_runs([True, False, False, True, False]) == [(0, 3), (3, 5)]
+    assert la.trace_runs([True, True, True]) == [(0, 1), (1, 2), (2, 3)]
+    assert la.trace_runs([False, False, False]) == [(0, 3)]
+    assert la.trace_runs([]) == []
+
+
+def test_render_line_plot_never_connects_across_a_chain_break():
+    """F1/F-R10: render_line_plot (the magnetization trace's own renderer)
+    must not draw a connecting line between the last point of one physical
+    chain and the first point of the next. Two chains of two points each,
+    at opposite ends of the fixed [-1, 1] y range, so the OLD single
+    polyline (connecting all 4 points in arrival order) would pass directly
+    through the plot's centre; that pixel must stay background once the
+    break between chains is honoured."""
+    xs = [0, 1, 10, 11]
+    ys = [-1.0, -1.0, 1.0, 1.0]
+    chain_breaks = [True, False, True, False]
+    img = la.render_line_plot(300, 150, xs, ys, "draw", "M",
+                              y_range=(-1.0, 1.0), chain_breaks=chain_breaks)
+    # Geometry replicated from render_line_plot's own pad_l=40/pad_r=8/
+    # pad_t=8/pad_b=16 constants: px(5.5)=166, py(0.0)=71 is the midpoint
+    # of the (never-drawn) segment connecting the two chains.
+    cx, cy = 166, 71
+    found_accent = any(
+        _close(img.getpixel((cx + dx, cy + dy)), la.PLOT_ACCENT, tol=10)
+        for dx in (-2, -1, 0, 1, 2) for dy in (-2, -1, 0, 1, 2))
+    assert not found_accent, (
+        "a line was drawn connecting two different chains across the "
+        "plot's centre -- F1/F-R10 regression")
+
+
+def test_render_line_plot_still_connects_within_one_chain():
+    """The fix must not degrade into scatter-only: two points in the SAME
+    run (chain_break=False on the second) still get a connecting line --
+    otherwise a genuine, honestly-continuous clamped-batch chain would be
+    drawn with no more information than restart-interleaved noise."""
+    xs = [0, 1]
+    ys = [-1.0, 1.0]
+    img = la.render_line_plot(300, 150, xs, ys, "draw", "M",
+                              y_range=(-1.0, 1.0), chain_breaks=[True, False])
+    # Only 2 points -> xmin=0, xmax=1, xspan=1: px(0.5) = 40 + 0.5/1*252 =
+    # 166; py(0.0) = 71 (same y math as the test above). The midpoint of
+    # the ONE genuine segment.
+    cx, cy = 166, 71
+    found_accent = any(
+        _close(img.getpixel((cx + dx, cy + dy)), la.PLOT_ACCENT, tol=10)
+        for dx in (-2, -1, 0, 1, 2) for dy in (-2, -1, 0, 1, 2))
+    assert found_accent, "a genuine within-chain segment was not drawn"
 
 
 def test_energy_of_draw_matches_hand_computed_ising_energy():
@@ -432,13 +593,25 @@ def test_frontier_gauge_specs_predicted_labels_name_their_law_never_bare():
                 or "floor" in s.predicted_label)
 
 
-def test_frontier_gauge_specs_assumed_cap_note_appears_for_coupling_and_field():
-    """|J| <= 6.0 and |b| <= 6.0 are ASSUMED project values, not sourced
-    Extropic figures -- every gauge that shows either cap must say so."""
+# P-3/F-A5 + I-9a/F-R7: replaces
+# test_frontier_gauge_specs_assumed_cap_note_appears_for_coupling_and_field,
+# which asserted BOTH gauges say "assumed project value" -- that is now
+# false for coupling_cap. |J| <= 6.0 is Extropic-documented (Thermalizers
+# 2608.01615v1.pdf, Fig. 12 cap-sweep axis annotated "6 (Z1)"); |b| <= 6.0
+# remains a genuine, unsourced project assumption.
+
+def test_frontier_gauge_specs_field_cap_note_still_says_assumed():
     report = _small_report()
     by_gate = {s.gate: s for s in la.frontier_gauge_specs(report)}
-    assert "assumed project value" in by_gate["coupling_cap"].foot_text.lower()
     assert "assumed project value" in by_gate["field_cap"].foot_text.lower()
+
+
+def test_frontier_gauge_specs_coupling_cap_note_says_documented_not_assumed():
+    report = _small_report()
+    by_gate = {s.gate: s for s in la.frontier_gauge_specs(report)}
+    foot = by_gate["coupling_cap"].foot_text.lower()
+    assert "assumed project value" not in foot
+    assert "documented" in foot
 
 
 def test_binding_gate_name_matches_the_reports_own_headline_exactly():

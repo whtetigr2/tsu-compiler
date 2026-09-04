@@ -1,4 +1,5 @@
 import itertools
+import math
 import numpy as np
 import pytest
 
@@ -155,3 +156,63 @@ def test_single_spin_fourth_power_lowers_with_no_couplings():
     for va, vb in itertools.product((0, 1), repeat=2):
         asg = {"a": va, "b": vb}
         assert ising_energy(im, asg) == pytest.approx(brute_energy(m, asg), abs=1e-12)
+
+
+# ---------------------------------------------------------------------------
+# N-1 (R14 / F-R14): lower() validated neither term weights nor beta, so
+# NaN/inf could propagate silently into a "successfully compiled" IsingModel
+# -- the audit's ONLY compute-layer defect (everything else lived in the
+# presentation layer). Mirrors passes/encode.py's validate_coefficient_scale,
+# which already fixed the sibling hole for coefficient_scale and documents
+# WHY `not (x > 0)` (or here, `not math.isfinite(x)`) is required instead of
+# a bare `<=`/`==` comparison: `float('nan') <= 0` and `float('nan') == 0`
+# are both `False` in Python, so a comparison-shaped guard lets NaN straight
+# through.
+#
+# Production change that would make each test below fail: deleting the
+# `_require_finite` call it exercises from `lower()`. Confirmed directly
+# (not just argued) by commenting out each guard and rerunning -- see the
+# fix-round report; both regressed to "no exception raised" (a NaN/inf
+# biases array built successfully) rather than merely a different message,
+# which is the exact silent-garbage-still-looks-compiled failure mode this
+# guards against.
+# ---------------------------------------------------------------------------
+
+def test_nan_term_weight_is_rejected_not_silently_compiled():
+    m = binary_model([Linear(LinearForm({VarRef("a"): 1.0}), math.nan)])
+    with pytest.raises(ValueError, match="finite"):
+        lower(m)
+
+
+def test_infinite_term_weight_is_rejected_not_silently_compiled():
+    m = binary_model([Product(LinearForm({VarRef("a"): 1.0}),
+                              LinearForm({VarRef("b"): 1.0}), math.inf)])
+    with pytest.raises(ValueError, match="finite"):
+        lower(m)
+
+
+def test_nan_beta_is_rejected_not_silently_compiled():
+    """`EnergyModel.beta` unguarded: a NaN beta must raise here, not ride
+    silently into IsingModel.beta and every downstream sampler call."""
+    m = EnergyModel(tuple(Var(n, Binary()) for n in ("a", "b")), (), math.nan)
+    with pytest.raises(ValueError, match="finite"):
+        lower(m)
+
+
+def test_infinite_beta_is_rejected_not_silently_compiled():
+    m = EnergyModel(tuple(Var(n, Binary()) for n in ("a", "b")), (), math.inf)
+    with pytest.raises(ValueError, match="finite"):
+        lower(m)
+
+
+def test_finite_weight_and_beta_still_compile_normally():
+    """Sanity: the new guard must not reject ordinary finite models --
+    otherwise every test above this one in the file would already have
+    caught it, but this pins it explicitly against the exact boundary
+    values (0.0, negative) a naive `not x` or `not (x > 0)`-style guard
+    could wrongly reject."""
+    m = binary_model([Linear(LinearForm({VarRef("a"): 1.0}), 0.0),
+                      Product(LinearForm({VarRef("a"): 1.0}),
+                              LinearForm({VarRef("b"): 1.0}), -3.5)])
+    im = lower(EnergyModel(m.variables, m.terms, 0.5))
+    assert im.beta == 0.5

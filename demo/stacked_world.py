@@ -19,7 +19,8 @@ only). This is a deliberate modelling choice, not an approximation error.
 
 FIELD_CAP (|b| <= 6.0) is an assumed project working value, not a sourced
 Extropic figure -- see demo/layers.py and demo/receipts/small/target.json's
-own "assumed" tag on max_abs_coupling.
+own "assumed" tag on max_abs_bias (F-R2: not max_abs_coupling, the |J| cap,
+which is now Extropic-documented -- see P-3/F-A5 + I-9a/F-R7).
 """
 from __future__ import annotations
 

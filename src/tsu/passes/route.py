@@ -167,6 +167,25 @@ def insert_mediators(ising: IsingModel, report: GraphReport
             mediator_count=0, partition_method="already_bipartite",
             bipartite_after=True, beta_used=beta)
 
+    # N-2 (R14 / F-R14): the same silent-NaN-into-"COMPILED" failure class
+    # as lower.py's N-1, one file over -- IsingModel is a frozen dataclass
+    # constructible directly (this file's own fixtures do exactly that),
+    # so lower()'s guard on `beta` does not by itself protect this entry
+    # point. Checked HERE, past the already-bipartite early-out, because
+    # beta is never actually used in any formula on that path -- it would
+    # be an unnecessary rejection, not a real guard. Every model that
+    # reaches this point WILL mediate at least one edge (a non-bipartite
+    # graph cannot be validly 2-coloured, so at least one within-side edge
+    # survives the partition below), so beta is guaranteed to feed the
+    # gadget formula from here on.
+    if not math.isfinite(beta):
+        raise ValueError(
+            f"insert_mediators cannot compute the mediator gadget "
+            f"(A = arccosh(exp(2*beta*|J|))/(2*beta)) at a non-finite "
+            f"beta={beta!r}; refusing rather than emitting a NaN/inf "
+            f"mediator coupling into a model that would still look "
+            f"successfully compiled")
+
     adj: list[list[int]] = [[] for _ in range(n)]
     for u, v in ising.edges:
         adj[u].append(v)
@@ -192,6 +211,17 @@ def insert_mediators(ising: IsingModel, report: GraphReport
 
         # within-side edge: subdivide through a fresh mediator spin.
         absJ = abs(J)
+        # N-2 (R14 / F-R14): the coupling reaching the gadget formula,
+        # checked at the exact point of use -- see the beta guard above
+        # for the sibling half of this same finding.
+        if not math.isfinite(absJ):
+            raise ValueError(
+                f"insert_mediators cannot mediate edge "
+                f"({ising.nodes[u]!r}, {ising.nodes[v]!r}) with non-finite "
+                f"coupling J={J!r}; the gadget formula "
+                f"(A = arccosh(exp(2*beta*|J|))/(2*beta)) would silently "
+                f"produce a NaN/inf mediator coupling into a model that "
+                f"would still look successfully compiled")
         A = math.acosh(math.exp(2.0 * beta * absJ)) / (2.0 * beta)
         m = next_index
         next_index += 1

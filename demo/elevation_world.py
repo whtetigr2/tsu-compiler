@@ -28,8 +28,9 @@ combined model, and a layer can never be influenced by a layer above it.
 
 FIELD_CAP (|b| <= 6.0) is an ASSUMED project working value (see
 demo/layers.py's own module docstring and demo/receipts/*/target.json's
-"assumed" tag on max_abs_coupling), not a sourced Extropic figure -- every
-value this module prints against it says so.
+"assumed" tag on max_abs_bias -- F-R2: not max_abs_coupling, the |J| cap,
+which is now Extropic-documented; see P-3/F-A5 + I-9a/F-R7), not a sourced
+Extropic figure -- every value this module prints against it says so.
 """
 from __future__ import annotations
 
