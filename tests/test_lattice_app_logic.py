@@ -12,6 +12,8 @@ import re
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEMO = REPO_ROOT / "demo"
 if str(DEMO) not in sys.path:
@@ -1258,3 +1260,115 @@ def test_verification_panel_receipts_mark_coupling_cap_sourced_not_assumed():
         # the underlying MEASUREMENT must be untouched by the provenance fix
         assert by_gate["coupling_cap"]["limit"] == 6.0
         assert by_gate["field_cap"]["limit"] == 6.0
+
+
+# ---------------------------------------------------------------------------
+# F-R11 / R19 F2: fmt_value applied blanket 6-significant-figure formatting
+# to SAMPLING-MEASURED proportions (task_validity, codeword_violation_rate)
+# alike with DERIVED/EXACT floats (beta, j_max, onsager_betac, ...).
+# Verified live at n=6400: binomial SE = 0.0054 (task_validity) and 0.0014
+# (codeword_violation_rate) -- roughly three orders of magnitude less
+# precision than a 6-s.f. display claims. The fix is a category distinction
+# (la.Sampled), not a global format change -- an unwrapped float keeps its
+# existing 6-s.f. behaviour exactly.
+#
+# Production change that would make each test fail, and confirmation it
+# does: removing the `isinstance(v, Sampled)` branch from fmt_value (so it
+# falls through to `return str(v)`, since a Sampled instance is neither
+# None/bool/float) -- confirmed directly below by temporarily deleting that
+# branch and rerunning: every "rounds a sampled proportion"/"falls back"
+# test failed on a `Sampled(value=..., uncertainty=...)` repr instead of
+# the expected rounded string, and every "verification_display_value"
+# potency test regressed the same way when its own wrapping branch was
+# disabled in turn.
+# ---------------------------------------------------------------------------
+
+def test_fmt_value_still_gives_derived_exact_floats_six_sig_figs():
+    """Unwrapped floats are untouched -- the fix is a category distinction,
+    never a global format change."""
+    assert la.fmt_value(0.247030958) == "0.247031"
+    assert la.fmt_value(3.14159265) == "3.14159"
+
+
+def test_binomial_se_matches_the_audits_own_verified_numbers():
+    assert la._binomial_se(0.247030958, 6400) == pytest.approx(0.0054, abs=0.0005)
+    assert la._binomial_se(0.0132812, 6400) == pytest.approx(0.0014, abs=0.0005)
+
+
+def test_fmt_value_rounds_a_sampled_task_validity_to_its_binomial_se():
+    se = la._binomial_se(0.247030958, 6400)
+    text = la.fmt_value(la.Sampled(0.247030958, se))
+    assert text == "0.247"           # NOT "0.247031" (the removed 6 s.f.)
+
+
+def test_fmt_value_rounds_a_sampled_codeword_violation_rate_to_its_binomial_se():
+    se = la._binomial_se(0.0132812, 6400)
+    text = la.fmt_value(la.Sampled(0.0132812, se))
+    assert text == "0.013"           # NOT "0.0132812"
+
+
+def test_fmt_value_falls_back_to_a_documented_fixed_precision_with_no_usable_uncertainty():
+    """No fabricated confidence interval: a non-finite/non-positive
+    uncertainty (sample size unknown or invalid) must not keep the removed
+    6-s.f. behaviour, nor invent a precision from nothing -- it falls back
+    to a deliberately conservative, documented fixed precision (3 s.f.).
+    12.3456 is chosen so 3-s.f. ("12.3") is visibly different from both
+    6-s.f. ("12.3456") and from rounding to 3 DECIMALS ("12.346"), so this
+    test can only pass if the fallback path itself ran."""
+    assert la.fmt_value(la.Sampled(12.3456, float("nan"))) == "12.3"
+    assert la.fmt_value(la.Sampled(12.3456, 0.0)) == "12.3"
+    assert la.fmt_value(la.Sampled(12.3456, -1.0)) == "12.3"
+
+
+def test_verification_display_value_wraps_task_validity_using_the_receipts_own_sample_size():
+    cost = {"sampler": {"params": {"n_chains": 32, "n_samples": 200}}}
+    out = la._verification_display_value("task_validity", 0.247030958, {}, cost)
+    assert isinstance(out, la.Sampled)
+    assert out.value == 0.247030958
+    assert out.uncertainty == pytest.approx(la._binomial_se(0.247030958, 6400))
+
+
+def test_verification_display_value_wraps_codeword_violation_rate_the_same_way():
+    cost = {"sampler": {"params": {"n_chains": 32, "n_samples": 200}}}
+    out = la._verification_display_value("codeword_violation_rate", 0.0132812, {}, cost)
+    assert isinstance(out, la.Sampled)
+    assert out.uncertainty == pytest.approx(la._binomial_se(0.0132812, 6400))
+
+
+def test_verification_display_value_wraps_execution_tv_using_its_own_noise_floor():
+    """execution_tv reuses the receipt's OWN already-measured
+    execution_noise_floor -- a real recorded number, never an invented
+    one."""
+    verification = {"execution_noise_floor": 0.0031}
+    out = la._verification_display_value("execution_tv", 0.02, verification, {})
+    assert out == la.Sampled(0.02, 0.0031)
+
+
+def test_verification_display_value_leaves_energy_tv_untouched():
+    """energy_tv is an EXACT enumeration agreement (search.py's own
+    computation compares the IR's energy against the lowered Ising model's
+    over every state, not a finite sample) -- not a sampling-measured
+    proportion, so it must NOT be wrapped, unlike task_validity/
+    codeword_violation_rate/execution_tv."""
+    out = la._verification_display_value("energy_tv", 4.44e-16, {}, {})
+    assert out == 4.44e-16
+
+
+def test_verification_display_value_passes_through_when_sample_size_unavailable():
+    """No fabricated sample size: an infeasible/uncompiled receipt's
+    cost.json (see demo/receipts/l1_infeasible/cost.json) has an EMPTY
+    sampler dict -- task_validity must pass through UNWRAPPED, never
+    wrapped with an invented n."""
+    out = la._verification_display_value("task_validity", 0.5, {}, {"sampler": {}})
+    assert out == 0.5
+    out2 = la._verification_display_value("task_validity", 0.5, {}, {})
+    assert out2 == 0.5
+
+
+def test_verification_display_value_passes_through_non_float_values_unwrapped():
+    """A string ('unavailable: ...') or int must never be wrapped -- only
+    a genuine measured float proportion is a candidate."""
+    cost = {"sampler": {"params": {"n_chains": 32, "n_samples": 200}}}
+    assert la._verification_display_value(
+        "task_validity", "unavailable: not recorded", {}, cost
+    ) == "unavailable: not recorded"

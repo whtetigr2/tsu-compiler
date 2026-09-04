@@ -1193,18 +1193,113 @@ def energy_of_draw(im, row) -> float:
     return float(total)
 
 
+@dataclass(frozen=True)
+class Sampled:
+    """F-R11 / R19 F2: marks a float as a SAMPLING-MEASURED value (a
+    proportion, or a TV distance measured against a finite sample) so
+    fmt_value can round it to the precision its own `uncertainty` supports,
+    instead of the blanket 6-significant-figure formatting every other
+    float gets. `uncertainty` must be a REAL, already-computed number -- a
+    binomial standard error (`_binomial_se`), or a noise floor the receipt
+    itself measured (e.g. `execution_noise_floor`) -- NEVER fabricated.
+
+    Verified live at n=6400 (the fixed `_VERIFY_SAMPLE_PARAMS` in
+    passes/search.py: n_chains=32 * n_samples=200): task_validity's
+    binomial SE is 0.0054 and codeword_violation_rate's is 0.0014, against
+    the removed blanket 6-s.f. display -- roughly three orders of
+    magnitude more precision than either measurement supports. A DERIVED/
+    EXACT float (beta, j_max, onsager_betac, energy_tv -- see
+    `_verification_display_value`'s own docstring for why energy_tv is
+    excluded) is never wrapped and keeps its existing precision: the fix
+    is this category distinction, not a global format change."""
+    value: float
+    uncertainty: float
+
+
+def _binomial_se(p: float, n: int) -> float:
+    """Standard error of a proportion measured over n i.i.d. draws --
+    sqrt(p*(1-p)/n). A real, computable uncertainty (never invented)
+    whenever n is a known, positive sample size; NaN otherwise so callers
+    can detect "no usable uncertainty" the same way they detect any other
+    non-finite value, rather than by a separate sentinel."""
+    if not (isinstance(n, int) and n > 0) or not math.isfinite(p):
+        return float("nan")
+    p = min(max(p, 0.0), 1.0)
+    return math.sqrt(p * (1.0 - p) / n)
+
+
+def _fmt_sampled(value: float, uncertainty: float) -> str:
+    """Round `value` to the decimal place its `uncertainty` supports.
+    A non-finite or non-positive uncertainty means no usable sample-size
+    information reached this call -- rather than either fabricating a
+    precision claim or silently keeping the removed blanket 6
+    significant figures, this falls back to a DELIBERATELY conservative,
+    explicitly documented fixed precision: 3 significant figures (chosen
+    to still read as "a real number", while being conspicuously coarser
+    than the removed 6-s.f. default -- there is no receipt-derived
+    justification for any more)."""
+    if not math.isfinite(uncertainty) or uncertainty <= 0:
+        return f"{value:.3g}"
+    decimals = max(0, -math.floor(math.log10(uncertainty)))
+    return f"{value:.{decimals}f}"
+
+
 def fmt_value(v: Any) -> str:
     """Render a receipt scalar for display. A string is ALREADY either a
     real value's repr or an 'unavailable: <reason>' message written by the
     compiler itself (see verification.json/regime.json) -- passed through
-    verbatim either way, never re-interpreted or replaced."""
+    verbatim either way, never re-interpreted or replaced.
+
+    F-R11 / R19 F2: a bare float is DERIVED/EXACT and keeps its full
+    6-significant-figure precision, unchanged. A `Sampled` value is a
+    SAMPLING-MEASURED number and is instead rounded to the precision its
+    own `uncertainty` supports -- see `Sampled`/`_fmt_sampled` above."""
     if v is None:
         return "unavailable: field absent from receipt"
+    if isinstance(v, Sampled):
+        return _fmt_sampled(v.value, v.uncertainty)
     if isinstance(v, bool):
         return str(v)
     if isinstance(v, float):
         return f"{v:.6g}"
     return str(v)
+
+
+def _verification_display_value(key: str, val: Any, verification: dict,
+                                cost: dict) -> Any:
+    """Which value a VERIFICATION-panel row should hand to `fmt_value` for
+    `key` (F-R11 / R19 F2). task_validity/codeword_violation_rate are
+    wrapped as `Sampled` against the SAME sampler params (cost.json's
+    sampler.params.n_chains * n_samples) the receipt's own compile-time
+    verification run actually drew -- never a fabricated sample size, and
+    never present for a receipt whose compile never reached that point
+    (see demo/receipts/l1_infeasible/cost.json: `"sampler": {}`), in which
+    case the value passes through unwrapped. execution_tv reuses its own
+    already-measured `execution_noise_floor` (also a real receipt field,
+    not invented here). energy_tv is deliberately NEVER wrapped: it is an
+    EXACT enumeration agreement (search.py's `_verify` compares the IR's
+    energy against the lowered Ising model's over every reachable state,
+    not a finite sample of it) -- a different kind of number entirely,
+    for which high precision is the correct, honest display (see R3's own
+    "agrees to 4.4e-16" framing). cross_check_tv and the diversity_*
+    fields have no comparable already-recorded uncertainty and are left
+    untouched rather than have one invented for them."""
+    if not isinstance(val, float):
+        return val
+    if key in ("task_validity", "codeword_violation_rate"):
+        params = (cost.get("sampler") or {}).get("params") or {}
+        n_chains, n_samples = params.get("n_chains"), params.get("n_samples")
+        if (isinstance(n_chains, int) and isinstance(n_samples, int)
+                and n_chains > 0 and n_samples > 0):
+            n = n_chains * n_samples
+            return Sampled(val, _binomial_se(val, n))
+        return val
+    if key == "execution_tv":
+        floor = verification.get("execution_noise_floor")
+        if isinstance(floor, float):
+            return Sampled(val, floor)
+        return val
+    return val
 
 
 # --------------------------------------------------------------------------
@@ -1230,6 +1325,12 @@ class Receipt:
         self.regime = load("regime.json")
         self.workload = load("workload.json")
         self.environment = load("environment.json")
+        # F-R11 / R19 F2: cost.json's sampler.params carries the exact
+        # n_chains/n_samples the compile-time verification run drew --
+        # the real, receipt-recorded sample size _verification_display_
+        # value uses to size task_validity/codeword_violation_rate's
+        # display precision, never a fabricated one.
+        self.cost = load("cost.json")
 
         self.spec = load_spec(str(path / "spec.yaml"))
         self.encoding_name = _selected_encoding(path)
@@ -3156,7 +3257,14 @@ class LatticeApp(tk.Tk):
                     "execution_tv", "cross_check_tv", "diversity_distinct",
                     "diversity_valid_samples", "diversity_reachable"):
             val = v.get(key, None)
-            text = fmt_value(val) if key in v else "unavailable: field absent from receipt"
+            # F-R11 / R19 F2: task_validity/codeword_violation_rate/
+            # execution_tv are SAMPLING-MEASURED -- displayed at the
+            # precision their own (receipt-derived, never fabricated)
+            # uncertainty supports, not a blanket 6 s.f. See
+            # _verification_display_value's own docstring for why
+            # energy_tv is deliberately excluded.
+            text = (fmt_value(_verification_display_value(key, val, v, r.cost))
+                    if key in v else "unavailable: field absent from receipt")
             fg = DIM if isinstance(val, str) else FG
             tk.Label(vf, text=f"{key}: {text}", bg=PANEL_BG, fg=fg,
                       font=(MONO_FAMILY, 8), anchor="w", justify="left", wraplength=395
