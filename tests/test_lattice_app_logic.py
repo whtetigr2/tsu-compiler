@@ -712,6 +712,41 @@ def test_composite_missing_layers_empty_when_everything_present():
     assert la.composite_missing_layers("base-grid", ["b0", "b1", "b2"]) == []
 
 
+# ---------------------------------------------------------------------------
+# F-R12/R13: layers.py's own MANDATORY CAVEAT -- stacking samples
+# p(base)*p(band|base), a directed/ancestral factorization, NEVER the joint
+# Boltzmann distribution over both layers -- existed only in a source
+# docstring and never reached the screen where a composite is displayed.
+# Production change that would make these fail: dropping
+# COMPOSITE_ANCESTRAL_CAVEAT from composite_status_text's return value (the
+# caveat text itself, not merely the words "ancestral"/"directed" in
+# isolation -- the assertions below check the exact governing phrase so a
+# vaguer rewrite that still contains one of those words would not
+# accidentally satisfy this test).
+# ---------------------------------------------------------------------------
+
+def test_composite_status_text_states_the_mandatory_ancestral_factorization_caveat():
+    text = la.composite_status_text(base_is_stale=False)
+    assert "p(base)*p(band|base)" in text
+    assert "directed/ancestral factorization" in text
+    assert "NOT one joint Boltzmann sample" in text
+
+
+def test_composite_status_text_keeps_the_staleness_disclosure_when_base_is_current():
+    """C4: an existing disclosure may not lose prominence -- the caveat
+    must be APPENDED to the pre-existing staleness text, not replace it."""
+    text = la.composite_status_text(base_is_stale=False)
+    assert " -- currently matches base's live decode too" in text
+    assert "directed/ancestral factorization" in text
+
+
+def test_composite_status_text_keeps_the_staleness_disclosure_when_base_is_stale():
+    text = la.composite_status_text(base_is_stale=True)
+    assert ("base has advanced since (streaming continuously); this "
+            "terrain is NOT base's current live decode") in text
+    assert "directed/ancestral factorization" in text
+
+
 def test_grid_to_decoded_uses_gx_y_row_major_convention():
     import numpy as np
     grid = np.array([[0, 1], [2, 3]])  # grid[y, x]

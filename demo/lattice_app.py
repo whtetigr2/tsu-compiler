@@ -907,6 +907,46 @@ def composite_missing_layers(base_decoded, band_decodeds: Sequence) -> list[str]
     return missing
 
 
+# F-R12/R13: demo/layers.py's own MANDATORY CAVEAT -- stacking samples
+# p(base)*p(band|base), a DIRECTED/ANCESTRAL factorization, NOT the joint
+# Boltzmann distribution over both layers at once -- used to exist only in
+# a source docstring (demo/layers.py, demo/stacked_world.py) and never
+# reached the screen where a composite is actually displayed. Stated here,
+# reusing layers.py's own wording rather than inventing new phrasing that
+# could drift from it, and kept short enough to survive the layout.
+COMPOSITE_ANCESTRAL_CAVEAT = (
+    "MANDATORY: this stack samples p(base)*p(band|base) -- a directed/"
+    "ancestral factorization, NOT one joint Boltzmann sample.")
+
+
+def composite_status_text(base_is_stale: bool) -> str:
+    """The world-status text shown while the composite layer is on screen
+    -- extracted to a pure function so the C4 requirement (an existing
+    disclosure may not lose prominence) and the new mandatory caveat above
+    are both independently testable without a live Tk app. `base_is_stale`
+    is whether composite_base_grid (the base decode the most-recently-
+    regenerated band was conditioned on) still matches base's current live
+    decode -- see the call site's own long comment for why that, and not
+    self.last_valid_grid, is the correct terrain source.
+
+    The pre-existing staleness disclosure (fix-round-3) is reproduced
+    verbatim below, unchanged and undiminished -- C4 forbids an existing
+    disclosure losing prominence, so the caveat is APPENDED, never
+    substituted for it."""
+    staleness_note = (
+        " -- base has advanced since (streaming continuously); "
+        "this terrain is NOT base's current live decode"
+        if base_is_stale else
+        " -- currently matches base's live decode too")
+    return ("composite: elevation-driven hillshade over the "
+            "base decode the MOST RECENTLY REGENERATED band "
+            "was conditioned on" + staleness_note +
+            " -- the OTHER bands may have been conditioned on "
+            "a DIFFERENT base draw (each band regenerates "
+            "independently; see COMPOSITE VALIDATION below "
+            "for the cross-layer check). " + COMPOSITE_ANCESTRAL_CAVEAT)
+
+
 class LayerState:
     """Live, mutable per-layer sampling state for ONE band (or the base --
     see LatticeApp's own base-layer attributes, which stay as they were
@@ -4099,19 +4139,12 @@ class LatticeApp(tk.Tk):
                 self.layer_photo = ImageTk.PhotoImage(disp)
                 self.world_canvas.itemconfig(self.world_image_item, image=self.layer_photo)
                 base_is_stale = not np.array_equal(terrain_grid, self.last_valid_grid)
-                staleness_note = (
-                    " -- base has advanced since (streaming continuously); "
-                    "this terrain is NOT base's current live decode"
-                    if base_is_stale else
-                    " -- currently matches base's live decode too")
+                # F-R12/R13: composite_status_text also states the
+                # MANDATORY ancestral-factorization caveat (layers.py's own
+                # docstring) alongside the pre-existing staleness
+                # disclosure -- see that function's own docstring.
                 self.world_status_label.config(
-                    text="composite: elevation-driven hillshade over the "
-                         "base decode the MOST RECENTLY REGENERATED band "
-                         "was conditioned on" + staleness_note +
-                         " -- the OTHER bands may have been conditioned on "
-                         "a DIFFERENT base draw (each band regenerates "
-                         "independently; see COMPOSITE VALIDATION below "
-                         "for the cross-layer check)",
+                    text=composite_status_text(base_is_stale),
                     fg=(WARN if base_is_stale else DIM))
             self.infeasible_label.config(text="")
             self.save_btn.config(state="disabled")
