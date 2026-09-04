@@ -11,6 +11,7 @@ Therefore  sum b s + sum J s s  ==  -E(x).  The sign flip is applied ONCE, here.
 from __future__ import annotations
 
 import itertools
+import math
 from dataclasses import dataclass
 
 import numpy as np
@@ -21,6 +22,27 @@ from ..ir import Binary, EnergyModel, Linear, Product
 
 class ThreeBodyError(ValueError):
     """A term of order > 2 survived expansion. The model is not pairwise."""
+
+
+def _require_finite(value: float, what: str) -> None:
+    """N-1 (R14 / F-R14): `lower()` used to validate neither term weights
+    nor `EnergyModel.beta` -- a NaN/inf value on either entered a
+    "successfully COMPILED" IsingModel silently, the audit's ONLY
+    compute-layer defect (everything else lived in the presentation
+    layer). Reject at the boundary where the bad value would enter,
+    naming the offending term.
+
+    Unlike `passes/encode.py`'s `validate_coefficient_scale` (which needs
+    the `not (x > 0)` form specifically because `nan > 0` is `False`, so a
+    bare `<= 0` lets NaN through), a pure finiteness check needs no such
+    trick: `math.isfinite(nan)` is already correctly `False`, so a direct
+    `not math.isfinite(value)` is sufficient here.
+    """
+    if not math.isfinite(value):
+        raise ValueError(f"{what} must be finite, got {value!r}; a NaN or "
+                          f"infinite value here would silently produce a "
+                          f"NaN/infinite Ising coefficient in a model that "
+                          f"would still look successfully compiled")
 
 
 @dataclass(frozen=True)
@@ -280,6 +302,18 @@ def lower(model: EnergyModel) -> IsingModel:
         if not isinstance(v.domain, Binary):
             raise ValueError(
                 f"variable {v.name!r} is not binary; run `encode` before `lower`")
+
+    # N-1 (R14 / F-R14): reject a non-finite beta or term weight HERE, at
+    # the boundary where either enters the physical model -- see
+    # `_require_finite`'s own docstring. Every term kind (`Linear`,
+    # `Product`, and any duck-typed term carrying `sympy_expr`) exposes
+    # `.weight` and `.refs()`, so this loop covers all of them uniformly,
+    # before any accumulation below can turn a bad weight into a bad
+    # coefficient.
+    _require_finite(model.beta, "EnergyModel.beta")
+    for i, t in enumerate(model.terms):
+        term_vars = sorted({ref.name for ref in t.refs()})
+        _require_finite(t.weight, f"term {i} (over variables {term_vars!r}) weight")
 
     names = tuple(v.name for v in model.variables)
     idx = {n: i for i, n in enumerate(names)}

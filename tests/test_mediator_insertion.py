@@ -194,3 +194,73 @@ def test_zero_weight_within_side_edge_is_harmless_despite_the_sign_branch():
     mo, mm = _marginal(so, po, [0, 1, 2]), _marginal(sm, pm, [0, 1, 2])
     for k in mo:
         assert mo[k] == pytest.approx(mm[k], abs=1e-9)
+
+
+# ---------------------------------------------------------------------------
+# N-2 (R14 / F-R14): insert_mediators' gadget formula
+# (A = arccosh(exp(2*beta*|J|))/(2*beta)) accepted a NaN/inf coupling (or
+# beta) on a within-side edge and silently produced a NaN/inf mediator
+# coupling in a MediationReport/IsingModel that still looked fine. Same
+# audit finding as N-1 (lower.py), one file over -- and IsingModel is a
+# frozen dataclass constructible directly (every fixture in this file does
+# exactly that), so lower()'s own new guard does not by itself protect this
+# entry point.
+#
+# The triangle topology (a,b,c) is used deliberately, not an arbitrary
+# graph: this file's own test_zero_weight_within_side_edge... above already
+# established (and this is re-confirmed below) that BFS-parity colouring
+# from node 0 leaves edge (b, c) -- i.e. (1, 2) -- as the ONE within-side
+# edge that reaches the gadget formula; (a, b) and (a, c) are cross-side and
+# never touch it. Putting the bad value on (1, 2) is therefore what actually
+# exercises the code path under test, not incidental.
+#
+# Production change that would make each test fail: deleting the
+# `math.isfinite` guard it exercises from `insert_mediators`. Confirmed
+# directly by commenting out each guard and rerunning: both regress to
+# "no exception raised", with the resulting mediator weight silently NaN/
+# inf (checked via med.weights) rather than merely a different error --
+# the exact silent-garbage failure mode this guards against.
+# ---------------------------------------------------------------------------
+
+def test_nan_coupling_on_the_mediated_edge_is_rejected_not_silently_propagated():
+    J = {(0, 1): -1.25, (0, 2): -1.25, (1, 2): math.nan}
+    orig = IsingModel(nodes=("a", "b", "c"), edges=tuple(J),
+                      weights=np.array([J[e] for e in J]),
+                      biases=np.zeros(3), beta=4.0, offset=0.0)
+    report = analyse(orig)
+    assert not report.bipartite
+    with pytest.raises(ValueError, match="finite"):
+        insert_mediators(orig, report)
+
+
+def test_infinite_coupling_on_the_mediated_edge_is_rejected_not_silently_propagated():
+    J = {(0, 1): -1.25, (0, 2): -1.25, (1, 2): math.inf}
+    orig = IsingModel(nodes=("a", "b", "c"), edges=tuple(J),
+                      weights=np.array([J[e] for e in J]),
+                      biases=np.zeros(3), beta=4.0, offset=0.0)
+    report = analyse(orig)
+    with pytest.raises(ValueError, match="finite"):
+        insert_mediators(orig, report)
+
+
+def test_nan_beta_on_a_model_needing_mediation_is_rejected_not_silently_propagated():
+    """Same gadget, the other operand: beta feeds `2*beta*|J|` for every
+    mediated edge, so a NaN/inf beta is just as capable of producing a
+    silent NaN/inf mediator coupling as a bad J is."""
+    orig = _triangle(beta=math.nan, J_value=-1.25)
+    report = analyse(orig)
+    with pytest.raises(ValueError, match="finite"):
+        insert_mediators(orig, report)
+
+
+def test_already_bipartite_graph_tolerates_a_nan_beta():
+    """The gadget formula never runs when no mediation is needed (spec
+    5.3's own early-out), so a non-finite beta on an ALREADY-bipartite
+    model must not be rejected here -- there is nothing beta-dependent to
+    protect on this path (mirrors assert_beta_consistent's own "nothing
+    temperature-dependent baked in" reasoning for an unmediated model)."""
+    im = IsingModel(nodes=("a", "b"), edges=((0, 1),),
+                    weights=np.array([1.0]), biases=np.zeros(2),
+                    beta=math.nan, offset=0.0)
+    med, rep = insert_mediators(im, analyse(im))
+    assert rep.mediator_count == 0
