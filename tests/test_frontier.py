@@ -221,6 +221,47 @@ def test_binding_forecast_predicts_field_cap_first_for_small_receipt():
     assert "field_cap" in forecast.headline
 
 
+# ---------------------------------------------------------------------------
+# F-R13: build_frontier_report's own `field_cap` used to read
+# Z1.max_abs_coupling (the |J| cap) and feed it to predict_first_binding_gate,
+# which compares it against predicted_field_one_hot_floor -- a prediction of
+# |b|, NOT |J|. Per gates.py's own convention (field_cap gate <-> max_abs_bias,
+# coupling_cap gate <-> max_abs_coupling) this is the SAME conflation F-R2
+# fixed one file over (demo/layers.py's FIELD_CAP). Both real Z1 fields
+# currently hold 6.0 -- inert, exactly as F-R2 was inert before its fix -- so
+# a test against the real profile alone cannot tell a correct wiring from a
+# wrong one. This builds a synthetic TargetProfile with the two caps
+# deliberately diverged (mirrors tests/test_layers.py's F-R2 test, same
+# 9.0/3.0 values), chosen so the two wirings predict DIFFERENT binding k's:
+#   penalty=10.0 (SMALL's own coefficient_scale=1.0), k0=3 -> field floor is
+#   5*(k-2): 5.0 at k=3, 10.0 at k=4.
+#   correct wiring (field_cap=max_abs_bias=9.0):    5.0<=9.0, 10.0>9.0
+#                                                    -> binds_at_k == 4
+#   buggy wiring   (field_cap=max_abs_coupling=3.0): 5.0>3.0 already
+#                                                    -> binds_at_k == 3
+# so the assertion below can only pass if build_frontier_report genuinely
+# reads max_abs_bias for field_cap.
+# ---------------------------------------------------------------------------
+
+def test_build_frontier_report_field_cap_reads_max_abs_bias_not_max_abs_coupling(
+        monkeypatch):
+    import dataclasses
+    from tsu.target import Sourced
+
+    diverging = dataclasses.replace(
+        fr.Z1,
+        max_abs_bias=Sourced(9.0, "test", "synthetic, this test only"),
+        max_abs_coupling=Sourced(3.0, "test", "synthetic, this test only"),
+    )
+    monkeypatch.setattr(fr, "Z1", diverging)
+
+    report = fr.build_frontier_report(SMALL)
+    assert report.binding.field_binds_at_k == 4, (
+        "field_cap must track TargetProfile.max_abs_bias (9.0 in this "
+        f"synthetic profile), got field_binds_at_k={report.binding.field_binds_at_k!r} "
+        "(3 would mean it is still reading max_abs_coupling=3.0)")
+
+
 def test_build_frontier_report_runs_end_to_end_on_the_small_receipt():
     report = fr.build_frontier_report(SMALL)
     assert report.encoding == "domain_wall"

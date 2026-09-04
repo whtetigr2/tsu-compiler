@@ -429,7 +429,13 @@ def build_frontier_report(receipt_dir: Path = DEFAULT_RECEIPT_DIR) -> FrontierRe
     pred_degree_next_p = predicted_degree_one_hot(shape.k, shape.worst_partners + 1)
 
     degree_cap = Z1.degree.value
-    field_cap = Z1.max_abs_coupling.value
+    # F-R13: field_cap gates |b| (predicted_field_one_hot_floor, fed to
+    # predict_first_binding_gate just below, is a prediction of |b|, never
+    # |J|) -- so per gates.py's own convention (field_cap <-> max_abs_bias,
+    # coupling_cap <-> max_abs_coupling) this must read max_abs_bias, not
+    # max_abs_coupling. Same conflation F-R2 fixed one file over, in
+    # demo/layers.py's FIELD_CAP.
+    field_cap = Z1.max_abs_bias.value
     binding = predict_first_binding_gate(shape, penalty * coefficient_scale,
                                          degree_cap, field_cap)
 
