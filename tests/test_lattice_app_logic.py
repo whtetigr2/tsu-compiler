@@ -8,6 +8,7 @@ inside LatticeApp.__init__ / main(), never at import time), and every test
 here calls only pure functions/classes, never LatticeApp itself.
 """
 import queue
+import re
 import sys
 from pathlib import Path
 
@@ -434,6 +435,162 @@ def test_run_clamped_batch_never_writes_inside_the_receipt_directory(tmp_path):
     assert after == before, (
         f"receipt dir mutated by the clamped path: "
         f"{[n for n in before if before[n] != after.get(n)]}")
+
+
+# ---------------------------------------------------------------------------
+# I-2/F-R6 + F1/F-R10: the continuity-implying polyline, root cause. A
+# clamped batch flattens CLAMP_N_CHAINS independent parallel chains
+# chain-major (tsu.simulate.simulate -> sample_chains(...).reshape(-1,
+# ...)): row i belongs to chain i // n_samples, so only row i where
+# i % n_samples == 0 genuinely starts a new chain relative to the row
+# pushed immediately before it. An unclamped tick is even stricter --
+# N_SAMPLES_PER_CALL is always 1, so EVERY row is its own one-sample
+# chain, a fresh independent restart of the sampler (fresh seed, fresh
+# n_warmup=300 warmup). These tests exercise SampleWorker's real methods
+# against a real (copied) receipt -- same pattern as the RP-1 tests just
+# above -- and check the chain_break flag SampleWorker attaches to every
+# pushed draw, which is what the trace renderers (tested separately in
+# tests/test_frontier.py) rely on instead of assuming continuity.
+# ---------------------------------------------------------------------------
+
+def _drain(q):
+    msgs = []
+    while True:
+        try:
+            msgs.append(q.get_nowait())
+        except queue.Empty:
+            return msgs
+
+
+def test_run_clamped_batch_marks_chain_break_at_every_chain_boundary(tmp_path):
+    """speed_idx=0 (Slow) -> clamp_samples=3, CLAMP_N_CHAINS=6 -> 18 rows,
+    chain-major: rows 0,3,6,9,12,15 start a new chain (6 chains of 3).
+    Reverting SampleWorker to mark every row a break (or none) would leave
+    the trace renderers technically correct but silently reintroduce
+    exactly the false continuity -- or the false discontinuity -- this fix
+    exists to remove."""
+    d = _copied_receipt_dir(tmp_path)
+    receipt = la.Receipt(d)
+    q = queue.Queue()
+    worker = la.SampleWorker(receipt, q, seed_base=0, clamp={"g0_0": 0}, speed_idx=0)
+    worker._run_clamped_batch()
+    draws = [m for m in _drain(q) if m.get("kind") in
+             ("valid", "contract-fail", "non-codeword")]
+    assert len(draws) == 18
+    expected = [i % 3 == 0 for i in range(18)]
+    actual = [m["chain_break"] for m in draws]
+    assert actual == expected, (
+        f"expected chain_break at rows {[i for i, e in enumerate(expected) if e]}, "
+        f"got chain_break={actual}")
+
+
+def test_run_unclamped_tick_marks_every_row_as_a_chain_break(tmp_path):
+    """N_SAMPLES_PER_CALL is always 1 (a module constant) -- no row from a
+    single unclamped tick is ever a genuine continuation of another; each
+    is a different parallel chain's own single sample. This is the same
+    structural fact C-1's fix (render_acf_plot) already established for
+    why the tau claim had to be dropped entirely rather than reshaped."""
+    d = _copied_receipt_dir(tmp_path)
+    receipt = la.Receipt(d)
+    q = queue.Queue()
+    worker = la.SampleWorker(receipt, q, seed_base=0, speed_idx=2)  # Fast: chains=4
+    worker._run_unclamped_tick()
+    draws = _drain(q)
+    assert len(draws) == 4
+    assert all(m["chain_break"] for m in draws), (
+        f"expected every unclamped row to be its own chain_break, got "
+        f"{[m['chain_break'] for m in draws]}")
+
+
+# ---------------------------------------------------------------------------
+# I-2/F-R6: _draw_trace (the energy trace's own Tk renderer) must honour
+# the same chain_break boundaries. _FakeCanvas stands in for tk.Canvas --
+# _draw_trace touches no `self.*` attribute (its body only uses `canvas`,
+# `trace`, and module-level constants), so it can be called unbound with a
+# throwaway first argument and never needs a real Tk display.
+# ---------------------------------------------------------------------------
+
+class _FakeCanvas:
+    def __init__(self, width=260, height=110):
+        self._cfg = {"width": str(width), "height": str(height)}
+        self.line_calls = []
+        self.oval_calls = []
+
+    def __getitem__(self, key):
+        return self._cfg[key]
+
+    def delete(self, *_a, **_kw):
+        pass
+
+    def create_text(self, *_a, **_kw):
+        pass
+
+    def create_line(self, *coords, **_kw):
+        self.line_calls.append(coords)
+
+    def create_oval(self, *coords, **_kw):
+        self.oval_calls.append(coords)
+
+
+def test_draw_trace_never_draws_one_line_across_a_chain_break():
+    trace = la.Trace(maxlen=10)
+    trace.append(0, 1.0, chain_break=True)
+    trace.append(1, 2.0, chain_break=False)    # continues chain 1
+    trace.append(2, 30.0, chain_break=True)    # NEW chain
+    trace.append(3, 31.0, chain_break=False)   # continues chain 2
+    canvas = _FakeCanvas()
+    la.LatticeApp._draw_trace(None, canvas, trace, "draw", "energy")
+    assert len(canvas.line_calls) == 2, (
+        f"expected one create_line call per physical chain (2 chains of "
+        f"2 points each), got {len(canvas.line_calls)} -- the old code "
+        f"drew every point as ONE connected polyline regardless of "
+        f"chain_break")
+    assert all(len(coords) == 4 for coords in canvas.line_calls)
+
+
+def test_draw_trace_draws_a_marker_for_every_point_even_isolated_ones():
+    """Every point gets a dot regardless of chain membership -- unclamped
+    mode's own N_SAMPLES_PER_CALL==1 makes EVERY draw its own one-point
+    chain (see the SampleWorker test above), so without per-point markers
+    the energy trace would render nothing at all in the app's default,
+    unclamped mode."""
+    trace = la.Trace(maxlen=10)
+    for i in range(4):
+        trace.append(i, float(i), chain_break=True)
+    canvas = _FakeCanvas()
+    la.LatticeApp._draw_trace(None, canvas, trace, "draw", "energy")
+    assert len(canvas.line_calls) == 0
+    assert len(canvas.oval_calls) == 4
+
+
+def test_energy_trace_x_axis_label_is_not_sweep_at_any_call_site():
+    """I-2: 'sweep' implies successive draws step forward one chain's own
+    physical relaxation -- false for a trace that mixes independent
+    restarts and parallel chains (see the chain_break tests above). Every
+    call site drawing the energy trace must use the same honest label its
+    sibling SCOPE traces (valid fraction, magnetization) already use."""
+    src = (REPO_ROOT / "demo" / "lattice_app.py").read_text()
+    calls = re.findall(
+        r'_draw_trace\(self\.energy_canvas, self\.energy_trace, "([^"]+)"', src)
+    assert calls, "no _draw_trace(self.energy_canvas, ...) call sites found"
+    assert all(label == "draw" for label in calls), (
+        f"energy trace x-axis label(s) found: {sorted(set(calls))}")
+
+
+def test_scope_panel_magnetization_render_call_passes_chain_breaks():
+    """F1/F-R10, caller/contract boundary: render_line_plot's own break
+    logic (tested directly in tests/test_frontier.py) is dead code unless
+    its ONE production call site (_refresh_scope_panel's mag_img) actually
+    passes chain_breaks -- omitting it falls back to the safe "every point
+    isolated" default, which is honest but would silently turn the live
+    magnetization plot into scatter-only forever, never showing even a
+    clamped batch's genuine same-chain runs. Exactly the kind of gap R19
+    warned about: a renderer's own unit tests give zero coverage of
+    whether its one real caller actually wires up what it needs."""
+    src = (REPO_ROOT / "demo" / "lattice_app.py").read_text()
+    assert "list(self.magnetization_trace.chain_breaks)" in src, (
+        "the live magnetization renderer call does not wire up "
+        "chain_breaks from magnetization_trace")
 
 
 # ---------------------------------------------------------------------------
