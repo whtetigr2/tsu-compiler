@@ -197,3 +197,23 @@ def test_simulate_beta_override_is_recorded_and_used(tmp_path):
     assert im.beta == pytest.approx(2.5)
     doc = json.loads(path.read_text())
     assert doc["params"]["beta"] == pytest.approx(2.5)
+
+
+# ---------------------------------------------------------------------------
+# RP-1: a receipt directory can be git-tracked, frozen compile-time evidence
+# (demo/receipts/small is exactly this in the live app) -- simulate() must
+# be able to leave it completely untouched when a caller supplies its own
+# output_dir, rather than being forced to write simulation.json into the
+# same directory it was asked to read.
+# ---------------------------------------------------------------------------
+
+def test_simulate_with_output_dir_leaves_the_receipt_directory_untouched(tmp_path):
+    d = _toy_receipt(tmp_path)
+    before = sorted(p.name for p in d.iterdir())
+    out_dir = tmp_path / "sim_output"
+    path, got, im = simulate(d, n_chains=2, n_samples=5, n_warmup=20, seed=0,
+                             output_dir=out_dir)
+    assert path == out_dir / "simulation.json"
+    assert path.exists()
+    assert not (d / "simulation.json").exists()
+    assert sorted(p.name for p in d.iterdir()) == before

@@ -89,7 +89,8 @@ def _physical_clamp(enc, nodes: tuple[str, ...], clamp: Mapping[str, int]) -> di
 def simulate(receipt_dir, *, n_chains: int = 32, n_samples: int = 200,
             n_warmup: int = 400, steps_per_sample: int = 2,
             beta: float | None = None, seed: int = 0,
-            clamp: Mapping[str, int] | None = None):
+            clamp: Mapping[str, int] | None = None,
+            output_dir: str | Path | None = None):
     """Sample an already-compiled receipt's program with fresh parameters.
 
     `clamp`: a WORKLOAD-level {name: value} map. None (the default, no
@@ -108,6 +109,16 @@ def simulate(receipt_dir, *, n_chains: int = 32, n_samples: int = 200,
     computed at -- an override to any OTHER beta would silently sample the
     WRONG couplings, so `assert_beta_consistent` refuses it outright rather
     than letting it through.
+
+    `output_dir`: where `simulation.json` is written. None (the default)
+    writes it into `receipt_dir` itself, unchanged from before this
+    parameter existed -- every current CLI/test caller relies on this.
+    RP-1: `receipt_dir` may be frozen, git-tracked compile-time evidence
+    (e.g. demo/receipts/small, read live by demo/lattice_app.py), and
+    `simulate()` is called from that app once per pin change -- a caller in
+    that position must pass an `output_dir` of its own so ordinary sampling
+    never mutates the receipt directory it was only supposed to read.
+    Created if it does not already exist.
 
     Returns `(simulation.json path, flattened samples array, the IsingModel
     actually sampled)` -- the array is (n_chains*n_samples, n_spins), column
@@ -196,6 +207,8 @@ def simulate(receipt_dir, *, n_chains: int = 32, n_samples: int = 200,
         "decoded_example": example.to_dict(),
         "wall_time_s": wall_time_s,
     }
-    out_path = d / "simulation.json"
+    out_dir = Path(output_dir) if output_dir is not None else d
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / "simulation.json"
     out_path.write_text(json.dumps(doc, indent=2))
     return out_path, got, im

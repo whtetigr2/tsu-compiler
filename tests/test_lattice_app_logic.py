@@ -396,6 +396,47 @@ def test_worker_request_step_sets_the_event():
 
 
 # ---------------------------------------------------------------------------
+# RP-1: SampleWorker._run_clamped_batch is the ONLY live code path that
+# calls tsu.simulate.simulate() -- once per pin change -- against
+# self.receipt.path, which in the real app is demo/receipts/small, a
+# git-tracked, frozen compile-time evidence directory. This is the
+# CALLER, not simulate() itself: it must never leave a mark on the
+# receipt directory it was constructed with, however simulate() itself
+# is capable of behaving when called directly.
+# ---------------------------------------------------------------------------
+
+def _copied_receipt_dir(tmp_path):
+    """A private COPY of the real demo/receipts/small -- same grid-shaped
+    (g{x}_{y}) spec classify_draw expects, so this exercises the actual
+    live code path faithfully, but any write lands on the copy, never on
+    the git-tracked original."""
+    import shutil
+    src = REPO_ROOT / "demo" / "receipts" / "small"
+    dst = tmp_path / "small"
+    shutil.copytree(src, dst)
+    return dst
+
+
+def _snapshot(d):
+    """{filename: bytes} for every file directly in d -- catches an
+    in-place overwrite of an existing tracked file (e.g. simulation.json),
+    which a bare filename-set comparison would miss entirely."""
+    return {p.name: p.read_bytes() for p in d.iterdir() if p.is_file()}
+
+
+def test_run_clamped_batch_never_writes_inside_the_receipt_directory(tmp_path):
+    d = _copied_receipt_dir(tmp_path)
+    before = _snapshot(d)
+    receipt = la.Receipt(d)
+    worker = la.SampleWorker(receipt, queue.Queue(), seed_base=0, clamp={"g0_0": 0})
+    worker._run_clamped_batch()
+    after = _snapshot(d)
+    assert after == before, (
+        f"receipt dir mutated by the clamped path: "
+        f"{[n for n in before if before[n] != after.get(n)]}")
+
+
+# ---------------------------------------------------------------------------
 # Task 7: LAYERS panel pure logic -- band_index_from_name, overlay_pin_patch,
 # composite_missing_layers, grid_to_decoded, and ClampState's per-instance
 # `cycle` override. No Tk. (layer_supports_temperature, formerly tested

@@ -41,6 +41,7 @@ import math
 import queue
 import random
 import sys
+import tempfile
 import threading
 import time
 import tkinter as tk
@@ -61,6 +62,18 @@ DEMO_DIR = REPO_ROOT / "demo"
 RECEIPT_DIR = DEMO_DIR / "receipts" / "small"
 OVERLAY_RECEIPT_DIR = DEMO_DIR / "receipts" / "elev_band"  # Task 7: elevation bands
 WORLDS_DIR = DEMO_DIR / "worlds"
+
+# RP-1: demo/receipts/small (RECEIPT_DIR above) is git-tracked, frozen
+# compile-time evidence -- program.json, verification.json, etc, written
+# ONCE by `tsu compile` and never touched again. SampleWorker's clamped
+# path calls `tsu.simulate.simulate()` once per pin change, and that call
+# writes a simulation.json purely as a side effect this app never reads
+# back (it uses simulate()'s returned samples directly) -- so that output
+# belongs nowhere near RECEIPT_DIR. tempfile.gettempdir() (not a repo
+# path) with a fixed, reused name so a long interactive session doesn't
+# accumulate one throwaway directory per pin change/reseed (a fresh
+# SampleWorker is constructed on every one of those, see _start_worker).
+SIM_OUTPUT_DIR = Path(tempfile.gettempdir()) / "tsu_lattice_app_sim_output"
 sys.path.insert(0, str(SRC))
 sys.path.insert(0, str(DEMO_DIR))
 
@@ -1437,7 +1450,8 @@ class SampleWorker(threading.Thread):
                                         n_samples=n_samples,
                                         n_warmup=CLAMP_N_WARMUP,
                                         steps_per_sample=STEPS_PER_SAMPLE,
-                                        seed=seed, clamp=self.clamp)
+                                        seed=seed, clamp=self.clamp,
+                                        output_dir=SIM_OUTPUT_DIR)
         except Exception as exc:  # surfaced in the UI, never swallowed
             self._put({"kind": "error", "message": str(exc)})
             self.stop_evt.set()
