@@ -29,7 +29,9 @@ section 3.1). See that function's own docstring.
 
 FIELD_CAP (|b| <= 6.0) is an assumed project working value, not a sourced
 Extropic figure -- see demo/layers.py and demo/receipts/small/target.json's
-own "assumed" tag on max_abs_coupling. `strength` in `band_patch` is an
+own "assumed" tag on max_abs_bias (F-R2: not max_abs_coupling, the |J| cap,
+which is now Extropic-documented -- see P-3/F-A5 + I-9a/F-R7). `strength`
+in `band_patch` is an
 unscaled per-cell nudge; callers driving this through demo/layers.bias_patch
 get FieldCapExceeded for free if a chosen strength pushes |b|max over cap.
 """
