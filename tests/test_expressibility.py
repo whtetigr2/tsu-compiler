@@ -20,6 +20,29 @@ def test_squared_deviation_is_exact():
     assert v.distortion is None
 
 
+def test_unregistered_measurement_kind_is_unknown_not_inexpressible():
+    """C4 (code review, 2026-09-04-lattice-rule-taxonomy): `analyse_rule` used
+    to return INEXPRESSIBLE for any measurement kind it simply had no
+    dispatch for -- including `neighbourhood_count`, the generic term
+    template this branch ships (`src/tsu/passes/encode.py`'s
+    `_neighbourhood_count_terms`) and which `audit/expressibility_matrix.md`
+    row #2 measures as EXACT. INEXPRESSIBLE is a claim ("no pairwise form
+    exists") this pass can only make when it has actually analysed the
+    kind's mathematical shape; "I have no dispatch entry for this string" is
+    a different, weaker fact and must say so under its own name (UNKNOWN),
+    never borrow INEXPRESSIBLE's vocabulary."""
+    from tsu.rules import Rule
+    from tsu.passes.expressibility import analyse_rule
+    r = Rule(id="nb_count", rule_class="neighbourhood", scope="neighbourhood",
+             hard=False, weight=0.5,
+             measurement={"kind": "neighbourhood_count", "target": 2, "value": 1},
+             provenance="test")
+    v = analyse_rule(r)
+    assert v.status == "UNKNOWN"
+    assert v.status != "INEXPRESSIBLE"
+    assert "neighbourhood_count" in v.reason
+
+
 def test_one_sided_threshold_is_distorted_and_names_the_distortion():
     """max(0, target - N) has a kink and is not a polynomial at any degree.
     The nearest pairwise form is symmetric, which changes the rule's meaning.
