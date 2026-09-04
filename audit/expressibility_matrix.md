@@ -1,20 +1,21 @@
 # Expressibility Matrix
 
-Plan: `2026-09-04-lattice-rule-taxonomy.md`, Task 3 (Task 4, the auxiliary-
-variable question, extends this document separately). This is the plan's
+Plan: `2026-09-04-lattice-rule-taxonomy.md`, Tasks 3-4. This is the plan's
 **primary output** — knowledge, not a feature. It answers, per rule class,
 "can the pairwise IR (`Linear`/`Product` only, per `src/tsu/ir.py`) express
-this rule's own stated meaning, and at what cost?"
+this rule's own stated meaning, and at what cost?" — and, for the classes
+that cannot, whether an auxiliary variable rescues them.
 
 **Method.** For each of the twelve `tsu.rules.RULE_CLASSES`, the smallest
 concrete instance of that class's characteristic mathematical shape was
 built, lowered through the real compiler pipeline (`tsu.spec.load_spec` /
 `tsu.passes.encode.encode` / `tsu.passes.lower.lower`), and measured via
 `tsu.passes.analyse.analyse`. Every number below was produced by
-`audit/measure_expressibility.py` — re-run it to reproduce every figure in
-this document; none was predicted and left unconfirmed. Where a prediction
-was made ahead of measurement (as the brief specifically requires for
-`statistical`), both the prediction and the measured confirmation are shown.
+`audit/measure_expressibility.py` (Task 3) and `audit/aux_variable_probe.py`
+(Task 4) — re-run them to reproduce every figure in this document; none was
+predicted and left unconfirmed. Where a prediction was made ahead of
+measurement (as the brief specifically requires for `statistical`), both the
+prediction and the measured confirmation are shown.
 
 **Result up front, stated plainly:** of the twelve classes, **9 are EXACT
 in the IR** (no change of meaning going through `Linear`/`Product`), **2 are
@@ -446,6 +447,113 @@ own machinery, not merely argued by hand.
 
 ---
 
+## Task 4 — the auxiliary-variable question
+
+**Probe (as specified):** an auxiliary binary `z` per neighbourhood.
+`z·(target-N)` is `Product(VarRef(z), L, weight)` — pairwise, no
+`ThreeBodyError` concern at all. The open question: can `z` be
+*constrained*, using more pairwise terms, to actually indicate `N < target`
+— without needing another non-pairwise rule to build that constraint?
+
+**Smallest exact-enumeration instance:** 2-cell neighbourhood, `N=x0+x1`,
+`target=1`. Intended `max(0, 1-N)`: `{N=0: 1.0, N=1: 0.0, N=2: 0.0}`.
+
+**Step 1 — ground-state search.** The most general pairwise extension of
+the probe's own stated shape — `Product(z, target-N, weight)` plus the only
+other way to touch `z` without introducing a non-pairwise term,
+`Linear(z, mu)` — was searched over a 156-pair `(weight, mu)` grid.
+**No pair reproduces `max(0, target-N)` exactly.** Representative case
+(`weight=1.0, mu=0.0`):
+
+| x0 | x1 | N | want | got | z* | |
+|---|---|---|---|---|---|---|
+| 0 | 0 | 0 | 1.0 | 0.0 | 0 | **DISAGREE** |
+| 0 | 1 | 1 | 0.0 | 0.0 | 0 | match |
+| 1 | 0 | 1 | 0.0 | 0.0 | 0 | match |
+| 1 | 1 | 2 | 0.0 | -1.0 | 1 | **DISAGREE** (and the wrong *sign* — a reward, not a cost) |
+
+**Step 3 — why this fails structurally, not just on this grid.** Every term
+the probe is allowed to add contains `z` as a factor:
+`Product(z, target-N, weight)` and `Linear(z, mu)` **both** evaluate to 0
+at `z=0`, for **any** `(x0,x1)` and **any** `(weight, mu)`. `z=0` is always
+a legal choice, so:
+
+```
+min_over_z(energy) <= energy(z=0) == 0        for every configuration
+```
+
+But `max(0, target-N)` needs to reach values up to `target` (here, 1.0) —
+**strictly positive** — at maximum deficit. A quantity that is always ≤0
+cannot equal a quantity that is sometimes >0. This is not a search-
+resolution artefact; it is a structural property of "every added term
+contains `z` as a factor," and it holds for **any** `(weight, mu)`.
+
+**This generalises past one auxiliary.** Replace `z` with any finite set
+`z_1..z_k`, each entering only as a factor in a product term (the probe's
+own shape, extended). The all-zero point `z_1=...=z_k=0` still zeroes
+every such term, so the same `min_over_z <= 0` argument applies verbatim.
+Escaping it requires a term that is **not** purely auxiliary-multiplicative
+— i.e., one that fires based on `[N < target]` without going through an
+auxiliary that can be switched off for free. Building that term correctly
+**is** the one-sided-threshold problem this probe set out to solve. **The
+recursion the plan's brief names is real, not a manner of speaking.**
+
+**Step 4 — distribution-level cross-check against the independent oracle**
+(`audit/oracles/exact.py`'s `exact_boltzmann`/`exact_energy`, which does
+not import `src/tsu`). Both models' `(J,b)` were built via
+`tsu.passes.lower.lower` — already independently validated exact by Task
+3's brute-force checks (§§1,7,8,10) — and cross-checked against
+`model.energy()` before being handed to the oracle, so nothing here depends
+on trusting `lower()` blindly. (An earlier version of this check
+hand-derived `(J,b)` directly and silently mis-collected a same-spin square
+`s_i^2` as a linear bias term — exactly the "second, weaker computation"
+class of bug `src/tsu/passes/encode.py`'s own docstrings warn against. The
+bug was caught by the same-style sanity check now baked into the script,
+not by inspection, and the script has been corrected accordingly.)
+
+At `beta=1.0`:
+
+| | (0,0) | (0,1) | (1,0) | (1,1) |
+|---|---|---|---|---|
+| aux-model marginal P(x0,x1) | 0.1505 | 0.2201 | 0.2201 | **0.4092** |
+| `(target-N)^2` reference | 0.1345 | 0.3655 | 0.3655 | 0.1345 |
+
+The reference distribution matches the already-known `morphology`
+distortion exactly: N=0 (deficit) and N=2 (surplus, the "exactly"
+side-effect) are **equally** disfavoured relative to N=1 — symmetric, as
+Task 3 measured. The aux-model marginal is neither this nor the intended
+one-sided rule: it most favours `(1,1)` (N=2, where the intended penalty is
+**zero**), the opposite of tracking a deficit. `z`'s free escape to 0 does
+not merely blur the deficit signal — it inverts which configuration looks
+most attractive.
+
+### Verdict: FAILS
+
+The single/finite-auxiliary `z·(target-N)` probe does not reproduce
+`max(0, target-N)` — not at the ground-state level (exact enumeration, all
+4 states checked, 2 of 4 disagree, one with the wrong sign), not at the
+full-distribution level (independent oracle, marginal favours the wrong
+state), and not for any tested `(weight, mu)` (156-pair grid, zero matches)
+— and a general structural argument (§ Step 3) explains precisely why no
+choice ever could: the auxiliary always has a free, energy-preserving
+escape to 0, while the rule it is meant to encode needs a strictly positive
+value at maximum deficit.
+
+**This is the plan's own predicted "most valuable single finding"** — a
+negative result that bounds what a pairwise substrate can express. It does
+**not** by itself prove no auxiliary-variable escape exists for one-sided
+rules in general: a genuinely different mechanism (e.g. a multi-bit slack
+variable turning the inequality into an equality over a wide-enough range —
+the standard QUBO technique for `<=`-constraints, structurally distinct
+from a single multiplicative indicator) was **not** tested here, and is
+flagged as `UNRESOLVED: would need its own probe, at O(target) extra spins
+per neighbourhood rather than O(1), to determine whether it reproduces the
+correct energy landscape and at what additional degree/|J|/|b| cost` —
+recorded as open rather than guessed at, per this plan's own epistemic
+discipline.
+
+---
+
 ## Cross-cutting findings
 
 1. **The three "most likely to bite" items, resolved:**
@@ -484,9 +592,20 @@ own machinery, not merely argued by hand.
    production spec. This matrix's one negative-IR verdict is exercised by
    the actual guard rail, not a parallel argument that could drift from it.
 
-4. **`UNRESOLVED` count: 0 of 12 classes.** The two DISTORTED classes
-   (`morphology`, `ecological`) are the natural candidates for Task 4's
-   auxiliary-variable question, appended to this document separately.
+4. **`UNRESOLVED` count: 0 of 12 classes**, 1 explicitly flagged
+   sub-question (the multi-bit slack-variable escape for one-sided
+   thresholds, Task 4's closing note) left open rather than guessed at.
+
+5. **The auxiliary-variable escape does not rescue morphology/ecological.**
+   Task 4's probe (the specific mechanism the plan names — a single
+   multiplicative indicator per neighbourhood) fails structurally, not just
+   on the tested grid: any auxiliary that enters only as a factor in
+   product terms has a free, zero-energy escape at "all auxiliaries off,"
+   which a one-sided rule's maximum-deficit case needs to be strictly
+   positive. `morphology` and `ecological` therefore stay DISTORTED — Task
+   5 should implement their nearest pairwise form (`(target-N)^2`) with the
+   distortion documented on-screen, per the plan's "refuse rather than
+   approximate silently" rule, not attempt this specific rescue.
 
 ---
 
@@ -494,7 +613,8 @@ own machinery, not merely argued by hand.
 
 ```
 PYTHONIOENCODING=utf-8 "C:/Users/whtet/AppData/Local/Python/pythoncore-3.14-64/python.exe" audit/measure_expressibility.py
+PYTHONIOENCODING=utf-8 "C:/Users/whtet/AppData/Local/Python/pythoncore-3.14-64/python.exe" audit/aux_variable_probe.py
 ```
 
-The script is standalone (not a pytest file; `testpaths = ["tests"]` does
-not collect it) and prints every number transcribed into this document.
+Both scripts are standalone (not pytest files; `testpaths = ["tests"]` does
+not collect them) and print every number transcribed into this document.
