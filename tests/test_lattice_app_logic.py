@@ -437,6 +437,85 @@ def test_run_clamped_batch_never_writes_inside_the_receipt_directory(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# C-1: render_acf_plot is the SCOPE panel's live tau/ACF renderer, and its
+# only possible input (self.energy_trace) is never a single Markov chain's
+# own successive draws -- it is either independent restarts (unclamped,
+# one sample per chain per tick) or independent parallel chains flattened
+# chain-major (clamped batches). tsu.ess's own module contract says a
+# caller "must NOT flatten multiple chains into one series" before calling
+# its single-chain estimator. R19 found NO test anywhere calls
+# render_acf_plot with data shaped like the live app's real energy_trace --
+# this is that caller/contract-boundary test, not another estimator test
+# (test_ess.py's own estimator tests are already potent per R19; they give
+# zero coverage of this boundary).
+# ---------------------------------------------------------------------------
+
+def _app_realistic_chain_concatenated_series(tmp_path, n_ticks=30, n_chains=4):
+    """Exactly the shape self.energy_trace is actually built from by
+    SampleWorker._run_unclamped_tick: N independent restarts (fresh seed,
+    short warmup, one sample per chain each), concatenated end to end in
+    arrival order -- never one chain's own successive draws."""
+    from tsu.passes.search import compile_spec
+    from tsu.receipt import write_receipt
+    from tsu.spec import load_spec
+    from tsu.target import Z1
+    from tsu.simulate import reconstruct_program
+    from tsu.backends.thrml_backend import sample_chains
+
+    c = compile_spec(load_spec(str(REPO_ROOT / "specs" / "toy.yaml")), Z1)
+    d = write_receipt(c, tmp_path / "r")
+    prog = reconstruct_program(d)
+    im = prog.ising
+
+    def _energy(row):
+        s = 2.0 * row.astype(float) - 1.0
+        total = im.offset
+        total -= float((im.biases * s).sum())
+        for k, (u, v) in enumerate(im.edges):
+            total -= im.weights[k] * s[u] * s[v]
+        return total
+
+    series = []
+    for tick_seed in range(n_ticks):
+        rows = sample_chains(prog, n_chains=n_chains, n_samples=1, n_warmup=20,
+                             steps_per_sample=2, seed=tick_seed)
+        for row in rows.reshape(-1, rows.shape[-1]):
+            series.append(_energy(row))
+    return series
+
+
+def test_render_acf_plot_never_calls_the_single_chain_estimator(tmp_path, monkeypatch):
+    """Before the fix, render_acf_plot called tsu.ess's single-chain
+    estimator (integrated_autocorrelation_time, and demo.scope's own
+    autocorrelation wrapper around tsu.ess.autocorrelation) directly on
+    this exact shape of series -- that IS finding C-1: a confident tau/ACF
+    claim computed on data the estimator's own contract rules out, with
+    effective_sample_size's reliability gate unreachable from this call
+    site by construction. This asserts neither is ever called by
+    render_acf_plot, on realistic multi-restart data, regardless of how a
+    future regression might reintroduce the call."""
+    series = _app_realistic_chain_concatenated_series(tmp_path)
+
+    def _boom(*a, **k):
+        raise AssertionError(
+            "render_acf_plot called tsu.ess's single-chain estimator on a "
+            "chain-concatenated series -- C-1 regression")
+
+    # raising=False: the fix removes these as lattice_app-level imports
+    # entirely (render_acf_plot no longer needs them) -- this still must
+    # catch a future regression that reintroduces either name, imported
+    # or not, since render_acf_plot resolves a bare name against its own
+    # module globals at call time regardless of when/whether it was ever
+    # imported at the top of this file.
+    monkeypatch.setattr(la, "integrated_autocorrelation_time", _boom, raising=False)
+    monkeypatch.setattr(la, "autocorrelation", _boom, raising=False)
+
+    img, caption = la.render_acf_plot(200, 100, series)
+    assert "unavailable" in caption.lower()
+    assert "tau~" not in caption
+
+
+# ---------------------------------------------------------------------------
 # Task 7: LAYERS panel pure logic -- band_index_from_name, overlay_pin_patch,
 # composite_missing_layers, grid_to_decoded, and ClampState's per-instance
 # `cycle` override. No Tk. (layer_supports_temperature, formerly tested

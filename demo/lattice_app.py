@@ -86,12 +86,14 @@ from worldfile import save_world  # noqa: E402 -- A2: save/load provenance-carry
 import frontier as frontier_mod  # noqa: E402 -- B1: capacity frontier panel
 import theme  # noqa: E402 -- Task 0: theme foundation, see theme.py's own docstring
 from scope import (beta_to_temperature, temperature_control_state,  # noqa: E402
-                    autocorrelation, magnetization,
-                    energy_histogram, local_field_response, sigmoid,
-                    per_cell_occupancy,
+                    magnetization, energy_histogram, local_field_response,
+                    sigmoid, per_cell_occupancy,
                     MIN_LOCAL_FIELD_BIN_COUNT)  # Task 5/6/8/10
-from tsu.ess import (integrated_autocorrelation_time,  # noqa: E402
-                     RELIABILITY_MIN_N_OVER_TAU)  # SCOPE panel's tau readout
+# C-1 fix: tsu.ess.integrated_autocorrelation_time / RELIABILITY_MIN_N_OVER_TAU
+# and scope.autocorrelation are deliberately NOT imported here any more --
+# render_acf_plot no longer calls tsu.ess's single-chain estimator on this
+# app's live energy_trace (see that function's own docstring for why: the
+# trace can never be one chain's own successive draws).
 from layers import FIELD_CAP, FieldCapExceeded, bias_patch  # noqa: E402 -- Task 7
 from elevation import band_patch, thermometer_level, monotonicity_violations  # noqa: E402
 from elevation_world import render_elevation_world_image  # noqa: E402 -- composite view, reused verbatim
@@ -261,8 +263,6 @@ SCOPE_RAW_DRAWS_MAXLEN = 600                # ring buffer of raw spin rows,
 # feeds local_field_response -- 600 draws * up to ~200 spins/draw pools
 # comfortably past MIN_LOCAL_FIELD_BIN_COUNT per bin without growing
 # unbounded over a long session.
-SCOPE_ACF_MAX_LAG = 40                      # lag window drawn on the
-# semi-log ACF plot; tau is marked separately even if it falls outside it
 SCOPE_ENERGY_HIST_BINS = 24
 SCOPE_LOCAL_FIELD_BINS = 16
 SCOPE_REDRAW_EVERY_N_DRAWS = 5              # throttle: local_field_response
@@ -1530,71 +1530,55 @@ PLOT_BAD = _rgb(BAD)
 # where PIL's small bitmap font would be unreadable.
 # --------------------------------------------------------------------------
 
-def render_acf_plot(w: int, h: int, series: Sequence[float],
-                    max_lag: int = SCOPE_ACF_MAX_LAG, floor: float = 1e-3
-                    ) -> tuple[Image.Image, str]:
-    """Semi-log (log-y) autocorrelation plot: x=lag (linear), y=|rho(lag)|
-    on a log scale -- matches Extropic's DTM paper (arXiv 2510.23972)
-    Figure 4b's own semi-log-with-decorrelation-time-marked convention
-    (see demo/scope.py's module docstring). rho values <= `floor` are
-    FLOORED to `floor` so the log axis has something to plot (a log scale
-    cannot show zero or negative values) -- floored points are marked with
-    a small warn-coloured dot so the flooring is visible, not hidden.
-    tau (Sokal's windowed estimate) is marked as a vertical line when it
-    falls within the plotted lag range."""
+def render_acf_plot(w: int, h: int, series: Sequence[float]) -> tuple[Image.Image, str]:
+    """C-1 fix: this panel's only possible input, self.energy_trace, is
+    NEVER one Markov chain's own successive draws -- it cannot be, by
+    construction of the two callers that append to it. Every UNCLAMPED
+    tick (_run_unclamped_tick) is an independent restart: a fresh seed and
+    a fresh n_warmup=300 warmup, contributing exactly one sample per
+    chain, every tick. Every CLAMPED batch (_run_clamped_batch ->
+    tsu.simulate.simulate -> thrml_backend.sample_chains(...).reshape(-1,
+    ...)) flattens n_chains mutually independent parallel chains
+    chain-major into one run of consecutive rows. tsu.ess's own module
+    contract is explicit that this is not a valid input --
+    effective_sample_size's docstring says outright "callers must NOT
+    flatten multiple chains into one series before calling this" -- and
+    this app's live energy_trace is exactly that flattening, every time,
+    with no exception. Previously this function called
+    tsu.ess.integrated_autocorrelation_time (via demo.scope.autocorrelation,
+    and directly) on that series anyway: audit finding C-1, a
+    confident-looking tau/ACF number computed on data the estimator's own
+    contract rules out, with tsu.ess.effective_sample_size's reliability
+    gate unreachable from this call site by construction (this function
+    never called it -- it called integrated_autocorrelation_time
+    directly). There is no way to fix that by reshaping THIS data -- a
+    live, continuously-streaming, restart-heavy panel structurally has no
+    genuine (n_chains, n_samples) buffer of one chain's own draws to
+    offer. So this function no longer calls tsu.ess or demo.scope's
+    autocorrelation machinery at all, on any input, and makes no tau/ACF
+    claim of any kind. A genuine, gated measurement of this receipt's own
+    tau exists -- demo/ess_run.py: one sample_chains() call collecting a
+    real (n_chains, n_samples) buffer, routed through
+    tsu.ess.effective_sample_size so its reliability gate applies -- see
+    the VERIFICATION panel above for that receipt-level, compile-time
+    result; this live panel has no equivalent to show."""
     img = Image.new("RGB", (w, h), PLOT_BG)
     d = ImageDraw.Draw(img)
-    if len(series) < 12:
-        d.text((10, h // 2 - 6), "(not enough draws yet)", fill=PLOT_DIM)
-        return img, "waiting for more draws before an ACF can be estimated..."
-
-    lag_cap = min(max_lag, len(series) - 1)
-    acf = autocorrelation(list(series), max_lag=lag_cap)
-    iat = integrated_autocorrelation_time(np.asarray(series, dtype=float))
-    n = len(series)
-    n_over_tau = (n / iat.tau) if iat.tau > 0 else float("inf")
-
-    pad_l, pad_r, pad_t, pad_b = 40, 8, 8, 16
-    pw, ph = w - pad_l - pad_r, h - pad_t - pad_b
-    ylo, yhi = math.log10(floor), 0.0  # rho[0] == 1.0 always -> log10(1)=0
-
-    def px(lag): return pad_l + (lag / lag_cap) * pw if lag_cap else pad_l
-
-    def py(v):
-        vv = max(v, floor)
-        return pad_t + (1.0 - (math.log10(vv) - ylo) / (yhi - ylo)) * ph
-
-    pts = [(px(k), py(v)) for k, v in enumerate(acf)]
-    if len(pts) >= 2:
-        d.line(pts, fill=PLOT_ACCENT, width=1)
-    for k, v in enumerate(acf):
-        if v <= floor:
-            x, y = px(k), py(v)
-            d.ellipse([x - 1.5, y - 1.5, x + 1.5, y + 1.5], fill=PLOT_WARN)
-
-    tau_in_range = 0 < iat.tau <= lag_cap
-    if tau_in_range:
-        xp = px(iat.tau)
-        d.line([(xp, pad_t), (xp, pad_t + ph)], fill=PLOT_WARN, width=1)
-        d.text((min(xp + 2, w - 40), pad_t), f"tau~{iat.tau:.1f}", fill=PLOT_WARN)
-
-    d.text((pad_l, pad_t), "1.0", fill=PLOT_DIM, anchor="la")
-    d.text((pad_l, pad_t + ph), f"{floor:g}", fill=PLOT_DIM, anchor="la")
-    d.text((pad_l, h - 4), "lag=0", fill=PLOT_DIM, anchor="ls")
-    d.text((w - pad_r, h - 4), f"{lag_cap}", fill=PLOT_DIM, anchor="rs")
-    d.text((w - pad_r, pad_t), "rho (log)", fill=PLOT_DIM, anchor="ra")
-
-    reliable = n_over_tau >= RELIABILITY_MIN_N_OVER_TAU
+    d.text((10, h // 2 - 6), "tau/ACF: unavailable", fill=PLOT_DIM)
     caption = (
-        f"tau~={iat.tau:.2f} (Sokal window={iat.window}"
-        f"{'*, saturated -- see tsu.ess' if iat.window_saturated else ''})"
-        f"{'  (beyond the plotted window)' if not tau_in_range else ''}  "
-        f"N={n}  N/tau={n_over_tau:.3g}  reliability threshold (tsu.ess."
-        f"RELIABILITY_MIN_N_OVER_TAU)=5000: {'MET' if reliable else 'NOT MET'}. "
-        f"This is this LIVE session's own energy trace (ring buffer, "
-        f"maxlen={SCOPE_ENERGY_TRACE_MAXLEN}) -- a SEPARATE measurement from "
-        f"the receipt's own precomputed ess in the VERIFICATION panel above, "
-        f"not a live update of it.")
+        f"unavailable: this LIVE energy trace (ring buffer, "
+        f"maxlen={SCOPE_ENERGY_TRACE_MAXLEN}, N={len(series)} draws so "
+        f"far) is not a single Markov chain's own successive draws -- "
+        f"every unclamped tick restarts fresh (new seed, new warmup, one "
+        f"sample per chain) and every clamped batch flattens n_chains "
+        f"independent parallel chains chain-major, so tsu.ess's "
+        f"autocorrelation/tau estimator (which requires one chain's own "
+        f"draws -- see tsu.ess.effective_sample_size's own docstring) "
+        f"cannot be validly applied to it, at any sample count. See "
+        f"demo/ess_run.py for how a genuine, gated tau measurement looks, "
+        f"and the VERIFICATION panel above for this receipt's own frozen "
+        f"result -- a SEPARATE, compile-time-only measurement this live "
+        f"panel does not and cannot live-update.")
     return img, caption
 
 
@@ -3356,19 +3340,16 @@ class LatticeApp(tk.Tk):
             label.config(text=text)
             _fit_caption_height(label)
 
-        # Minor #7 (fix-round-2): tsu.ess.autocorrelation (reached via
-        # integrated_autocorrelation_time, called inside render_acf_plot)
-        # raises ValueError on an exactly-constant series (zero variance --
-        # autocorrelation is undefined). Every OTHER honesty path in this
-        # panel degrades to an "unavailable: <reason>" caption; this was
-        # the one spot an exception could instead escape the Tk `after`
-        # poll callback and silently kill the whole 80ms poll loop. Guarded
-        # the same way its neighbours already degrade.
-        try:
-            acf_img, acf_caption = render_acf_plot(SCOPE_PLOT_W, SCOPE_PLOT_H, energy_ys)
-        except ValueError as exc:
-            acf_img = Image.new("RGB", (SCOPE_PLOT_W, SCOPE_PLOT_H), PLOT_BG)
-            acf_caption = f"unavailable: {exc}"
+        # C-1 fix: render_acf_plot no longer calls tsu.ess/demo.scope's
+        # autocorrelation machinery at all (see its own docstring for why
+        # this LIVE trace can never be a valid single-chain input) -- it
+        # always returns an honest "unavailable" caption, never raises.
+        # The try/except this call site used to need (a constant series
+        # made the old autocorrelation() path raise ValueError) no longer
+        # applies; every other honesty path in this panel degrades to an
+        # "unavailable: <reason>" caption the same way, without needing a
+        # guard at the call site.
+        acf_img, acf_caption = render_acf_plot(SCOPE_PLOT_W, SCOPE_PLOT_H, energy_ys)
         self.acf_photo = ImageTk.PhotoImage(acf_img)
         self.acf_canvas.itemconfig("plot", image=self.acf_photo)
         _set_caption(self.acf_caption, acf_caption)  # I3: measured, not guessed
