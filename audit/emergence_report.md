@@ -264,7 +264,13 @@ light=unraised/green=raised) and `audit/receipts/emergence_8x8/per_cell_probabil
 
 Judged against Step 2's own prediction, in order:
 
-**P1 (contiguous patches, not noise): CONFIRMED, modestly.** The metric I
+**P1 (contiguous patches, not noise): pre-registered test uninformative;
+post-hoc test shows a modest real effect.** (Label corrected under code
+review, 2026-09-04-lattice-rule-taxonomy: the pre-registered metric itself
+supported no verdict at all -- "CONFIRMED, modestly" overstated what the
+test that was actually pre-registered showed, even with "modestly"
+attached. The paragraph below already disclosed this distinction in full;
+only the summary label was out of step with its own disclosure.) The metric I
 pre-registered (largest-component size) turned out to be the wrong tool --
 it saturates once density is deep in the percolating regime, which this
 system is. That is a real methodological miss in the prediction, not a
