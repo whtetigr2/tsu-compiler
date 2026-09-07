@@ -303,3 +303,189 @@ dropping the middle self-rule too (extremes-only measured bipartite above
 is reported as a diagnostic data point explaining the mechanism, **not**
 as a proposed alternative Route B — the task instruction is to report the
 non-bipartite finding and stop, not to search for a bipartite subset).
+
+---
+
+# Task 4 — what the trade actually costs
+
+`demo/binary_world.py` composes Task 2's three binary layers into one of 8
+states (`compose_state`) and measures the cost of relocating the base
+layer's hard rule ("value 0 never adjacent to value 1") from a compiled
+energy term into a cross-layer bias patch (`demo/layers.py::bias_patch`).
+
+## Steps 1–3 — TDD `compose_state`
+
+`tests/test_binary_stack.py::test_three_binary_layers_compose_to_eight_states`
+(the plan's own snippet, plus two additional tests covering all 8 bit
+combinations and input validation) was written first and run before any
+implementation existed:
+
+```
+ModuleNotFoundError: No module named 'binary_world'
+```
+
+— the exact failure the plan predicted. `compose_state` (`state = bits[0]
++ 2*bits[1] + 4*bits[2]`) was then implemented in `demo/binary_world.py`;
+all three tests pass. **Production-change check, done for real (not
+asserted):** the bit-order was temporarily reversed
+(`bits[2] + 2*bits[1] + 4*bits[0]`) — 2 of 3 tests failed exactly as
+expected (`assert 4 == 1`, etc.); separately, the two input-validation
+`raise ValueError` statements were temporarily removed — the rejection
+test failed with an uncaught `IndexError` instead of the expected
+`ValueError`. Both changes were reverted and all three tests confirmed
+passing again before proceeding.
+
+## Step 4 — the relocated rule as a cross-layer bias patch
+
+`compose_state`'s own convention makes composed state 0 = bits `(0,0,0)`
+and composed state 1 = bits `(1,0,0)` — they differ **only** in layer 0's
+bit, and both require layers 1 and 2 to read 0. So "0 never adjacent to 1"
+is entirely a statement about layer 0's bit, conditioned on layers 1/2
+already being 0 at both cells of an edge. `build_relocation_patch` builds
+a `{(cell, 1): weight}` patch for layer 0 from two **already-decoded**
+layer-1/2 grids (a fixed "backdrop"): a cell is *eligible* to read as
+composed 0 or 1 iff both backdrop layers are 0 there; for each eligible
+cell, its eligible neighbours' own (backdrop) bit-0 values push it toward
+agreement (avoiding a 0-vs-1 collision), scaled by `strength`. This is
+folded into layer 0's own compiled program via `demo/layers.py::bias_patch`
+— no hand-rolled patching mechanism, no recompile.
+
+## Step 5 — measured violation rate, and a degenerate first attempt caught before being reported
+
+**First attempt (rejected, not reported as a result):** a single fixed
+backdrop (one draw each of layers 1/2, mirroring `demo/stacked_world.py`'s
+own `grid1 = grids1[0]` precedent) produced **0% violations at every
+strength from 0.0 to 0.35, including zero nudge** — which looked like a
+clean win but was checked before being believed: only **2 of 64 cells**
+were eligible (both layers 0) in that one backdrop. Measured directly
+across ten additional backdrop draws per layer: layer 1 and layer 2's own
+self-rules reward *only* the 1-1 agreeing pair, never 0-0 (an asymmetric
+clumping term, not a symmetric one) — so each layer's own marginal
+`P(bit=0)` sits well under 50% (measured 10.9% for layer 1, 15.1% for
+layer 2 over the full ensemble below), making "eligible" cells rare and an
+**adjacent pair** of eligible cells (the only configuration the rule can
+ever fire on) rarer still. A single backdrop is therefore a **degenerate
+instance for this specific measurement**: most contain zero
+adjacent-eligible pairs, so "0%" was a structurally empty measurement, not
+evidence the patch works — exactly the false-negative failure mode this
+project's Global Constraints name explicitly. This was caught by checking
+the eligible-cell count before trusting the rate, not discovered later.
+
+**Fix: pool over many independent backdrop realizations, not one.** 240
+independent, unconditioned draws of each of layers 0/1/2 were taken (one
+`thrml_sample` call per layer, `n_chains=8 * n_samples=30 = 240` draws
+each — comfortably past the plan's "≥200 draws" floor). Measured over the
+full 240-backdrop ensemble:
+
+- `P(bit=0)`: layer 1 = 10.9%, layer 2 = 15.1%.
+- Mean eligible cells/backdrop: 1.20/64. Mean adjacent-eligible
+  pairs/backdrop: 0.083. **18/240 backdrops (7.5%) have any adjacent-eligible
+  pair at all**; 20 such pair-"slots" total across the ensemble.
+
+Every backdrop's eligible-pair slots were checked against the full
+240-draw unpatched layer-0 batch for the **zero-nudge** rate (any
+`(layer0 draw, backdrop)` pairing is a genuine sample of the unconditioned
+joint `p(l0)*p(l1)*p(l2)`, so this reuses already-drawn data, no extra
+sampling); for each **patched** strength, only the 18 backdrops with a
+real eligible pair needed a fresh patched draw (the other 222 backdrops'
+patch is the empty dict, and `bias_patch` on an empty patch is a proven
+no-op — `tests/test_layers.py::test_empty_patch_is_a_noop` — so their
+contribution is provably identical to the zero-nudge case without
+re-sampling them).
+
+**Two statistics are reported, not one, because the overall rate alone
+would hide the effect:**
+
+| strength | \|b\|max | overall (all adjacent pairs, all backdrops) | conditional (eligible pairs only) |
+|---|---|---|---|
+| 0.0 (zero nudge) | 0.800 | 871/6,451,200 (**0.0135%**) | 871/4,800 (**18.15%**) |
+| 0.02 | 0.810 | 0.0138% | 18.60% |
+| 0.05 | 0.825 | 0.0133% | 17.94% |
+| 0.1 | 0.850 | 0.0142% | 19.08% |
+| 0.2 | 0.900 | 0.0121% | 16.25% |
+| 0.35 | 0.975 | 0.0110% | 14.79% |
+| 0.5 | 1.100 | 0.0103% | 13.85% |
+| 0.75 | 1.350 | 0.0095% | 12.75% |
+| 1.0 | 1.600 | 0.0083% | 11.15% |
+| **1.5** | 2.100 | **0.0072%** | **9.69% (minimum)** |
+| 2.0 | 2.600 | 0.0076% | 10.25% |
+| 3.0 | 3.600 | 0.0084% | 11.25% |
+| 5.0 | 5.600 | 0.0107% | 14.37% |
+
+**The "overall" column is dominated by a fact that has nothing to do with
+the patch**: composed states 0 and 1 are a rare corner of this instance's
+state space (both require the minority phase of two independently
+ferromagnetic layers), so the vast majority of adjacent pairs can never
+violate this rule regardless of any patch, at any strength — reporting
+only "0.01%" would be true but misleading, the same shape of false
+negative the single-backdrop draft produced. **The conditional column
+(among pairs that actually could violate) is the honest measure of what
+the patch does**, and it is what "the price of this plan" should be read
+from.
+
+## Comparison — the number the plan asked for
+
+**Hard energy term, current 8×8 base
+(`specs/lattice_small_8x8_k3.yaml`): 0% by construction** (contract-validated
+via `forbid_value_pair_over_edges`, never sampled — it cannot occur).
+
+**Relocated as a bias patch: 18.15% at zero nudge, falling to a measured
+minimum of 9.69% at strength 1.5 — never 0%, at any strength tried.** The
+difference between baseline and the minimum (871/4800 vs 465/4800) is
+~15 standard errors apart (SE ≈ 0.56 percentage points at n=4800, p≈0.18)
+— a real, not noise-level, effect of roughly halving the violation rate,
+matching the qualitative shape of the project's earlier elevation-band
+measurement (8.32% → 4.69%, also "roughly halves without eliminating").
+**That gap — 0% by construction vs. a floor around 9.7% no patch strength
+in this sweep got below — is the number this plan asked to be reported,
+not tuned away.**
+
+## Step 6 — the sweep, and the degenerate zone
+
+The rate is **not monotone in strength**: it falls from 18.15% (strength
+0) to a minimum of 9.69% at strength 1.5, then **rises back up** — 10.25%
+at 2.0, 11.25% at 3.0, 14.37% at 5.0, heading back toward the unpatched
+baseline. This is the degenerate zone the plan asked to locate: at high
+enough strength the patch stops improving the rule it was relocated for
+and starts working against it (`|b|max` at strength 5.0 is 5.6, still
+under the 6.0 field cap, so this is not a field-cap artifact — it is the
+patch overwhelming layer 0's own base self-rule, exactly the mechanism the
+plan names).
+
+**This refutes "~0.2" as a universal threshold, while confirming a
+degenerate zone exists.** For this configuration the zone begins between
+strength 1.5 and 2.0 (`|b|max` ≈ 2.1–2.6) — roughly an order of magnitude
+higher, in raw strength units, than the ~0.2 figure measured earlier for
+`demo/stacked_world.py`'s distance-weighted ROCK patch. The two numbers
+are not directly comparable: `strength` here scales a per-cell sum of up
+to 4 neighbours' ±1 contributions (max magnitude `4 × strength`), while
+`stacked_world.py`'s `ALPHA` scales a per-cell *distance-to-water* value
+(routinely larger than 4) — the same word ("strength"/"alpha") multiplies
+a differently-scaled quantity in each mechanism, so the raw number where
+degeneracy begins is instance-specific, not a portable constant, and this
+task's own instance is measured, not inherited.
+
+## Concerns
+
+1. **Only 20 adjacent-eligible-pair "slots" exist across the entire
+   240-backdrop ensemble**, and only 18 of 240 backdrops contain any at
+   all. The conditional statistic's ~15-SE significance is real, but it
+   rests on a genuinely small number of *distinct spatial configurations*
+   (18), each evaluated across many layer-0 resamples — not 18 independent
+   spatial layouts times independent everything. A different random seed
+   for the layer-1/2 batches would very likely realize a different set of
+   18 backdrops (the underlying marginals — 10.9%/15.1% — are the stable,
+   reproducible fact; which specific 18 backdrops realize an
+   adjacent-eligible pair is seed noise on top of that).
+2. **This measures one specific rule relocation (composed 0 vs 1 via
+   layer 0's bit) under one specific patch design** (a linear function of
+   eligible neighbours' backdrop bit-0 values) — not a general claim about
+   every possible relocated rule or every possible patch construction.
+   Task 4's own design note (top of `demo/binary_world.py`) states this
+   explicitly: a rule between two composed states differing in layer 1 or
+   2's bit would need a different layer patched, and was not measured.
+3. **Route B (Task 3) has no equivalent measurement in this task** — Task
+   4's own file list scopes the violation-rate deliverable to
+   `demo/binary_world.py`/`tests/test_binary_stack.py`, i.e. Route A only;
+   Route B was already found dead in Task 3 and no relocation was
+   attempted for it.
