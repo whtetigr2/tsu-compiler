@@ -225,3 +225,81 @@ exactly why Task 4 relocates it to a **cross-layer bias patch** (applied at
 sample time, after the other layers are already decoded) instead of a
 compiled term — and why that relocation is necessarily a soft nudge, not a
 guarantee.
+
+---
+
+# Task 3 — Route B: categorical base, self-rules only
+
+`specs/selfrule_base.yaml`: the identical k=3 categorical shape as
+`specs/lattice_small_8x8_k3.yaml`, with the one cross-rule
+(`{a_value: 0, b_value: 1, weight: 1.0}`, water-adjacent-to-rock) dropped —
+only the three self-rules remain (`a_value == b_value`, one per value,
+weight -0.4 each, unchanged from the base layer's own).
+
+**Non-degeneracy.** All three weights are the base layer's own real values
+(not invented for this task), the rules are genuine self-rules on a real
+3-value domain (not a trivial k=1/k=2 stand-in), and the grid's 4-neighbour
+adjacency produces real, nonzero edges (`n_edges=512` below is never 0, nor
+are the gate maxima).
+
+## Step 1–2 — measured
+
+**THE SAFETY RULE applied literally**: `bipartite_at(8, "selfrule_k3")` was
+called and its `analyse(...).bipartite` result read *before* any `place()`
+was attempted, exactly as Task 1/2 did — `place()` was never called for
+this kind, at any size.
+
+| grid | n_nodes | n_edges | max_degree | bipartite | \|J\|max | \|b\|max | result |
+|---|---|---|---|---|---|---|---|
+| 8×8 selfrule_base | 128 | 512 | 9 | **False** | 2.5 | 2.1 | SKIPPED_non_bipartite |
+
+Raw row: `audit/bipartite_matrix_task3_probe.json`.
+
+## Step 3 — the finding: Route B is not bipartite, even at 8×8
+
+**This is the finding, per Task 3's own instruction: report it, mark Route
+B dead, do not attempt to force it.** No placement was run at 64×64 (or at
+any size) — the 8×8 result already answers the question this task asked,
+and Task 3 explicitly says not to force it.
+
+This directly **contradicts** the plan's inherited assumption ("earlier
+measurement found domain-wall self-rules stay bipartite") — which is
+exactly why the plan itself asked this to be *confirmed with a real rule
+set rather than inherited*. Confirmed, and the confirmation is negative.
+
+**Root cause, isolated by direct measurement (exploratory diagnostic, not
+part of Route B's own deliverable — labeled as such per this project's
+epistemic discipline: two additional `analyse()`-only probes, no
+`place()`, same 8×8 grid, not committed as a spec file):**
+
+| instance | terms | bipartite | n_edges | max_degree |
+|---|---|---|---|---|
+| extremes-only | `{0,0,-0.4}`, `{2,2,-0.4}` | **True** | 288 | 5 |
+| middle-only | `{1,1,-0.4}` | **False** | 512 | 9 |
+| all three self-rules (= selfrule_base.yaml) | `{0,0}`,`{1,1}`,`{2,2}` | **False** | 512 | 9 |
+
+The middle-value self-rule (`a_value: 1, b_value: 1`) **by itself** is
+already non-bipartite, with the identical `n_edges`/`max_degree` (512 / 9)
+as the full base layer. The mechanism: domain-wall's value-1 indicator for
+k=3 is `occ(chain[0]) - occ(chain[1])` — it spans *both* of a cell's chain
+spins with opposite sign, so `Product(indicator_u(1), indicator_v(1),
+weight)` across a grid edge expands into four couplings
+(`u_chain0-v_chain0`, `u_chain0-v_chain1`, `u_chain1-v_chain0`,
+`u_chain1-v_chain1`), not just the two "aligned same chain-position"
+couplings a boundary value's single-spin indicator produces. The diagonal
+(`u_chain0-v_chain1`, `u_chain1-v_chain0`) couplings are what introduce odd
+cycles. This has nothing to do with the term being a *cross*-rule
+(`a_value != b_value`) — it is a genuine **self**-rule (`a_value ==
+b_value == 1`) that breaks bipartiteness anyway, because the value it
+self-agrees on happens to be an interior (non-boundary) value of a k≥3
+domain-wall chain. "Self-rules stay bipartite" is true only for
+domain-wall's two boundary values (0 and k-1, each touching a single chain
+spin); it is false for any interior value, and k=3 has exactly one interior
+value (1) — which is precisely the value the base layer's own third rule
+(rock clumps with rock) already used.
+
+**Route B is dead as specified.** No attempt was made to "fix" it by
+dropping the middle self-rule too (extremes-only measured bipartite above
+is reported as a diagnostic data point explaining the mechanism, **not**
+as a proposed alternative Route B — the task instruction is to report the
+non-bipartite finding and stop, not to search for a bipartite subset).
