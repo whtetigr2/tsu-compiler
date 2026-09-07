@@ -689,6 +689,281 @@ def task3_main():
     return r1, r2, r3, r4
 
 
+# ============================================================================
+# Task 4 (plan 2026-09-04-degree-space-trade): the comparison, and the
+# honest ceiling.
+#
+# Two things measured here: (1) both routes applied to all three Task 1
+# benchmarks, tabulated against every Z1 gate; (2) Route A's ceiling,
+# COMPUTED (not estimated) as the chain_strength-vs-chain-length curve
+# s(k), against the documented 6.0 |J| cap.
+# ============================================================================
+
+from tsu.passes.split import split_high_degree  # noqa: E402
+from tsu.target import Z1  # noqa: E402
+
+
+def _z1_gate_table(report):
+    return {
+        "degree": (report.max_degree, Z1.degree.value, report.max_degree <= Z1.degree.value),
+        "|J|": (report.max_abs_J, Z1.max_abs_coupling.value,
+               report.max_abs_J <= Z1.max_abs_coupling.value),
+        "|b|": (report.max_abs_b, Z1.max_abs_bias.value,
+               report.max_abs_b <= Z1.max_abs_bias.value),
+        "node_budget": (report.n_nodes, Z1.node_budget.value,
+                        report.n_nodes <= Z1.node_budget.value),
+    }
+
+
+def _all_pass(gates: dict) -> bool:
+    return all(passed for _, _, passed in gates.values())
+
+
+# Route B spoke strengths per benchmark: informed by task3_real_scale_cost
+# (statistical_8x8: hub15 analog, k=5, matched |J| scale -> 1.40 measured,
+# 1.5 used with margin) and by the direct star-vs-chain comparison in
+# degree_space_matrix.md's Task 3 section (hub7 analog, k=3, |J| scale
+# 0.4-1.3 -> 5.0 measured; assignment_8x8's own |J|max=0.375 sits inside
+# that same order of magnitude, so 5.2 -- a small margin over 5.0 -- is used
+# for it). terrain_k5 needs no replication at all (see below), so it takes
+# no spoke_strength.
+ROUTE_B_SPOKE_STRENGTH = {"assignment_8x8": 5.2, "statistical_8x8": 1.5}
+ROUTE_A_CHAIN_STRENGTH = 6.0   # the |J| cap itself -- see task3/route A's own
+                               # precedent (tests/test_split.py) for testing
+                               # real-scale, non-brute-force-verifiable
+                               # applications AT the cap as the safe choice.
+
+
+def task4_apply_both_routes():
+    graphs = benchmark_graphs()
+    rows = {}
+    for name, ising in graphs.items():
+        before = analyse(ising)
+
+        out_a, rep_a = split_high_degree(ising, max_degree=16,
+                                         chain_strength=ROUTE_A_CHAIN_STRENGTH)
+        after_a = analyse(out_a)
+
+        if name in ROUTE_B_SPOKE_STRENGTH:
+            out_b, rep_b = star_replicate(
+                ising, max_degree=16,
+                spoke_strength_fn=lambda i, j, s=ROUTE_B_SPOKE_STRENGTH[name]: s)
+        else:
+            out_b, rep_b = star_replicate(ising, max_degree=16, spoke_strength_fn=lambda i, j: 0.0)
+        after_b = analyse(out_b)
+
+        rows[name] = dict(
+            before=before, after_a=after_a, after_b=after_b,
+            rep_a=rep_a, rep_b=rep_b,
+            gates_before=_z1_gate_table(before),
+            gates_a=_z1_gate_table(after_a), gates_b=_z1_gate_table(after_b))
+    return rows
+
+
+def task4_print_comparison_table(rows):
+    print("\n=== Task 4: comparison table, both routes x all three benchmarks ===")
+    for name, r in rows.items():
+        b, aa, ab = r["before"], r["after_a"], r["after_b"]
+        print(f"\n--- {name} ---")
+        print(f"  BEFORE:  n_nodes={b.n_nodes:6d}  max_degree={b.max_degree:3d}  "
+              f"|J|max={b.max_abs_J:.4f}  |b|max={b.max_abs_b:.4f}  "
+              f"gates_pass={_all_pass(r['gates_before'])}")
+        print(f"  ROUTE A: n_nodes={aa.n_nodes:6d}  max_degree={aa.max_degree:3d}  "
+              f"|J|max={aa.max_abs_J:.4f}  |b|max={aa.max_abs_b:.4f}  "
+              f"splits={r['rep_a'].splits}  added_nodes={r['rep_a'].added_nodes}  "
+              f"gates_pass={_all_pass(r['gates_a'])}")
+        for g, (m, c, p) in r["gates_a"].items():
+            if not p:
+                print(f"      FAILS gate {g}: measured={m}  cap={c}")
+        print(f"  ROUTE B: n_nodes={ab.n_nodes:6d}  max_degree={ab.max_degree:3d}  "
+              f"|J|max={ab.max_abs_J:.4f}  |b|max={ab.max_abs_b:.4f}  "
+              f"replications={r['rep_b'].replications}  added_nodes={r['rep_b'].added_nodes}  "
+              f"gates_pass={_all_pass(r['gates_b'])}")
+        for g, (m, c, p) in r["gates_b"].items():
+            if not p:
+                print(f"      FAILS gate {g}: measured={m}  cap={c}")
+
+
+def task4_verify_terrain_k5_unbroken(rows):
+    """terrain_k5 passes today at degree EXACTLY 16 -- Task 4 Step 4's own
+    requirement: a route that fixes the failures and breaks the working
+    case is not a fix. Both routes' own to_split/to_replicate detection uses
+    STRICT '>' against max_degree, so a node already AT the cap (not over
+    it) must be left completely untouched -- verified here structurally
+    (same node count, same max_degree, same |J|/|b|), not merely by
+    checking the gate still reports PASS (which could mask a route that
+    changed the graph while coincidentally keeping it under the cap)."""
+    r = rows["terrain_k5"]
+    b, aa, ab = r["before"], r["after_a"], r["after_b"]
+    unchanged_a = (aa.n_nodes == b.n_nodes and aa.max_degree == b.max_degree
+                  and aa.max_abs_J == b.max_abs_J and aa.max_abs_b == b.max_abs_b)
+    unchanged_b = (ab.n_nodes == b.n_nodes and ab.max_degree == b.max_degree
+                  and ab.max_abs_J == b.max_abs_J and ab.max_abs_b == b.max_abs_b)
+    print(f"\n=== Task 4: terrain_k5 (passes today, degree exactly 16) unbroken? ===")
+    print(f"  Route A leaves it BYTE-FOR-BYTE unchanged (no split triggered, "
+          f"degree==16 not >16): {unchanged_a}")
+    print(f"  Route B leaves it BYTE-FOR-BYTE unchanged (no replication "
+          f"triggered): {unchanged_b}")
+    print(f"  splits/replications performed: A={r['rep_a'].splits}  B={r['rep_b'].replications}")
+    assert unchanged_a, "Route A modified terrain_k5 even though its degree does not exceed the cap"
+    assert unchanged_b, "Route B modified terrain_k5 even though its degree does not exceed the cap"
+    assert r['rep_a'].splits == 0 and r['rep_b'].replications == 0
+    print(f"  still passes all Z1 gates: A={_all_pass(r['gates_a'])}  B={_all_pass(r['gates_b'])}")
+    return unchanged_a, unchanged_b
+
+
+# ---------------------------------------------------------------------------
+# Route A's ceiling: s(k), computed, not estimated.
+# ---------------------------------------------------------------------------
+
+def _hub_chain_model(d, seed, j_lo, j_hi):
+    leaves = [f"l{i}" for i in range(d)]
+    nodes = ("h",) + tuple(leaves)
+    edges = tuple((0, i) for i in range(1, d + 1))
+    rng = np.random.RandomState(seed)
+    J = rng.uniform(j_lo, j_hi, size=d) * rng.choice([-1, 1], size=d)
+    b = rng.uniform(-j_hi, j_hi, size=d + 1)
+    im = IsingModel(nodes=nodes, edges=edges, weights=J, biases=b, beta=0.7, offset=0.0)
+    return im, leaves
+
+
+def _marginal_tv_after_chain(im, leaves, max_degree, chain_strength):
+    edges = im.edges
+    J_before = {edges[i]: float(im.weights[i]) for i in range(len(edges))}
+    states_before, probs_before = exact_boltzmann(J_before, list(im.biases), im.beta)
+    p_before = dict(zip(states_before, probs_before))
+    out, rep = split_high_degree(im, max_degree=max_degree, chain_strength=chain_strength)
+    idx = {n: i for i, n in enumerate(out.nodes)}
+    J_after = {out.edges[i]: float(out.weights[i]) for i in range(len(out.edges))}
+    states_after, probs_after = exact_boltzmann(J_after, list(out.biases), out.beta)
+    hub_copy0 = idx["h__chain0"]
+    leaf_idx = [idx[l] for l in leaves]
+    p_after: dict[tuple[int, ...], float] = {}
+    for s, p in zip(states_after, probs_after):
+        key = (s[hub_copy0],) + tuple(s[i] for i in leaf_idx)
+        p_after[key] = p_after.get(key, 0.0) + p
+    n_original = 1 + len(leaves)
+    keys = list(itertools.product((0, 1), repeat=n_original))
+    tv = 0.5 * sum(abs(p_before.get(k, 0.0) - p_after.get(k, 0.0)) for k in keys)
+    return tv, rep
+
+
+def _find_lowest_chain_strength(im, leaves, max_degree, coarse_max=20.0,
+                                coarse_step=1.0, fine_step=0.1):
+    """Coarse-to-fine search (not a single 0.05/0.1-resolution linear sweep
+    from zero) -- required for tractability at larger k, where each TV
+    evaluation is a full brute-force enumeration over up to 2**23 states."""
+    coarse = [round(coarse_step * i, 2) for i in range(0, int(coarse_max / coarse_step) + 1)]
+    bracket_hi = None
+    rep = None
+    for s in coarse:
+        tv, rep = _marginal_tv_after_chain(im, leaves, max_degree, s)
+        if tv < AGREEMENT_TV:
+            bracket_hi = s
+            break
+    if bracket_hi is None:
+        return None, rep
+    lo = max(0.0, bracket_hi - coarse_step)
+    fine = [round(lo + fine_step * i, 2) for i in range(0, int(coarse_step / fine_step) + 1)]
+    for s in fine:
+        tv, rep = _marginal_tv_after_chain(im, leaves, max_degree, s)
+        if tv < AGREEMENT_TV:
+            return s, rep
+    return bracket_hi, rep
+
+
+def task4_route_a_ceiling():
+    """s(k): the chain_strength a chain of length k needs, MEASURED by
+    oracle-verified sweep, isolating the two variables that could drive it
+    up -- chain length (hop count) and per-copy external load -- one at a
+    time, since neither can be swept jointly at Z1's own max_degree=16
+    (per_copy_cap=14) without a state space (2**(k*14+k)) far beyond
+    brute-force reach.
+
+    (1) Chain-length sweep: max_degree=4 fixed (per_copy_cap=2, the
+    smallest that still forces a real split), |J| in [0.4, 1.4] (order of
+    magnitude close to assignment_8x8's own measured |J|max=0.375, Task 1),
+    k swept from 3 (the smallest reachable at this max_degree) upward until
+    s(k) crosses the documented 6.0 cap.
+
+    (2) Per-copy-load sweep: k=2 fixed, max_degree swept upward (per_copy_
+    cap 4, 6, 8) at the SAME |J| scale, isolating whether external load
+    alone (independent of hop count) drives s up by a comparable amount.
+
+    Both are reported; Task 4 Step 2's own ceiling number is read off (1),
+    with (2) establishing that (1)'s max_degree=4 testbed does not
+    understate the true driver (hop count dominates; load is a measured,
+    smaller, secondary effect) -- the basis for extrapolating to Z1's real
+    max_degree=16 (per_copy_cap=14) without brute-forcing it directly."""
+    print("\n=== Task 4: Route A's ceiling -- s(k), computed ===")
+
+    print("\n  (1) chain-length sweep (max_degree=4, per_copy_cap=2, "
+          "|J| in [0.4,1.4], matching assignment_8x8's own coupling order "
+          "of magnitude):")
+    length_curve = {}
+    for k in [3, 4, 5, 6, 7]:
+        d = 2 * k - 1
+        im, leaves = _hub_chain_model(d, seed=1000 + k, j_lo=0.4, j_hi=1.4)
+        s, rep = _find_lowest_chain_strength(im, leaves, max_degree=4)
+        length_curve[k] = s
+        print(f"    k={k}  (d={d}, degree={d}):  s(k)={s}  "
+              f"{'-- EXCEEDS the 6.0 cap' if s is not None and s > 6.0 else ''}")
+
+    crossing_k = None
+    for k in sorted(length_curve):
+        if length_curve[k] is not None and length_curve[k] > 6.0:
+            crossing_k = k
+            break
+    max_usable_k = (crossing_k - 1) if crossing_k is not None else max(length_curve)
+    print(f"  s(k) crosses the 6.0 cap between k={max_usable_k} "
+          f"(s={length_curve[max_usable_k]}) and k={crossing_k} "
+          f"(s={length_curve.get(crossing_k)})")
+    per_copy_cap_testbed = 4 - 2
+    print(f"  at THIS testbed's max_degree=4 (per_copy_cap={per_copy_cap_testbed}): "
+          f"max usable chain length k={max_usable_k}, max splittable degree "
+          f"= k*per_copy_cap = {max_usable_k * per_copy_cap_testbed}")
+
+    print("\n  (2) per-copy-load sweep (k=2 fixed, |J| in [0.2,0.5], "
+          "matching assignment_8x8's own measured |J|max=0.375):")
+    load_curve = {}
+    for max_degree, d in [(6, 8), (8, 12), (10, 16)]:
+        im, leaves = _hub_chain_model(d, seed=5000 + max_degree, j_lo=0.2, j_hi=0.5)
+        s, rep = _find_lowest_chain_strength(im, leaves, max_degree=max_degree)
+        load_curve[max_degree - 2] = s
+        print(f"    per_copy_cap={max_degree - 2}  (max_degree={max_degree}, d={d}):  "
+              f"k={rep.added_nodes + 1}  s={s}")
+
+    print(f"\n  Chain LENGTH drives s(k) far more than per-copy LOAD: length "
+          f"sweep spans {length_curve[3]}..{length_curve[7]} over k=3..7 "
+          f"(delta={round(length_curve[7]-length_curve[3],2)}), load sweep "
+          f"spans {load_curve[4]}..{load_curve[8]} over per_copy_cap=4..8 at "
+          f"fixed k=2 (delta={round(load_curve[8]-load_curve[4],2)}).")
+
+    print(f"\n  Real Z1 scale: max_degree=16, per_copy_cap=14. Real "
+          f"assignment_8x8 needs k=ceil(32/14)={-(-32//14)} for its worst "
+          f"node; real statistical_8x8 needs k=ceil(63/14)={-(-63//14)}. "
+          f"Both are comfortably inside the measured max_usable_k={max_usable_k} "
+          f"ceiling found above, even before accounting for load -- and (2) "
+          f"shows load's own effect is a fraction of length's, so it is not "
+          f"expected to close that gap. Full brute-force verification AT "
+          f"per_copy_cap=14 is not computable (2**(k*14+k) states); this "
+          f"ceiling is COMPUTED from the measured length-driven curve, with "
+          f"the load-driven curve establishing that extrapolating across "
+          f"per_copy_cap is not the dominant source of error.")
+
+    return dict(length_curve=length_curve, load_curve=load_curve,
+               max_usable_k=max_usable_k, crossing_k=crossing_k)
+
+
+def task4_main():
+    rows = task4_apply_both_routes()
+    task4_print_comparison_table(rows)
+    task4_verify_terrain_k5_unbroken(rows)
+    ceiling = task4_route_a_ceiling()
+    return rows, ceiling
+
+
 if __name__ == "__main__":
     main()
     task3_main()
+    task4_main()

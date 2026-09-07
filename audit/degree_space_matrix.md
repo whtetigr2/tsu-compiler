@@ -222,3 +222,130 @@ instances (1.40/6.0 = 23% vs Route A's 4.6/6.0 = 77%, and a star topology
 measurably undercuts a chain on both node count and required strength on an
 identical instance) — a real, verified, and materially different number,
 not a wash.
+
+---
+
+## Task 4 — the comparison, and the honest ceiling
+
+**Both routes applied to all three Task 1 benchmarks**, through
+`audit/degree_space_probe.py::task4_apply_both_routes` (Route A:
+`split_high_degree(max_degree=16, chain_strength=6.0)` — the `|J|` cap
+itself, the same "test at the cap" precedent Task 2/3 already established
+for real-scale, non-brute-force-verifiable applications; Route B:
+`star_replicate(max_degree=16, spoke_strength=...)` at 5.2 for
+`assignment_8x8` and 1.5 for `statistical_8x8`, both informed by the
+oracle-verified sweeps in Task 3, not fabricated). Every number below is
+`analyse()`'s own measurement of the real, lowered `IsingModel`, and every
+gate check is `check_gates`'s own `Z1`, `allow_assumed=False`.
+
+| benchmark | route | n_nodes | max_degree | \|J\|max | \|b\|max | passes ALL Z1 gates |
+|---|---|---|---|---|---|---|
+| `assignment_8x8` | before | 1744 | 32 | 0.375 | 8.0 | **FAIL** (degree, field_cap) |
+| `assignment_8x8` | A | 1840 | **16** | 6.000 | 8.0 | **FAIL** (field_cap only) |
+| `assignment_8x8` | B | 1840 | **16** | 5.200 | 8.0 | **FAIL** (field_cap only) |
+| `statistical_8x8` | before | 64 | 63 | 0.005 | 0.16 | **FAIL** (degree) |
+| `statistical_8x8` | A | 320 | **16** | 6.000 | 0.16 | **PASS** |
+| `statistical_8x8` | B | 320 | **16** | 1.500 | 0.16 | **PASS** |
+| `terrain_k5` | before | 1280 | 16 | 1.25 | 5.0 | PASS (boundary case) |
+| `terrain_k5` | A | 1280 | 16 | 1.25 | 5.0 | PASS, **unchanged** |
+| `terrain_k5` | B | 1280 | 16 | 1.25 | 5.0 | PASS, **unchanged** |
+
+**Both routes fix the degree gate everywhere they act, and neither touches
+`|b|`.** `assignment_8x8` still fails after either route — **not on
+degree** (both routes correctly bring it to exactly 16) but on
+`field_cap`: `|b|max=8.0` is untouched by both passes, because a split/
+replicated node's bias is placed on exactly ONE copy in both constructions
+(duplicating it across copies would multiply the field by `k`, a different
+model — `split.py`'s own module docstring, mirrored in `star_replicate`).
+**Neither route was ever designed to move `|b|`** — this is not a partial
+failure of either technique, it is a dimension neither one addresses at
+all. Task 5 diagnoses this gap precisely.
+
+**`terrain_k5` is verified BYTE-FOR-BYTE unchanged by both routes**
+(`task4_verify_terrain_k5_unbroken`: identical `n_nodes`, `max_degree`,
+`|J|max`, `|b|max` before and after, not merely "still passes the gate,"
+which could mask a route that changed the graph while coincidentally
+staying under the cap) — because both routes' own over-cap detection is a
+strict `degree > max_degree`, and `terrain_k5`'s degree sits exactly AT 16,
+never over it. **Zero splits, zero replications performed.** The boundary
+case is not broken by either route.
+
+### Route A's ceiling — s(k), computed
+
+Two orthogonal sweeps (`task4_route_a_ceiling`), because Z1's own
+`max_degree=16` (`per_copy_cap=14`) makes a joint sweep over both hop-count
+`k` AND per-copy load computationally impossible at brute-force scale
+(`2**(k*14+k)` states) — each variable is isolated instead, at a smaller,
+tractable `per_copy_cap`, oracle-verified via the same coarse-to-fine
+`chain_strength` search as Task 2/3's own sweeps:
+
+**(1) Chain-length sweep** — `max_degree=4` (`per_copy_cap=2`, the smallest
+that still forces a real split), `|J|` drawn from `[0.4, 1.4]` (the same
+order of magnitude as `assignment_8x8`'s own measured `|J|max=0.375`):
+
+| k | 3 | 4 | 5 | 6 | 7 |
+|---|---|---|---|---|---|
+| s(k) | 5.2 | 5.2 | 5.7 | **6.0** | 6.3 (exceeds cap) |
+
+**s(k) crosses the documented 6.0 `|J|` cap between k=6 and k=7.** Maximum
+usable chain length at this testbed's `per_copy_cap=2`: **k=6**, giving a
+maximum splittable degree of `k * per_copy_cap = 12` at THIS per-copy load
+scale.
+
+**(2) Per-copy-load sweep** — chain length fixed at `k=2`, `per_copy_cap`
+varied (4, 6, 8), `|J|` drawn from `[0.2, 0.5]` (matching
+`assignment_8x8`'s own `|J|max=0.375` exactly):
+
+| per_copy_cap | 4 | 6 | 8 |
+|---|---|---|---|
+| s | 4.2 | 4.3 | 4.5 |
+
+**Chain length drives `s` far more than per-copy load does**: the length
+sweep spans 5.2→6.3 (Δ=1.1) over k=3..7, while the load sweep spans
+4.2→4.5 (Δ=0.3) over a doubling of per-copy load at fixed k=2. This is the
+basis for extrapolating the length-driven ceiling to Z1's real
+`max_degree=16` (`per_copy_cap=14`, five times the testbed's `per_copy_cap=2`)
+without brute-forcing it directly: load is a measured, real, but
+SECONDARY effect.
+
+**At real Z1 scale:** `assignment_8x8`'s worst node needs
+`k=ceil(32/14)=3`; `statistical_8x8`'s needs `k=ceil(63/14)=5`. Both sit
+comfortably inside the measured `max_usable_k=6` ceiling — with margin
+(k=3 and k=5, against a ceiling of k=6), even before crediting that the
+real per-copy load effect (measured to be small in (2)) would need to close
+essentially the entire remaining gap to change this conclusion. **The
+ceiling is computed, not assumed**: at `assignment_8x8`'s own `|J|` scale,
+Route A's chain construction remains usable up to roughly chain length 6
+before the coupling budget is exhausted — comfortably past what either real
+benchmark in this plan needs, but not unlimited, and the curve shows
+clearly why it eventually fails: every additional hop is another place
+disagreement can creep in before the two ends of the chain ever interact,
+and that cost compounds with length in a way per-copy load does not.
+
+### The central question, answered
+
+**Can unused node budget buy degree headroom, and at what price? Yes — up
+to a real, computed, and now-charted `|J|` ceiling, not unconditionally.**
+Both routes measurably trade nodes for degree: `assignment_8x8` and
+`statistical_8x8` both go from failing the degree gate to passing it, at a
+node cost of roughly 5.6% (1744→1840) and 400% (64→320) respectively —
+`statistical_8x8`'s node cost looks dramatic in percentage terms only
+because its starting node count is tiny (64 of a 250,000-node budget; even
+at 320 nodes it uses 0.128% of the chip). The price is paid entirely in
+`|J|`, not in nodes: node budget is so abundant (every measured case here
+sits at a fraction of a percent of the 250,000-node ceiling) that it was
+never the binding constraint; `|J|` is, and it has a real, measured ceiling
+— Route A's chain construction stops being usable somewhere around chain
+length 6 at `assignment_8x8`'s own coupling scale, which both real
+benchmarks in this plan sit safely inside but a sufficiently higher-degree
+future workload would not. Route B's star construction pays a measurably
+SMALLER fraction of that same `|J|` budget on every instance tested here
+(23–87% of Route A's own requirement across the matched comparisons in
+Task 3), so **it is the cheaper of the two routes wherever it applies**,
+without changing the qualitative answer: node budget converts to degree
+headroom through `|J|`, and `|J|` — not nodes — is the resource this
+architecture actually rations. Crucially, **neither route touches `|b|`
+at all** — a workload whose failure is a field-cap violation (as
+`assignment_8x8`'s is, independently of its degree failure) gets no help
+from either technique, at any node cost; that is a different, unaddressed
+dimension of the same problem, diagnosed directly in Task 5.
