@@ -57,7 +57,49 @@ terms:
   - {{kind: product_over_edges, a_value: 1, b_value: 1, weight: -0.4}}
 """
 
-_KINDS = {"overlay": _OVERLAY_BODY}
+# Task 2 (Route A): the three all-binary stack layers, parametrized by n the
+# same way _OVERLAY_BODY is -- specs/binary_stack_l{0,1,2}.yaml are the
+# static 8x8 artifacts; these templates are what let this module remeasure
+# the identical shape at Task 1's cleared size (64x64) without hand-writing
+# a second 64x64 spec file per layer. Weights match the static specs exactly
+# (-0.4/-0.35/-0.3) so the n=8 row here is the same instance as the checked-in
+# file, not a look-alike.
+_BINARY_L0_BODY = """name: binary_stack_l0
+generate: {{kind: grid, width: {n}, height: {n}, variable_domain: {{domain: binary}}}}
+terms:
+  - {{kind: product_over_edges, a_value: 1, b_value: 1, weight: -0.4}}
+"""
+_BINARY_L1_BODY = """name: binary_stack_l1
+generate: {{kind: grid, width: {n}, height: {n}, variable_domain: {{domain: binary}}}}
+terms:
+  - {{kind: product_over_edges, a_value: 1, b_value: 1, weight: -0.35}}
+"""
+_BINARY_L2_BODY = """name: binary_stack_l2
+generate: {{kind: grid, width: {n}, height: {n}, variable_domain: {{domain: binary}}}}
+terms:
+  - {{kind: product_over_edges, a_value: 1, b_value: 1, weight: -0.3}}
+"""
+
+# Task 3 (Route B): k=3 categorical, SELF-rules only -- the base layer's one
+# cross-rule ({a_value: 0, b_value: 1, weight: 1.0}, water-adjacent-to-rock)
+# dropped. Matches specs/selfrule_base.yaml exactly (see that file's own
+# docstring); this template only exists to remeasure the same shape at
+# Task 1's cleared size, the same n=8/n=64 split as the binary_l* kinds above.
+_SELFRULE_K3_BODY = """name: selfrule_base
+generate: {{kind: grid, width: {n}, height: {n}, variable_domain: {{domain: categorical, k: 3}}}}
+terms:
+  - {{kind: product_over_edges, a_value: 0, b_value: 0, weight: -0.4}}
+  - {{kind: product_over_edges, a_value: 1, b_value: 1, weight: -0.4}}
+  - {{kind: product_over_edges, a_value: 2, b_value: 2, weight: -0.4}}
+"""
+
+_KINDS = {
+    "overlay": _OVERLAY_BODY,
+    "binary_l0": _BINARY_L0_BODY,
+    "binary_l1": _BINARY_L1_BODY,
+    "binary_l2": _BINARY_L2_BODY,
+    "selfrule_k3": _SELFRULE_K3_BODY,
+}
 
 
 def bipartite_at(n: int, kind: str = "overlay") -> dict:
@@ -127,15 +169,26 @@ def bipartite_at(n: int, kind: str = "overlay") -> dict:
 
 
 if __name__ == "__main__":
-    out = "audit/bipartite_matrix.json"
+    # Task 1 kept its original hard-coded invocation as the no-argument
+    # default (`python audit/bipartite_routes.py`) so that run is never
+    # accidentally changed by Task 2/3 extending this file. Tasks 2/3 pass
+    # their own kind(s)/sizes/output path explicitly instead of editing this
+    # block, e.g.:
+    #   python audit/bipartite_routes.py binary_l0,binary_l1,binary_l2 8,64 \
+    #       audit/bipartite_matrix_task2.json
+    kinds = sys.argv[1].split(",") if len(sys.argv) > 1 else ["overlay"]
+    sizes = tuple(int(x) for x in sys.argv[2].split(",")) if len(sys.argv) > 2 \
+        else (16, 24, 32, 40, 64)
+    out = sys.argv[3] if len(sys.argv) > 3 else "audit/bipartite_matrix.json"
     rows = []
-    for n in (16, 24, 32, 40, 64):
-        r = bipartite_at(n, "overlay")
-        rows.append(r)
-        print(f"{n}x{n} overlay nodes={r['n_nodes']:>5} bip={r['bipartite']} "
-              f"path={r['code_path']:<17} {r['place_s']}s {r['result']} "
-              f"med={r['mediators']} |J|max={r['max_abs_J']} |b|max={r['max_abs_b']}",
-              flush=True)
-        with open(out, "w") as fh:
-            json.dump(rows, fh, indent=1)
+    for kind in kinds:
+        for n in sizes:
+            r = bipartite_at(n, kind)
+            rows.append(r)
+            print(f"{n}x{n} {kind} nodes={r['n_nodes']:>5} bip={r['bipartite']} "
+                  f"path={r['code_path']:<17} {r['place_s']}s {r['result']} "
+                  f"med={r['mediators']} |J|max={r['max_abs_J']} |b|max={r['max_abs_b']}",
+                  flush=True)
+            with open(out, "w") as fh:
+                json.dump(rows, fh, indent=1)
     print("done ->", out)

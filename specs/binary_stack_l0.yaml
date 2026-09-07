@@ -1,0 +1,25 @@
+name: binary_stack_l0
+description: >
+  All-bipartite-world plan, Task 2 (Route A): bit 0 (least-significant) of a
+  3-layer binary stack whose composed readout replaces the k=3 base layer's
+  single categorical variable (see demo/binary_world.py's compose_state,
+  bits[0] + 2*bits[1] + 4*bits[2] -- this file supplies bits[0]).
+
+  Domain story, for intuition only and deliberately kept out of src/: this
+  bit is "damp" (1) vs "dry" (0) ground -- one of three independent overlays
+  whose combination (with binary_stack_l1's "loose scree" bit and
+  binary_stack_l2's "plant cover" bit) gives 8 distinguishable micro-terrain
+  states per cell, more than the 3-value base layer it replaces.
+
+  Rule shape: SELF-RULE ONLY (a_value == b_value == 1, "damp clumps with
+  damp") -- the same clumping shape audit/bipartite_matrix.md already
+  measured bipartite for a single binary overlay (specs/lattice_elev_band_8x8.yaml).
+  Task 2 Step 3 records which of the base layer's rules cannot be
+  reconstructed this way (audit/bipartite_matrix.md).
+generate:
+  kind: grid
+  width: 8
+  height: 8
+  variable_domain: {domain: binary}
+terms:
+  - {kind: product_over_edges, a_value: 1, b_value: 1, weight: -0.4}

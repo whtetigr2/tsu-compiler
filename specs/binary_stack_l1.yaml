@@ -1,0 +1,24 @@
+name: binary_stack_l1
+description: >
+  All-bipartite-world plan, Task 2 (Route A): bit 1 (middle) of the 3-layer
+  binary stack (see specs/binary_stack_l0.yaml's docstring for the full
+  composition story; demo/binary_world.py's compose_state contributes this
+  file's decoded value as 2*bits[1]).
+
+  Domain story, for intuition only and deliberately kept out of src/: this
+  bit is "loose scree" (1, rubble underfoot) vs "bare ground" (0) -- clumps
+  with itself the same way binary_stack_l0's dampness does.
+
+  Rule shape: SELF-RULE ONLY (a_value == b_value == 1). Weight differs from
+  l0's (-0.35 vs -0.4) only to keep the three layers honestly distinct
+  clumping strengths rather than three copies of the identical term; this
+  does not change the graph topology or bipartiteness (both are functions of
+  which cells are coupled, not of the coupling's weight -- see
+  audit/bipartite_matrix.md's Task 2 non-degeneracy note).
+generate:
+  kind: grid
+  width: 8
+  height: 8
+  variable_domain: {domain: binary}
+terms:
+  - {kind: product_over_edges, a_value: 1, b_value: 1, weight: -0.35}

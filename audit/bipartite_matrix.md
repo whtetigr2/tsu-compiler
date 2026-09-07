@@ -118,3 +118,110 @@ headroom by the number of layers. Nothing at that scale was run.
    ceiling before the node budget itself — but budget-adjacent sizes
    (hundreds of thousands of nodes) were not measured and are only
    extrapolated above, explicitly labeled as such.
+
+---
+
+# Task 2 — Route A: the all-binary stack
+
+Three independent binary layer specs (`specs/binary_stack_l0.yaml`,
+`_l1.yaml`, `_l2.yaml`), one spin per grid cell each, **self-rules only**
+(`product_over_edges` with `a_value == b_value == 1`, a clumping term) —
+domain story: bit 0 "damp ground", bit 1 "loose scree", bit 2 "plant
+cover". `demo/binary_world.py::compose_state` (Task 4) reads the three
+decoded layers as `bits[0] + 2*bits[1] + 4*bits[2]`, giving 8 distinguishable
+composed states per cell against the k=3 base layer's 3.
+
+**Non-degeneracy.** Each layer's weight is nonzero and distinct (-0.4 /
+-0.35 / -0.3 — chosen so the three layers are not silent copies of one
+instance; weight magnitude changes `|J|max`/`|b|max` but never the graph
+topology or its bipartiteness, which are functions of which cells are
+coupled, not of the coupling's sign or size), the rule is a genuine
+self-rule (`a_value == b_value`, not trivially satisfied/violated), and the
+grid's 4-neighbour adjacency produces real, nonzero edges at both measured
+sizes (`n_edges` and both gate maxima are never 0). Each row was measured
+via `audit/bipartite_routes.py::bipartite_at`, with **THE SAFETY RULE**
+(`analyse(...).bipartite is True` checked before every `place()` call)
+enforced by that same function, not re-implemented here.
+
+## Measured
+
+| grid | layer | weight | n_nodes | n_edges | max_degree | bipartite | \|J\|max | \|b\|max | place wall time | mediators | result | code path |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 8×8 | binary_stack_l0 | -0.4 | 64 | 112 | 4 | **True** | 0.2 | 0.7999999999999999 | 0.0005 s | 0 | PLACED | grid_embed |
+| 64×64 | binary_stack_l0 | -0.4 | 4096 | 8064 | 4 | **True** | 0.2 | 0.7999999999999999 | 0.028 s | 0 | PLACED | grid_embed |
+| 8×8 | binary_stack_l1 | -0.35 | 64 | 112 | 4 | **True** | 0.175 | 0.7000000000000001 | 0.0004 s | 0 | PLACED | grid_embed |
+| 64×64 | binary_stack_l1 | -0.35 | 4096 | 8064 | 4 | **True** | 0.175 | 0.7000000000000001 | 0.0352 s | 0 | PLACED | grid_embed |
+| 8×8 | binary_stack_l2 | -0.3 | 64 | 112 | 4 | **True** | 0.15 | 0.6 | 0.0004 s | 0 | PLACED | grid_embed |
+| 64×64 | binary_stack_l2 | -0.3 | 4096 | 8064 | 4 | **True** | 0.15 | 0.6 | 0.028 s | 0 | PLACED | grid_embed |
+
+Raw rows: `audit/bipartite_matrix_task2.json`.
+
+**Finding.** All three layers are bipartite at both sizes, place via the
+deterministic `grid_embed` path (confirmed, not inferred from a fast
+`place_s` — `bipartite_at` calls `_try_grid_embed` on the exact graph
+`place()` builds, same as Task 1), take **0 mediators**, and place in under
+36 ms even at 64×64 (4,096 cells). This is the identical shape and result
+Task 1 already measured for its single "overlay" instance, now confirmed
+independently for three distinctly-weighted layers — three separately
+compilable binary specs is not a regression on any axis Task 1 measured.
+
+## Step 3 — what cannot be expressed this way, named concretely
+
+The base layer (`specs/lattice_small_8x8_k3.yaml`) has four terms:
+
+1. `{a_value: 0, b_value: 1, weight: 1.0}` — **the cross-rule**: water (0)
+   directly adjacent to rock (1) is penalized. This is the rule tied to the
+   spec's own `contract.validate` check (`forbid_value_pair_over_edges`,
+   a_value=0, b_value=1) — the one hard, compile-time-enforced guarantee
+   the whole plan is about relocating.
+2. `{a_value: 0, b_value: 0, weight: -0.4}` — self-rule: water clumps with
+   water.
+3. `{a_value: 1, b_value: 1, weight: -0.4}` — self-rule: rock clumps with
+   rock.
+4. `{a_value: 2, b_value: 2, weight: -0.4}` — self-rule: grass clumps with
+   grass.
+
+Rules 2, 3, 4 map directly onto the three binary layers' own self-rules
+(exactly what `binary_stack_l0/l1/l2.yaml` implement) — **these are not
+lost.**
+
+**Rule 1 is lost, and the reason is more specific than "cross-rules break
+bipartiteness."** That framing is the base layer's own diagnosis for *why
+the base layer itself* is non-bipartite (a k=3 domain-wall chain, and — see
+Task 3 below — even some of its self-rules turn out to break bipartiteness
+too, for a reason that has nothing to do with being a cross-rule). For the
+**binary stack specifically**, the obstruction was checked directly rather
+than inherited: a same-layer CROSS-rule on a plain binary (k=2) variable
+was built and measured (`audit/bipartite_routes.py`-style probe, `a_value:
+0, b_value: 1, weight: 1.0` on an 8×8 binary grid) and came back
+`n_nodes=64, n_edges=112, max_degree=4, bipartite=True, max_abs_J=0.5` —
+**identical topology to the self-rule case, still bipartite.** This checks
+out from the encoding itself: `tsu.spec._value_indicator` for a Binary
+variable always returns a `LinearForm` over the *same single* `VarRef` (the
+cell's own spin) regardless of which value (0 or 1) it indicates — a
+domain-wall chain, which is what lets a cross-rule introduce
+different-chain-position couplings for k≥3, does not exist for k=2 at all
+(`encode.py`'s `_build_categorical`: a `Binary` variable is appended
+straight into `variables`, never chained). **So "only self-rules survive
+within a layer" is not literally true for a plain binary layer** — a
+same-layer 0-vs-1 cross-rule would stay bipartite too, if one were written.
+
+**What is actually lost is architectural, not rule-shape-specific.** Rule
+1 forbids a *composed* state 0 (water) from touching a composed state 1
+(rock) — and under `compose_state`'s convention, composed state 0 is bits
+`(0,0,0)` and composed state 1 is bits `(1,0,0)`: they differ *only* in
+layer 0's bit, **conditioned on layers 1 and 2 both being 0 at both
+cells.** No single one of the three independently-compiled binary specs
+has any visibility into the other two layers' bits — each is its own
+separate `IsingModel`, placed and sampled on its own — so no
+`product_over_edges` term (self or cross) written inside `binary_stack_l0`
+alone can ever condition on `binary_stack_l1`/`_l2`'s values. **A hard,
+hardware-representable hard energy term for "composed 0 never touches
+composed 1" cannot be written in this architecture at all**, regardless of
+which per-layer rule shape is chosen — not because the rule is a
+cross-rule, but because it needs joint visibility across layers that three
+independently-compiled bipartite specs structurally do not have. This is
+exactly why Task 4 relocates it to a **cross-layer bias patch** (applied at
+sample time, after the other layers are already decoded) instead of a
+compiled term — and why that relocation is necessarily a soft nudge, not a
+guarantee.
