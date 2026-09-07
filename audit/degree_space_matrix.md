@@ -349,3 +349,96 @@ at all** — a workload whose failure is a field-cap violation (as
 `assignment_8x8`'s is, independently of its degree failure) gets no help
 from either technique, at any node cost; that is a different, unaddressed
 dimension of the same problem, diagnosed directly in Task 5.
+
+---
+
+## Task 5 — the payoff test
+
+**The winning route is B.** Task 4's own comparison table gives it the
+identical degree and node outcome as Route A on `assignment_8x8`
+(`max_degree` 32→16, `n_nodes` 1744→1840 for both) at a strictly lower
+`|J|max` (5.2 vs 6.0). Applied via `task5_apply_winning_route_to_
+assignment_8x8` (`star_replicate(max_degree=16, spoke_strength=5.2)`):
+
+| | n_nodes | max_degree | \|J\|max | \|b\|max |
+|---|---|---|---|---|
+| before | 1744 | 32 | 0.375 | 8.0 |
+| after (Route B) | 1840 | **16** | 5.2 | 8.0 |
+
+| gate | measured | cap | result |
+|---|---|---|---|
+| degree | 16 | 16 | PASS |
+| \|J\| | 5.2 | 6.0 | PASS |
+| \|b\| | **8.0** | 6.0 | **FAIL** |
+| node_budget | 1840 | 250,000 | PASS |
+
+**Does the assignment gadget now tile inside every Z1 gate? No.** Degree is
+fixed. `field_cap` is not — **`|b|max=8.0` is completely untouched by
+either route**, exactly as Task 4 predicted: both constructions place a
+split/replicated node's bias on a single copy, never touching its
+magnitude.
+
+**Diagnosis, not tuning (Step 3).** The gate that binds is `field_cap`
+(`|b|`): measured `8.0`, cap `6.0`, **gap = 2.0 (33.3% over cap)**. This is
+not a Route A/B problem to fix — neither route was ever designed to move
+`|b|` — it is a property of the gadget's own construction. Checked for
+size-dependence the same way Task 1 checked `max_degree=32`'s
+non-degeneracy (`task5_diagnose_field_cap_gap`, measuring the identical
+grid-gadget construction at 3×3, 4×4, 5×5, 8×8):
+
+| grid | max_degree | max_abs_b | node carrying max \|b\| |
+|---|---|---|---|
+| 3×3 | 32 | 8.0 | `g1_1` |
+| 4×4 | 32 | 8.0 | `g1_1` |
+| 5×5 | 32 | 8.0 | `g1_1` |
+| 8×8 | 32 | 8.0 | `g1_1` |
+
+**Both `max_degree=32` and `max_abs_b=8.0` plateau identically from 3×3
+upward**, carried by the same kind of node in every case (an interior
+cell with a full, boundary-untruncated Moore-8 neighbourhood — the first
+grid size large enough to have one is 3×3). This is a structural property
+of any interior cell's own local gadget shape, present at the smallest
+non-trivial grid and unchanged at every larger size tested — **not an
+8×8-specific artifact, and not something a bigger OR smaller (non-trivial)
+grid would fix.** No grid size makes this gadget pass on its own; the
+field-cap failure is orthogonal to grid size entirely.
+
+**The emergence experiment's 8×8 canvas limitation — liftable, and to what
+size?** `audit/emergence_report.md`'s own finding was that 8×8 is too small
+to show elongated geography (a coastline, a ridge) *regardless of whether
+the underlying couplings are correct* — a canvas-size/statistical-power
+limitation, not a compiler gate failure. Checked directly against that
+report's own numbers: `emergence_8x8.yaml` **already passes every Z1 gate
+at 8×8** (`degree=12` against the cap of 16, 4 of margin; `|J|max=0.35`,
+`|b|max=0.90`, both well under 6.0). Its four rules are drawn from Task 3
+of the *other* plan (`2026-09-04-lattice-rule-taxonomy.md`, per that
+report's own header) — already gate-fitting, local, spatially-bounded
+classes, the same family `terrain_k5` belongs to, whose degree Task 1
+already verified size-independent at 3×3/4×4/5×5 (interior-cell degree
+plateaus regardless of overall grid size).
+
+**Stated plainly: this limitation was never a degree problem, so this
+plan's routes — which exist specifically to buy degree headroom a workload
+has already exhausted — have nothing to lift here.** A 40×40 or 64×64
+emergence run was already unblocked on degree grounds before this plan
+started, and remains exactly as unblocked now; nothing in Tasks 2–4 changes
+that answer, because the thing they fix was never what was holding it back.
+The one real, separate, and still-**unaddressed** cost at larger scale is
+placement time — `emergence_report.md` measured 222.55s and 116 mediator
+spins for bipartite embedding at just 64 nodes, and warned that "a larger
+or denser emergence spec built the same way should expect a similar,
+unmeasurable-in-advance mediation cost." That is an `insert_mediators`
+(parity) cost, not a degree cost, and this plan's routes do nothing about
+it either way — it is recorded here as the honest remaining unknown, not
+folded into a claim this plan did not test.
+
+**Summary of the payoff:** Route B fixes `assignment_8x8`'s degree failure
+completely and at a lower `|J|` cost than Route A, but the gadget still
+does not tile inside Z1 today — a second, independent, and completely
+untouched gate (`field_cap`) blocks it, at a measured 33.3% overage that is
+structural rather than scale-dependent. The false-impossibility-proof
+escape this plan set out to rescue (one-sided rules like "land patches must
+be at least 4 cells", via the assignment gadget) is **not yet reachable on
+Z1** — degree was one of its two real obstacles, and this plan closes it;
+the field-cap obstacle is a distinct, separately-scoped problem, diagnosed
+here rather than patched over.
