@@ -64,3 +64,29 @@ def test_upsample_dispatches_and_rejects_an_unknown_mode():
     assert np.allclose(upsample(a, 2, "bilinear"), bilinear(a, 2))
     with pytest.raises(ValueError):
         upsample(a, 2, "bicubic")
+
+
+def test_bilinear_preserves_the_input_corners():
+    """Clamping is what keeps the corners exact, and a RANGE check cannot test
+    it: with the clip removed, np.floor gives a negative index at the low edge
+    and numpy WRAPS it to the last row/column, so the result stays a convex
+    combination of two real values -- in range, but blended from the wrong row.
+    (Measured: the unclamped version spans [1.50, 12.00] on this [0, 12] input
+    and passes a range check.) Exact corner values are what discriminate.
+
+    The fixture varies along BOTH axes, and the three corners pin the y-clamp
+    and the x-clamp independently. Only the LOW edge discriminates -- the high
+    edge self-clamps via min(y0 + 1, n - 1). Unclamped values in comments."""
+    a = np.array([[0.0, 4.0], [8.0, 12.0]])
+    out = bilinear(a, 4)
+    assert out[0, 0] == pytest.approx(0.0)    # unclamped: 4.5  (both axes)
+    assert out[0, -1] == pytest.approx(4.0)   # unclamped: 7.0  (y-clamp only)
+    assert out[-1, 0] == pytest.approx(8.0)   # unclamped: 9.5  (x-clamp only)
+
+
+def test_nearest_preserves_dtype_and_bilinear_is_always_float():
+    """The brief requires both. np.array_equal and np.allclose ignore dtype, so
+    without this a regression on either guarantee passes every other test."""
+    a = np.array([[1, 2], [3, 4]], dtype=np.int64)
+    assert nearest(a, 2).dtype == np.int64
+    assert bilinear(a, 2).dtype == np.float64
