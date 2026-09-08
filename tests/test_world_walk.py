@@ -26,12 +26,28 @@ def test_load_reads_an_exported_world(loaded):
     assert loaded.cost.shape == (64, 64)
 
 
-def test_step_moves_and_charges_the_entered_cell(loaded):
-    s = PlayerState(x=10, y=10, spent=0, steps=0)
-    t = step(s, 1, 0, loaded)
-    assert (t.x, t.y) == (11, 10)
-    assert t.spent == int(loaded.cost[10, 11])
-    assert t.steps == 1
+def test_step_charges_the_cell_entered_not_the_cell_left(loaded):
+    """Search for an adjacent pair whose costs DIFFER, so that charging the
+    origin and charging the destination give different answers. The previous
+    version moved between two cells that both cost 1, where a regression
+    charging the cell left behind produced the identical total and passed.
+
+    Raises rather than skipping if no such pair exists -- a fixture that went
+    uniform would make this test silently non-discriminating, which is the
+    exact failure mode being fixed."""
+    for y in range(loaded.size):
+        for x in range(loaded.size - 1):
+            here, there = int(loaded.cost[y, x]), int(loaded.cost[y, x + 1])
+            if here != there:
+                t = step(PlayerState(x=x, y=y, spent=0, steps=0), 1, 0, loaded)
+                assert (t.x, t.y) == (x + 1, y)
+                assert t.spent == there, "must charge the cell ENTERED"
+                assert t.spent != here, "and not the cell left behind"
+                assert t.steps == 1
+                return
+    raise AssertionError(
+        "no adjacent pair with differing cost in this fixture -- the test "
+        "cannot discriminate and must not silently pass")
 
 
 def test_step_clamps_at_the_edge_and_charges_nothing(loaded):
@@ -47,10 +63,35 @@ def test_every_cell_is_enterable(loaded):
     assert loaded.cost.min() >= 1
 
 
-def test_render_marks_the_player_and_fits_the_window(loaded):
-    s = PlayerState(x=32, y=32, spent=0, steps=0)
-    out = render(s, loaded, radius=5)
-    lines = out.splitlines()
-    assert len(lines) == 11
-    assert all(len(ln) == 11 for ln in lines)
-    assert lines[5][5] == "@"
+def test_render_is_not_transposed_and_shows_the_real_terrain(loaded):
+    """x != y deliberately. At x == y a transposed render produces an identical
+    window, so the previous diagonal fixture could not see the bug. This also
+    compares every cell of the window against the world, so a reversed or
+    misordered glyph list fails here too -- the length and marker checks alone
+    could not tell.
+
+    Position and radius are chosen so the window does not touch an edge, which
+    keeps the offset arithmetic exact; the corner case is covered separately."""
+    x, y, r = 40, 17, 4
+    lines = render(PlayerState(x=x, y=y, spent=0, steps=0), loaded,
+                   radius=r).splitlines()
+    assert len(lines) == 2 * r + 1
+    assert all(len(ln) == 2 * r + 1 for ln in lines)
+    assert lines[r][r] == "@"
+    for dy in range(-r, r + 1):
+        for dx in range(-r, r + 1):
+            if (dx, dy) == (0, 0):
+                continue
+            assert lines[r + dy][r + dx] == loaded.glyphs[
+                loaded.terrain[y + dy, x + dx]], f"mismatch at offset {(dx, dy)}"
+
+
+def test_render_at_a_corner_keeps_the_window_square(loaded):
+    """The clamp must keep the window exactly (2r+1) square at a corner rather
+    than truncating it, with the player at its true offset rather than recentred."""
+    r = 6
+    lines = render(PlayerState(x=0, y=0, spent=0, steps=0), loaded,
+                   radius=r).splitlines()
+    assert len(lines) == 2 * r + 1
+    assert all(len(ln) == 2 * r + 1 for ln in lines)
+    assert lines[0][0] == "@"
