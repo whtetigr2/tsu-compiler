@@ -40,6 +40,7 @@ class World:
     seed: int
     beta_j: float
     mode: str
+    warmup: int
     fields: dict            # name -> raw sampled field, BEFORE upsampling
     height: np.ndarray      # (size, size) float
     terrain: np.ndarray     # (size, size) int, index into TERRAINS
@@ -75,4 +76,4 @@ def generate(size: int = 64, seed: int = 0, beta_j: float = 0.42,
     t = np.vectorize(terrain_index)(h).astype(int)
     cost = np.array([[TERRAINS[i].cost for i in row] for row in t], dtype=int)
     return World(size=size, seed=seed, beta_j=beta_j, mode=mode,
-                 fields=raw, height=h, terrain=t, cost=cost)
+                 warmup=warmup, fields=raw, height=h, terrain=t, cost=cost)

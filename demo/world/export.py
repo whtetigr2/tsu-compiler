@@ -17,15 +17,21 @@ import numpy as np
 
 from world.spline import TERRAINS
 
-PALETTE: tuple[tuple[int, int, int], ...] = (
-    (24, 54, 112),     # deep_water
-    (52, 104, 168),    # shallow_water
-    (214, 200, 148),   # sand
-    (96, 140, 76),     # grass
-    (140, 132, 120),   # scree
-    (232, 232, 236),   # mountain
-)
-assert len(PALETTE) == len(TERRAINS)
+PALETTE_BY_NAME: dict[str, tuple[int, int, int]] = {
+    "deep_water": (24, 54, 112),
+    "shallow_water": (52, 104, 168),
+    "sand": (214, 200, 148),
+    "grass": (96, 140, 76),
+    "scree": (140, 132, 120),
+    "mountain": (232, 232, 236),
+}
+PALETTE: tuple[tuple[int, int, int], ...] = tuple(
+    PALETTE_BY_NAME[t.name] for t in TERRAINS)
+"""Keyed BY NAME, then ordered by TERRAINS. A length check alone would let a
+reordering of either list pass silently while recolouring every PNG; this makes
+the correspondence structural -- reordering TERRAINS reorders PALETTE with it,
+and renaming or adding a terrain raises KeyError at import rather than shipping
+a wrong colour."""
 
 
 def to_text(world) -> str:
@@ -37,6 +43,7 @@ def to_text(world) -> str:
 def to_json(world) -> dict:
     return dict(size=world.size, seed=world.seed, beta_j=world.beta_j,
                 mode=world.mode,
+                warmup=world.warmup,
                 terrain_names=[t.name for t in TERRAINS],
                 terrain_glyphs=[t.glyph for t in TERRAINS],
                 terrain=world.terrain.tolist(),

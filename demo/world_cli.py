@@ -43,7 +43,7 @@ def main() -> None:
         share = float((w.terrain == i).mean())
         print(f"  {t.glyph}  {t.name:<14} {share * 100:5.1f}%  cost {t.cost}")
     print(f"\n  size {w.size}x{w.size}  seed {w.seed}  beta*J {w.beta_j} "
-          f"({w.mode})  {total} cells  {time.time() - t0:.1f}s")
+          f"({w.mode}, warmup {w.warmup})  {total} cells  {time.time() - t0:.1f}s")
     for p in paths:
         print(f"  -> {p}")
 
