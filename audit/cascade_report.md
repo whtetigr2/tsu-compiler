@@ -205,3 +205,125 @@ against.
    is not itself the measurement; `measure_inheritance`'s five-parent pool
    is.
 
+---
+
+## Task 4, Step 1 — pre-registered predictions (written BEFORE measuring)
+
+Per this plan's own Global Constraints and the discipline Task 2 already
+followed above: this section is written and committed in its OWN commit,
+strictly before `demo/cascade_world.py`'s Task 4 measurement code (Step 2's
+correlation-length computation, Step 3's violation-rate pooling) is ever
+run. The measured results are appended in a separate, later commit so the
+ordering is provable from git history, exactly as Task 2's band was.
+
+**What Task 4 measures and why, restated from the plan:** does deciding
+structure once, at a small coarse scale where a local rule spans a
+meaningful fraction of the grid, produce a 64x64 world with (a) genuinely
+longer-range spatial structure than a flat 64x64 sample of the identical
+rules, and (b) a lower rate of the one hard rule this architecture cannot
+enforce at fine scale ("water never adjacent to rock") than the flat
+figures a prior plan already measured for a different relocation
+mechanism (18.15% at zero nudge, 9.69% at that mechanism's own best
+strength)?
+
+### Q1 — correlation length: cascaded should be materially longer than flat
+
+**Prediction.** The FLAT comparison (Step 2's own design, stated before
+building it: a fresh, unconditioned draw of the identical `_compile_fine_layer`
+architecture already used for every level of the cascade -- zero
+`product_over_edges` terms, domain_wall k=3, bipartite by construction,
+same 64x64 size, same sampling params -- with NO patch applied at all, not
+even an empty-dict no-op call) has, BY CONSTRUCTION, no cross-cell coupling
+of any kind: each cell's only structure is its own 2-spin domain-wall
+representation chain, which never touches a neighbour. Its same-value
+spatial correlation should therefore be statistically indistinguishable
+from the chance level (`sum_v p_v^2` over the realized marginal) at every
+distance r >= 1 -- correlation length ~0 / undefined, no positive
+autocorrelation to even fit a decay to.
+
+The CASCADED 64x64 world inherits real structure from an 8x8 base whose
+own decisions each span an 8x8 block of fine cells (64/8 = 8), and Task 2
+already measured that inheritance holds at 57.6% (well above chance,
+comfortably below freezing) for one level of refinement at strength=1.0.
+We predict the cascaded world's correlation length will be MEASURABLY
+POSITIVE and reported in the single-digit-to-low-double-digit number of
+cells -- a defensible band, stated before measuring, is **2-10 cells**:
+above 1 (meaningfully more than "only adjacent cells correlate," which
+would say the cascade adds nothing beyond a single upsampling step) and
+below the full 8-cell block scale of the top-level decision (since
+inheritance is well under 100% at every intervening level, so an original
+8-cell block will not survive three rounds of conditioning as a perfectly
+uniform region).
+
+**Falsifier.** If the cascaded world's fitted correlation length is not
+measurably longer than the flat world's (both land at ~0/undefined, or
+their confidence intervals overlap enough that "longer" cannot honestly be
+claimed), the central hypothesis -- that deciding structure once at a
+small coarse scale and refining downward produces structure a same-scale
+flat sample cannot -- is REFUTED for this configuration, and Step 6 says
+so plainly.
+
+### Q2 — violation rate: cascaded should be lower than the flat 18.15%/9.69% baseline, direction only
+
+**Prediction.** The coarse 8x8 base enforces "water never adjacent to
+rock" as a HARD, contract-validated rule (0% violations, by construction)
+-- so two coarse cells that differ as water/rock are NEVER adjacent in the
+upsampled backdrop the fine layers condition on. Any water-rock violation
+that appears in the final 64x64 cascaded world must therefore be
+MANUFACTURED by fine-scale sampling noise (a fine cell landing on a value
+other than its inherited one, near enough to a differently-valued
+neighbour to create the forbidden pair) -- not inherited directly from a
+coarse-level decision, which is exactly the mechanism this plan exists to
+test (relocating a hard rule's *effect* one scale up, rather than
+relocating the rule itself as a same-scale bias patch, per the earlier
+`demo/binary_world.py` measurement this compares against).
+
+We predict the cascaded rate will be LOWER than both flat figures already
+measured for that earlier relocation mechanism (18.15% at zero nudge,
+9.69% at its own best strength). We deliberately do **not** pre-commit to
+a specific numeric target beyond "lower than 18.15%/9.69%" -- no precedent
+exists in this project for this THIRD, structurally different mechanism
+(hard rule one scale up, zero-self-rule soft-conditioned noise below it),
+and naming a specific percentage now, before measuring, would only invite
+post-hoc argument about whether the actual number counts as "close enough"
+to a guessed target. The plan's own pre-set judgment bands (below ~1%:
+anomaly-worthy; ~10%: a defect, framing unavailable; between: say so) are
+what Step 4 grades the ACTUAL measured number against -- this
+pre-registration's own honest uncertainty: given Task 2's inheritance
+plateaus at 57.6% (well under total freezing) at the strength this task
+carries forward, we do not have strong grounds to predict the rate lands
+in anomaly territory (<1%) rather than defect territory (~10%) -- both are
+live possibilities and the measurement, not this paragraph, will decide.
+
+**Falsifier.** If the cascaded rate is not lower than 18.15% (zero-nudge)
+and 9.69% (best-strength) -- i.e. equal to or worse than both -- Q2 is
+REFUTED: the coarse-hard-rule-plus-soft-refinement architecture bought
+nothing over the earlier same-scale relocation, despite costing a second,
+more elaborate sampling pipeline to get there.
+
+### Q3 — visible macro-structure (Paul's own bar, restated honestly)
+
+**Prediction.** `demo/cascade_levels.png` and `demo/cascade_world.png`
+should show visibly larger, more extended terrain regions at 64x64 than an
+i.i.d.-noise bake of the same value proportions would produce -- regions
+whose scale is set by the ORIGINAL 8x8 decision (i.e., features spanning
+several fine cells in a row, not isolated single-cell speckle) should be
+visually identifiable by eye, without needing the correlation-length
+statistic to argue for them. This is graded honestly against Step 2's own
+prior finding (`audit/emergence_report.md`'s P5: "this is not a 'holy
+shit' moment... a real but modest positive result, not a dramatic one") --
+if the cascaded render still reads as noise or as a single undifferentiated
+blob, this report says so plainly rather than reframe a modest result as a
+striking one.
+
+### What would falsify the plan's hypothesis outright
+
+If **either** Q1 (correlation length not measurably longer than flat) **or**
+Q2 (violation rate not lower than 18.15%/9.69%) fails, the specific
+mechanism this plan proposes -- decide structure once at a small coarse
+scale, refine downward via soft conditioning -- does not deliver what it
+promises for this configuration. That is reported as a real, useful
+negative result (per the plan's own stated view: it would mean scale
+separation was not the missing ingredient either, which moves the search
+to the rules themselves), never argued around.
+
