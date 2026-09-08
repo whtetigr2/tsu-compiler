@@ -23,7 +23,7 @@ def main() -> None:
     ap.add_argument("--beta-j", type=float, default=0.42,
                     help="measured usable band is [0.38, 0.45]")
     ap.add_argument("--mode", choices=("bilinear", "nearest"),
-                    default="nearest")
+                    default="bilinear")
     ap.add_argument("--warmup", type=int, default=4000)
     ap.add_argument("--out", default=None,
                     help="output directory (default worlds/<seed>)")

@@ -48,7 +48,7 @@ class World:
 
 
 def generate(size: int = 64, seed: int = 0, beta_j: float = 0.42,
-             mode: str = "nearest", warmup: int = 4000) -> World:
+             mode: str = "bilinear", warmup: int = 4000) -> World:
     """Sample and assemble one world.
 
     Each parameter field gets its own seed derived from `seed`, so the three
