@@ -894,8 +894,21 @@ def main_task4():
     STRENGTH = 1.0
 
     print("=== Task 4, Step 2: pooling grids (cascaded vs. flat) ===", flush=True)
+    print("compiling the shared 64x64 fine layer ONCE -- both conditions use "
+          "the IDENTICAL architecture (zero product_over_edges terms, "
+          "domain_wall k=3, bipartite by construction); this is not just an "
+          "optimisation, it is what 'same rules, same everything else' "
+          "means for this comparison.", flush=True)
     t0 = time.perf_counter()
-    cascaded_grids, cascaded_meta = pool_cascade_final_grids(PARENT_SEEDS, STRENGTH)
+    fine_layer_64 = _compile_fine_layer(64)
+    wall_compile = time.perf_counter() - t0
+    print(f"compiled 64x64 fine layer: bipartite={fine_layer_64[3].bipartite}, "
+          f"n_nodes={fine_layer_64[3].n_nodes}, n_edges={fine_layer_64[3].n_edges}, "
+          f"wall={wall_compile:.2f}s", flush=True)
+
+    t0 = time.perf_counter()
+    cascaded_grids, cascaded_meta = pool_cascade_final_grids(
+        PARENT_SEEDS, STRENGTH, fine_layer_64=fine_layer_64)
     wall_cascaded = time.perf_counter() - t0
     print(f"cascaded: {cascaded_meta['n_grids']} grids pooled from "
           f"{len(PARENT_SEEDS)} independent parents, wall={wall_cascaded:.2f}s",
@@ -904,7 +917,7 @@ def main_task4():
         json.dumps(cascaded_meta | {"wall_s": wall_cascaded}, indent=2))
 
     t0 = time.perf_counter()
-    flat_grids, flat_meta = pool_flat_grids(FLAT_SEEDS, n=64)
+    flat_grids, flat_meta = pool_flat_grids(FLAT_SEEDS, n=64, fine_layer=fine_layer_64)
     wall_flat = time.perf_counter() - t0
     print(f"flat: {flat_meta['n_grids']} grids pooled from "
           f"{len(FLAT_SEEDS)} independent seeds, wall={wall_flat:.2f}s", flush=True)
@@ -950,13 +963,57 @@ def main_task4():
           "task4_violation_rate.json", flush=True)
 
 
+def main_task3_transition_3264():
+    """Complete Task 3's own transition-inheritance measurement: the 32->64
+    leg was in progress (compiling the 64x64 fine layer -- the single most
+    expensive step in this whole plan, ~245s of place() search) when an
+    earlier run of this module was killed by a 10-minute background-shell
+    timeout on the CALLING SESSION's own tooling, not a code fault. The
+    8->16 and 16->32 results already written to disk
+    (demo/cascade_runs/task3_inheritance_{8to16,16to32}.json) are read back
+    verbatim rather than re-measured (they are deterministic given the same
+    seeds/strength/params, and re-running them would waste ~110s for no new
+    information) -- only 32->64 is computed fresh here."""
+    out_dir = Path("demo/cascade_runs")
+    STRENGTH = 1.0
+    print("=== Task 3: 32->64 inheritance "
+          f"({len(PARENT_SEEDS)} independent 8x8 parents, strength={STRENGTH}) ===",
+          flush=True)
+    t0 = time.perf_counter()
+    fine_layer = _compile_fine_layer(64)
+    print(f"compiled 64x64 fine layer: bipartite={fine_layer[3].bipartite}, "
+          f"n_nodes={fine_layer[3].n_nodes}, n_edges={fine_layer[3].n_edges}",
+          flush=True)
+    res = measure_inheritance(
+        STRENGTH, PARENT_SEEDS, src_w=32, factor=2, fine_layer=fine_layer,
+        coarse_decode_fn=lambda seed: _repr_decode_upto(seed, 32, STRENGTH),
+        out_path=str(out_dir / "task3_inheritance_32to64.json"))
+    wall = time.perf_counter() - t0
+    frac = res["pooled_fraction"]
+    frac_str = f"{frac:.4f}" if frac is not None else "unavailable"
+    print(f"32->64: pooled_fraction={frac_str} "
+          f"({res['total_matches']}/{res['total_children']})  wall={wall:.2f}s",
+          flush=True)
+
+    combined = {}
+    for label, fname in [("8->16", "task3_inheritance_8to16.json"),
+                         ("16->32", "task3_inheritance_16to32.json"),
+                         ("32->64", "task3_inheritance_32to64.json")]:
+        combined[label] = json.loads((out_dir / fname).read_text())
+    Path(out_dir / "task3_transitions.json").write_text(json.dumps(combined, indent=2))
+    print(f"\nwrote {out_dir / 'task3_transitions.json'} (all three transitions)",
+          flush=True)
+
+
 if __name__ == "__main__":
     _mode = sys.argv[1] if len(sys.argv) > 1 else "task2"
     if _mode == "task2":
         main_task2()
     elif _mode == "task3":
         main_task3()
+    elif _mode == "task3b":
+        main_task3_transition_3264()
     elif _mode == "task4":
         main_task4()
     else:
-        raise SystemExit(f"unknown mode {_mode!r}; use 'task2', 'task3', or 'task4'")
+        raise SystemExit(f"unknown mode {_mode!r}; use 'task2', 'task3', 'task3b', or 'task4'")
