@@ -54,7 +54,8 @@ def main():
             mean=float(np.mean([s["mean"] for s in stats])),
             std=float(np.mean([s["std"] for s in stats])),
             hist=[float(np.mean([s["hist"][i] for s in stats]))
-                  for i in range(LAYERS + 1)])
+                  for i in range(LAYERS + 1)],
+            per_seed=stats)
         print(f"  warmup {w:>6}:  mean={out[str(w)]['mean']:.4f}  "
               f"std={out[str(w)]['std']:.4f}  "
               f"hist={[round(h, 4) for h in out[str(w)]['hist']]}")
@@ -62,6 +63,12 @@ def main():
     a, b = out[str(WARMUPS[0])], out[str(WARMUPS[1])]
     d_mean = abs(a["mean"] - b["mean"])
     d_hist = max(abs(x - y) for x, y in zip(a["hist"], b["hist"]))
+    seed_spread = float(np.std([s["mean"] for s in
+                                out[str(WARMUPS[0])]["per_seed"]]))
+    print(f"  seed-to-seed std of mean level at warmup {WARMUPS[0]}: "
+          f"{seed_spread:.4f}")
+    print(f"  warmup delta as a multiple of that spread: "
+          f"{d_mean / seed_spread:.2f}x" if seed_spread else "")
     verdict = "MIXED" if (d_mean <= 0.1 and d_hist <= 0.05) else "NOT MIXED"
     print(f"\n  delta mean = {d_mean:.4f} (threshold 0.1)")
     print(f"  max delta hist bucket = {d_hist:.4f} (threshold 0.05)")
@@ -73,6 +80,7 @@ def main():
     with open("audit/mixing.json", "w") as fh:
         json.dump(dict(size=SIZE, beta_j=BETA_J, seeds=SEEDS, runs=out,
                        delta_mean=d_mean, delta_hist=d_hist,
+                       seed_spread=seed_spread,
                        verdict=verdict), fh, indent=2)
     print("\n-> audit/mixing.json")
 

@@ -41,7 +41,7 @@ class World:
     beta_j: float
     mode: str
     warmup: int
-    fields: dict            # name -> raw sampled field, BEFORE upsampling
+    fields: dict[str, np.ndarray]  # name -> raw sampled field, BEFORE upsampling
     height: np.ndarray      # (size, size) float
     terrain: np.ndarray     # (size, size) int, index into TERRAINS
     cost: np.ndarray        # (size, size) int
@@ -56,10 +56,19 @@ def generate(size: int = 64, seed: int = 0, beta_j: float = 0.42,
     they must be, or continentalness and erosion would be perfectly correlated
     and two of the three parameters would carry no information.
     """
-    if size % BASE_SIZE != 0:
+    if size < BASE_SIZE or size % BASE_SIZE != 0:
         raise ValueError(
-            f"size must be a multiple of {BASE_SIZE}, got {size}; a "
-            f"non-multiple gives a non-integer upsample factor")
+            f"size must be a positive multiple of {BASE_SIZE}, got {size}; a "
+            f"non-multiple gives a non-integer upsample factor, and sizes at "
+            f"or below zero pass a bare modulo check while failing much later "
+            f"inside upsample -- after a full TSU sample has already run")
+    est_spins = sum(max(4, s * (size // BASE_SIZE)) ** 2 for _, s in FIELD_PLAN) * LEVELS
+    if est_spins > 250_000:
+        raise ValueError(
+            f"size {size} needs about {est_spins:,} spins across the three "
+            f"field stacks, over the Z1 node budget of 250,000; place() would "
+            f"raise, but only while compiling the THIRD field, after two are "
+            f"already sampled")
     scale = size // BASE_SIZE
 
     raw: dict[str, np.ndarray] = {}

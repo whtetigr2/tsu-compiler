@@ -74,9 +74,30 @@ def test_the_world_is_not_one_terrain():
     assert len(np.unique(w.terrain)) > 1
 
 
-def test_a_size_that_is_not_a_multiple_of_64_is_refused():
+@pytest.mark.parametrize("bad", [0, -64, 100])
+def test_invalid_sizes_are_refused_before_any_sampling(bad):
+    """Refused up front rather than after an expensive sample. size=0 and
+    negative multiples both pass a bare `size % 64` check, which is why the
+    guard tests `size < BASE_SIZE` as well."""
     with pytest.raises(ValueError):
-        generate(size=100, seed=0, warmup=200)
+        generate(size=bad, seed=0, warmup=200)
+
+
+def test_a_size_over_the_node_budget_is_refused_before_sampling():
+    """place() would raise anyway, but only while compiling the third field --
+    after two have already been sampled."""
+    with pytest.raises(ValueError, match="node budget"):
+        generate(size=384, seed=0, warmup=200)
+
+
+def test_generate_actually_honours_the_upsample_mode():
+    """A `generate` that ignored `mode` would pass every other test in this
+    file and would silently collapse the two measurement arms in audit/ into
+    the same run performed twice."""
+    a = generate(size=64, seed=4, mode="bilinear", warmup=200)
+    b = generate(size=64, seed=4, mode="nearest", warmup=200)
+    assert a.mode == "bilinear" and b.mode == "nearest"
+    assert not np.array_equal(a.terrain, b.terrain)
 
 
 def test_the_three_fields_use_distinct_derived_seeds():

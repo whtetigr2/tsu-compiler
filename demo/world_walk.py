@@ -37,17 +37,30 @@ class PlayerState:
     steps: int
 
 
-def load(path) -> LoadedWorld:
+def load(path: str | Path) -> LoadedWorld:
     """Glyphs travel IN THE ARTIFACT rather than being hardcoded here or
     imported from `world.spline`. Hardcoding duplicates a literal that nothing
     would catch drifting; importing spline would break this module's rule of
     consuming only the export. The artifact carries them, so neither is needed."""
     d = json.loads(Path(path).read_text(encoding="utf-8"))
-    return LoadedWorld(size=d["size"],
-                       terrain=np.array(d["terrain"], dtype=int),
-                       cost=np.array(d["cost"], dtype=int),
-                       glyphs=d["terrain_glyphs"],
-                       names=d["terrain_names"])
+    terrain = np.array(d["terrain"], dtype=int)
+    cost = np.array(d["cost"], dtype=int)
+    glyphs, names = d["terrain_glyphs"], d["terrain_names"]
+    size = d["size"]
+    if terrain.shape != (size, size) or cost.shape != (size, size):
+        raise ValueError(
+            f"{path}: size {size} disagrees with terrain {terrain.shape} / "
+            f"cost {cost.shape} -- the artifact is inconsistent")
+    if len(glyphs) != len(names):
+        raise ValueError(
+            f"{path}: {len(glyphs)} glyphs but {len(names)} terrain names")
+    if int(terrain.max()) >= len(glyphs):
+        raise ValueError(
+            f"{path}: terrain index {int(terrain.max())} has no glyph "
+            f"({len(glyphs)} present) -- artifact written by a different "
+            f"terrain table")
+    return LoadedWorld(size=size, terrain=terrain, cost=cost,
+                       glyphs=glyphs, names=names)
 
 
 def step(state: PlayerState, dx: int, dy: int, world: LoadedWorld) -> PlayerState:

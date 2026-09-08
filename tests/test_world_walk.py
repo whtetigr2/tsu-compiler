@@ -86,6 +86,19 @@ def test_render_is_not_transposed_and_shows_the_real_terrain(loaded):
                 loaded.terrain[y + dy, x + dx]], f"mismatch at offset {(dx, dy)}"
 
 
+def test_load_rejects_an_inconsistent_artifact(tmp_path, loaded):
+    """load() is the sole consumer of an on-disk artifact that other tools
+    write, so format drift must fail legibly rather than deep inside render()."""
+    import json as _json
+    p = tmp_path / "bad.json"
+    p.write_text(_json.dumps(dict(size=8, terrain=[[0, 0], [0, 0]],
+                                  cost=[[1, 1], [1, 1]],
+                                  terrain_glyphs=["~"], terrain_names=["a"])),
+                 encoding="utf-8")
+    with pytest.raises(ValueError, match="disagrees"):
+        load(p)
+
+
 def test_render_at_a_corner_keeps_the_window_square(loaded):
     """The clamp must keep the window exactly (2r+1) square at a corner rather
     than truncating it, with the player at its true offset rather than recentred."""

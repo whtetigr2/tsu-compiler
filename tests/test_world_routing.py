@@ -20,13 +20,19 @@ def test_uniform_grid_costs_one_row_and_takes_the_straight_path():
     assert cells == 5
 
 
-def test_a_cheap_lane_is_preferred_over_a_straight_expensive_one():
-    """Row 0 is expensive, row 4 is cheap. The optimal route must detour to
-    row 4 -- if it does not, the search is not exploring vertically."""
-    cost = np.full((5, 5), 9, dtype=int)
-    cost[4, :] = 1
-    total, _cells = cheapest_path_cost(cost)
-    assert total < 9 * 5
+def test_a_cheap_lane_is_followed_even_when_it_bends():
+    """The cheap route is an L, not a row, so no straight traversal is cheap
+    and the finder must turn to follow it. The previous version put the cheap
+    lane on a full row -- and since Dijkstra seeds EVERY left-edge cell, it
+    simply started on that row and walked straight, proving nothing about
+    vertical search."""
+    cost = np.full((7, 7), 9, dtype=int)
+    cost[0, 0:4] = 1
+    cost[0:5, 3] = 1
+    cost[4, 3:7] = 1
+    total, cells = cheapest_path_cost(cost)
+    assert total <= 15, "must follow the cheap L, not cross the expensive field"
+    assert cells > 7, "following the L requires leaving the start row"
 
 
 def test_detour_makes_the_path_longer_than_the_width():
@@ -54,10 +60,13 @@ def test_best_straight_cost_picks_the_cheapest_row():
     assert best_straight_cost(cost) == 8
 
 
-def test_cheapest_path_never_beats_an_impossible_lower_bound():
-    """Sanity: the optimal path cannot cost less than the width times the
-    global minimum cell cost."""
+def test_optimal_path_is_never_worse_than_the_best_straight_row():
+    """A tight invariant with no slack: the optimal route can always fall back
+    to the cheapest straight row, so it must never cost more. The previous
+    version asserted total >= width * min_cost, which had five units of slack
+    on its own fixture and could not fail on any plausible bug."""
     rng = np.random.default_rng(0)
     cost = rng.integers(1, 5, size=(8, 8))
     total, _cells = cheapest_path_cost(cost)
+    assert total <= best_straight_cost(cost)
     assert total >= 8 * int(cost.min())
