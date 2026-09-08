@@ -56,7 +56,8 @@ from tsu.passes.lower import lower
 from tsu.passes.analyse import analyse
 from tsu.passes.place import place
 from tsu.passes.route import route
-from tsu.backends.thrml_backend import build_program, sample as thrml_sample
+from tsu.passes.program import build_program
+from tsu.backends.thrml_backend import sample as thrml_sample
 from tsu.target import PROFILES
 
 N = 32
