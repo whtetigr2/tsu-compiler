@@ -5,6 +5,8 @@ input rather than sampled, the same way tests/test_cascade.py tests
 import sys
 import itertools
 
+import pytest
+
 sys.path.insert(0, "demo")
 
 from world.spline import LEVELS, TERRAINS, height, terrain_index, cost_of
@@ -74,7 +76,10 @@ def test_every_terrain_is_walkable():
 
 def test_bilinear_upsampling_produces_fractional_levels_that_still_work():
     """Bilinear upsampling yields non-integer parameters, so the spline must
-    interpolate between knots rather than index them."""
-    h = height(0.5, 0.5, 0.5)
-    assert isinstance(h, float)
-    assert 0 <= terrain_index(h) < len(TERRAINS)
+    INTERPOLATE between knots rather than index them. The exact value is
+    asserted because a nearest-knot lookup also returns a float in a valid
+    band -- so type and range checks cannot tell the two apart. Hand-computed:
+    base(0.5) = 0.05, amp(0.5) = 0.55, relief(0.5) = 0.10,
+    height = 0.05 + 0.55 * 0.10 = 0.105. A quantizing _spline gives 0.42."""
+    assert height(0.5, 0.5, 0.5) == pytest.approx(0.105)
+    assert 0 <= terrain_index(height(0.5, 0.5, 0.5)) < len(TERRAINS)
