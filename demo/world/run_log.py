@@ -19,7 +19,7 @@ from pathlib import Path
 
 from world.export import write as export_write
 from world.generate import World
-from world.studio import COST_TABLES, Readout, Sampled, Studio
+from world.studio import COST_TABLES, KC, Readout, Sampled, Studio
 
 
 def _current_world(studio: Studio) -> World:
@@ -66,12 +66,31 @@ Gibbs sampling a Z1 would perform; no Z1 hardware was involved.
 Sampling took {total:.2f}s in total. Per-field timings in `studio.json` are
 APPORTIONED BY SPIN COUNT, not measured individually.
 
+beta*J = {beta_j} is {ratio:.3f} x Onsager's Kc = {kc:.6f}, i.e. {side}.
+
+## Which parts of this map are the lattice
+
+`decodes.json` holds the SAME sampled draws decoded under both upsample modes,
+which differ here in {differing} of {cells} cells ({pct:.1f}%). `mode` is an
+interpolation choice on the measure-to-decode path, so both come from identical
+spins: **a feature present in both was sampled; a feature present only under
+bilinear was introduced by the interpolator.**
+
+`world.json` also carries `layers` -- the per-field binary draws whose sum is
+each field's levels, so the sampling can be re-verified rather than only the
+decode replayed. The corresponding spins are `2 * layers - 1`.
+
 ## What this run does NOT show
 
-Sampler diagnostics were **not run**. There is no magnetization or energy
-trace, no integrated autocorrelation time, and no Gelman-Rubin R-hat in this
-directory, so this run makes **no claim about mixing or convergence**. Those
-require instrumented sampling and are produced by a separate reporting path.
+**Structure-stability is not mixing, and only the first was measured.** Warmup
+was fixed at {warmup} sweeps because 4,000 and 100,000 were measured to give the
+same STRUCTURE. Whether the chain has CONVERGED is a different question that has
+never been measured here.
+
+Sampler diagnostics were **not run**: no magnetization or energy trace, no
+integrated autocorrelation time, no Gelman-Rubin R-hat. This run therefore makes
+**no claim about mixing or convergence**. Those require instrumented sampling and
+are produced by a separate reporting path.
 """
 
 
@@ -81,18 +100,38 @@ def save_run(studio: Studio, out_dir) -> list[Path]:
     view = studio.view()
     paths = list(export_write(_current_world(studio), out))
 
-    s, r = studio.sampled, studio.readout
+    s_, r = studio.sampled, studio.readout
     studio_json = out / "studio.json"
     studio_json.write_text(json.dumps(dict(
-        sampled=dict(seed=s.seed, beta_j=s.beta_j, size=s.size, mode=s.mode,
-                     warmup=s.warmup),
+        sampled=dict(seed=s_.seed, beta_j=s_.beta_j, size=s_.size, mode=s_.mode,
+                     warmup=s_.warmup),
         readout=dict(sea_level=r.sea_level, mountain_line=r.mountain_line,
                      relief=r.relief, cost_table=r.cost_table),
         resolved_bounds=[float(b) for b in view.bounds],
         resolved_costs=list(COST_TABLES[r.cost_table]),
+        kc=KC,
+        beta_j_over_kc=s_.beta_j / KC,
         timings_apportioned_by_spin_count=studio.timings,
     ), indent=2), encoding="utf-8")
     paths.append(studio_json)
+
+    near = studio.terrain_for_mode("nearest")
+    bil = studio.terrain_for_mode("bilinear")
+    dec = out / "decodes.json"
+    dec.write_text(json.dumps(dict(
+        note=("The same sampled draws decoded under both upsample modes. `mode` "
+              "is an interpolation choice on the measure-to-decode path, not a "
+              "sampling one, so these two terrains come from IDENTICAL spins. "
+              "A feature present in BOTH was sampled; a feature present only "
+              "under bilinear was introduced by the interpolator. Without this "
+              "diff, no single world can distinguish the two."),
+        mode_used=studio.world.mode,
+        terrain_nearest=near.tolist(),
+        terrain_bilinear=bil.tolist(),
+        cells_differing=int((near != bil).sum()),
+        fraction_differing=float((near != bil).mean()),
+    ), indent=2), encoding="utf-8")
+    paths.append(dec)
 
     prov = out / "provenance.json"
     prov.write_text(json.dumps(_versions(), indent=2), encoding="utf-8")
@@ -100,10 +139,14 @@ def save_run(studio: Studio, out_dir) -> list[Path]:
 
     readme = out / "README.md"
     readme.write_text(README.format(
-        backend=_versions()["jax_backend"], seed=s.seed, beta_j=s.beta_j,
-        size=s.size, mode=s.mode, warmup=s.warmup, sea_level=r.sea_level,
+        backend=_versions()["jax_backend"], seed=s_.seed, beta_j=s_.beta_j,
+        size=s_.size, mode=s_.mode, warmup=s_.warmup, sea_level=r.sea_level,
         mountain_line=r.mountain_line, relief=r.relief,
-        cost_table=r.cost_table, total=studio.timings.get("total", 0.0)),
+        cost_table=r.cost_table, total=studio.timings.get("total", 0.0),
+        ratio=s_.beta_j / KC, kc=KC,
+        side=("subcritical" if s_.beta_j < KC else "supercritical"),
+        differing=int((near != bil).sum()), cells=int(near.size),
+        pct=float((near != bil).mean()) * 100.0),
         encoding="utf-8")
     paths.append(readme)
     return paths

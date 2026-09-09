@@ -19,7 +19,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from world.fields import sample_field
+from world.fields import sample_field, sample_field_layers
 from world.scale import upsample
 from world.spline import LEVELS, TERRAINS, height, terrain_index
 
@@ -42,6 +42,9 @@ class World:
     mode: str
     warmup: int
     fields: dict[str, np.ndarray]  # name -> raw sampled field, BEFORE upsampling
+    layers: dict[str, np.ndarray]  # name -> (LEVELS, src, src) binary draws;
+    # a field's levels are these SUMMED. Kept so a reader can re-verify the
+    # sampling rather than only replay the decode. Spins are 2*layers - 1.
     height: np.ndarray      # (size, size) float
     terrain: np.ndarray     # (size, size) int, index into TERRAINS
     cost: np.ndarray        # (size, size) int
@@ -72,11 +75,14 @@ def generate(size: int = 64, seed: int = 0, beta_j: float = 0.42,
     scale = size // BASE_SIZE
 
     raw: dict[str, np.ndarray] = {}
+    lay: dict[str, np.ndarray] = {}
     norm: dict[str, np.ndarray] = {}
     for i, (name, base_src) in enumerate(FIELD_PLAN):
         src = max(4, base_src * scale)
-        f = sample_field(src, LEVELS, beta_j, seed * 1000 + i, warmup=warmup)
+        f, stack = sample_field_layers(src, LEVELS, beta_j,
+                                       seed * 1000 + i, warmup=warmup)
         raw[name] = f
+        lay[name] = stack
         up = upsample(f.astype(float), size // src, mode)
         norm[name] = up / LEVELS
 
@@ -85,4 +91,4 @@ def generate(size: int = 64, seed: int = 0, beta_j: float = 0.42,
     t = np.vectorize(terrain_index)(h).astype(int)
     cost = np.array([[TERRAINS[i].cost for i in row] for row in t], dtype=int)
     return World(size=size, seed=seed, beta_j=beta_j, mode=mode,
-                 warmup=warmup, fields=raw, height=h, terrain=t, cost=cost)
+                 warmup=warmup, fields=raw, layers=lay, height=h, terrain=t, cost=cost)

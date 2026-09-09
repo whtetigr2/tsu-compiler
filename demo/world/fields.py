@@ -85,9 +85,18 @@ def _grid_of(decoded: dict, size: int) -> np.ndarray:
     return a
 
 
-def sample_field(size: int, layers: int, beta_j: float, seed: int,
-                 warmup: int = 4000) -> np.ndarray:
-    """Sample one parameter field: (size, size) integer levels in 0..layers.
+def sample_field_layers(size: int, layers: int, beta_j: float, seed: int,
+                        warmup: int = 4000) -> tuple[np.ndarray, np.ndarray]:
+    """Sample one parameter field, returning BOTH the summed levels and the
+    individual binary draws that make them up, as `(levels, stack)` where
+    `stack` has shape `(layers, size, size)` and holds 0/1 values.
+
+    The stack is kept because a field's levels are its layers SUMMED: saving
+    only the sum makes the decode replayable while leaving the Ising sampling
+    behind it unverifiable, since a reader cannot check the draws themselves.
+    The corresponding spins are `2 * stack - 1`.
+
+    Sample one parameter field: (size, size) integer levels in 0..layers.
 
     Raises rather than returning a short stack if the sampler produced fewer
     valid codewords than `layers` -- a quietly thinner field would change the
@@ -108,4 +117,12 @@ def sample_field(size: int, layers: int, beta_j: float, seed: int,
             f"{size}x{size} field at seed {seed}: {len(grids)} of {layers} "
             f"chains produced a valid codeword; refusing to return a field "
             f"whose level range is not 0..{layers}")
-    return np.sum(grids, axis=0).astype(int)
+    stack = np.asarray(grids, dtype=int)
+    return np.sum(stack, axis=0).astype(int), stack
+
+
+def sample_field(size: int, layers: int, beta_j: float, seed: int,
+                 warmup: int = 4000) -> np.ndarray:
+    """The summed level field only. See `sample_field_layers` when the
+    individual draws are needed."""
+    return sample_field_layers(size, layers, beta_j, seed, warmup=warmup)[0]

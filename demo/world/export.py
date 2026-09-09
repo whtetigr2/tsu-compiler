@@ -50,7 +50,8 @@ def to_json(world) -> dict:
                 cost=world.cost.tolist(),
                 height=[[round(float(v), 6) for v in row]
                         for row in world.height],
-                fields={k: v.tolist() for k, v in world.fields.items()})
+                fields={k: v.tolist() for k, v in world.fields.items()},
+                layers={k: v.tolist() for k, v in world.layers.items()})
 
 
 def _png_bytes(rgb: np.ndarray) -> bytes:

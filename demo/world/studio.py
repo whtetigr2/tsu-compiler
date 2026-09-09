@@ -18,6 +18,7 @@ No Tk here, and no I/O. The tab is a thin renderer over this.
 """
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import dataclass, replace
 
@@ -50,6 +51,12 @@ they were. Parameterising `routing_shuffled.py` would close that gap.
 `wide` also routes around water entirely rather than crossing it, which is a
 game-feel decision rather than a physics one."""
 
+
+KC: float = math.asinh(1.0) / 2.0
+"""Onsager's critical coupling for the uniform 2-D square-lattice Ising model:
+sinh(2Kc) = 1, so Kc = arcsinh(1)/2 = 0.440687. Computed every time rather than
+pasted -- a copy-pasted constant is the kind of unverified figure this project
+exists to refuse. beta*J alone does not say where a run sits; beta*J / Kc does."""
 
 BAND: tuple[float, float] = (0.38, 0.45)
 """The measured usable coupling band. Below ~0.85x Kc the world is noise; above
@@ -185,3 +192,29 @@ class Studio:
         t = terrain_array(h, bounds)
         cost = np.asarray(COST_TABLES[r.cost_table], dtype=int)[t]
         return View(height=h, terrain=t, cost=cost, bounds=bounds)
+
+
+    def terrain_for_mode(self, mode: str) -> np.ndarray:
+        """Terrain decoded under a DIFFERENT upsample mode, from the same
+        sampled draws and the current readout.
+
+        `mode` is an interpolation choice applied on the measure-to-decode
+        path, not a sampling one, so both decodes come from IDENTICAL spins.
+        That is what makes their difference meaningful: a feature present under
+        both was sampled, while one present only under bilinear was introduced
+        by the interpolator. For any single world that distinction is otherwise
+        unavailable -- the shuffled-null evidence that structure is sampled is
+        aggregate across seeds, and says nothing about this coastline.
+
+        Recomputes from the cached raw fields; never resamples.
+        """
+        w = self.world
+        r = self._readout
+        norm = {}
+        for name, _src in FIELD_PLAN:
+            raw = w.fields[name]
+            norm[name] = upsample(raw.astype(float),
+                                  w.size // raw.shape[0], mode) / LEVELS
+        c, e, pv = (norm[n] for n, _src in FIELD_PLAN)
+        h = height_array(c, e, pv, relief=r.relief)
+        return terrain_array(h, shifted_bounds(r.sea_level, r.mountain_line))
