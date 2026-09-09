@@ -2670,7 +2670,7 @@ class LatticeApp(tk.Tk):
         # caption is now 11 lines (was 4) to fit the reconstruction-vs-
         # defect disclosure required on screen, and this row sizes to its
         # tallest cell.
-        content.grid_rowconfigure(1, weight=0, minsize=340)
+        content.grid_rowconfigure(2, weight=0, minsize=340)
 
         # Layout-fix (2026-09): PIPELINE + FRONTIER's combined natural
         # height (373 + 907 = 1280px, measured) vastly exceeds the 738px
@@ -2745,7 +2745,7 @@ class LatticeApp(tk.Tk):
         self.scope_panel = Panel(content, "SCOPE  (autocorrelation / magnetization / "
                                           "energy histogram / local-field response / "
                                           "per-cell heatmap -- ⧉ detaches a plot)")
-        self.scope_panel.grid(row=1, column=0, columnspan=5, sticky="nsew", pady=(6, 0))
+        self.scope_panel.grid(row=2, column=0, columnspan=5, sticky="nsew", pady=(6, 0))
         scope_row = tk.Frame(self.scope_panel.body, bg=PANEL_BG)
         scope_row.pack(fill="both", expand=True)
 
@@ -2848,10 +2848,10 @@ class LatticeApp(tk.Tk):
         # per-layer regenerate / temperature (overlay-only) / composite
         # validation readout -- see the brief's own 6 steps, one widget
         # group per step, left to right.
-        content.grid_rowconfigure(2, weight=0, minsize=230)  # Task 8: 190 -> 230, see self.geometry's own comment above
+        content.grid_rowconfigure(3, weight=0, minsize=230)  # Task 8: 190 -> 230, see self.geometry's own comment above
         self.layers_panel = Panel(content, "LAYERS  (base / band0.."
                                           f"band{N_BANDS - 1} / composite)")
-        self.layers_panel.grid(row=2, column=0, columnspan=5, sticky="nsew", pady=(6, 0))
+        self.layers_panel.grid(row=3, column=0, columnspan=5, sticky="nsew", pady=(6, 0))
         layers_row = tk.Frame(self.layers_panel.body, bg=PANEL_BG)
         layers_row.pack(fill="both", expand=True)
 
@@ -3023,10 +3023,13 @@ class LatticeApp(tk.Tk):
         # holds the rendered image, the vocabulary toggle and Save run -- it is
         # deliberately titled and coloured differently (plain FG, no border) so
         # it is never mistaken for a fourth control group.
-        content.grid_rowconfigure(3, weight=0, minsize=400)
+        content.grid_rowconfigure(1, weight=0, minsize=400)  # WORLD STUDIO sits directly
+        # under the top row: at 1760x1420 the stacked rows need ~1584px in a ~1380px
+        # viewport, so whatever is LAST is effectively invisible on launch. This is
+        # the panel a person opens the app to drive, so it goes first.
         self.ws_panel = Panel(content, "WORLD STUDIO  (Extropic Z1 thermodynamic "
                                         "world sampler -- demo/world/studio.py)")
-        self.ws_panel.grid(row=3, column=0, columnspan=5, sticky="nsew", pady=(6, 0))
+        self.ws_panel.grid(row=1, column=0, columnspan=5, sticky="nsew", pady=(6, 0))
         ws_row = tk.Frame(self.ws_panel.body, bg=PANEL_BG)
         ws_row.pack(fill="both", expand=True)
 
