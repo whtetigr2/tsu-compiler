@@ -70,9 +70,17 @@ def test_corrected_stderr_is_wider_than_the_naive_one():
     assert corrected > naive * 3.0
 
 
-def test_rhat_of_identical_chains_is_one():
-    x = np.random.default_rng(2).standard_normal(500)
-    assert r_hat(np.stack([x, x, x, x])) == pytest.approx(1.0, abs=1e-9)
+def test_r_hat_of_identical_chains_is_the_bda3_closed_form():
+    """Gelman-Rubin uses var_plus = ((n-1)/n)W + B/n, so chains with zero
+    between-chain disagreement give R-hat = sqrt((n-1)/n) EXACTLY, a value
+    slightly below 1. That is the published estimator's behaviour and not a
+    defect: asserting 1.0 here (as this project's brief originally did) would
+    force the discount term out and yield a statistic that is not R-hat, while
+    RHAT_THRESHOLD is calibrated for the one that is."""
+    n = 500
+    chains = np.tile(np.random.default_rng(3).standard_normal(n), (4, 1))
+    assert r_hat(chains) == pytest.approx(np.sqrt((n - 1) / n), abs=1e-12)
+    assert r_hat(chains) < 1.0
 
 
 def test_rhat_of_independent_chains_from_one_distribution_is_near_one():
@@ -87,6 +95,21 @@ def test_rhat_detects_chains_stuck_in_different_places():
     c = np.stack([rng.standard_normal(2000) + off
                   for off in (-5.0, -2.0, 2.0, 5.0)])
     assert r_hat(c) > 1.5
+
+
+def test_rhat_flags_a_small_but_genuine_offset_above_threshold():
+    """The BDA3 discount that keeps identical chains near (not exactly) 1 must
+    not also mask a real, if modest, disagreement between chains -- an offset
+    small enough to be easy to miss by eye still has to clear the threshold.
+    Offsets of +-0.1/+-0.3 (a fraction of the chains' own unit spread) were
+    checked to clear RHAT_THRESHOLD for every seed in range(200), not just
+    this one -- a margin this thin from a single lucky draw would test noise,
+    not sensitivity."""
+    rng = np.random.default_rng(5)
+    n = 500
+    c = np.stack([rng.standard_normal(n) + off
+                  for off in (-0.3, -0.1, 0.1, 0.3)])
+    assert r_hat(c) > RHAT_THRESHOLD
 
 
 def test_rhat_needs_at_least_two_chains():

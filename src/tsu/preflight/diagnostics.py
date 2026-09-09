@@ -78,10 +78,12 @@ def stderr_corrected(x: np.ndarray, tau: float) -> float:
 def r_hat(chains: np.ndarray) -> float:
     """Gelman-Rubin potential scale reduction on shape (n_chains, n_samples).
 
-    Compares between-chain variance to within-chain variance. Equals 1 when the
-    chains are indistinguishable and grows when they are each internally settled
-    but disagree with one another -- the failure a per-chain average hides
-    completely.
+    Compares between-chain variance to within-chain variance. Approaches 1 as
+    chains become indistinguishable (for chains with literally zero
+    between-chain disagreement it is exactly sqrt((n-1)/n), slightly below 1 --
+    the BDA3 estimator's published finite-sample behaviour) and grows when
+    chains are each internally settled but disagree with one another -- the
+    failure a per-chain average hides completely.
     """
     c = np.asarray(chains, dtype=float)
     if c.ndim != 2 or c.shape[0] < 2:
@@ -95,9 +97,10 @@ def r_hat(chains: np.ndarray) -> float:
     b = float(n * means.var(ddof=1))
     if w <= 0.0:
         return 1.0
-    # No (n-1)/n discount on w: the textbook BDA3 var_plus = (n-1)/n*w + b/n
-    # never reaches exactly 1 for identical chains at finite n (it gives
-    # sqrt((n-1)/n) < 1 when b=0), which is wrong -- identical chains carry
-    # zero between-chain disagreement and R-hat must equal 1 exactly.
-    var_plus = w + b / n
+    # BDA3's var_plus = (n-1)/n*w + b/n. For chains with zero between-chain
+    # disagreement (b=0) this gives R-hat = sqrt((n-1)/n), a value strictly
+    # below 1 -- the PUBLISHED behaviour of this estimator, not a defect.
+    # Dropping the (n-1)/n discount would produce a statistic that is not
+    # R-hat, and RHAT_THRESHOLD = 1.01 is calibrated for the one that is.
+    var_plus = ((n - 1) / n) * w + b / n
     return float(np.sqrt(var_plus / w))
