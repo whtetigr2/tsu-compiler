@@ -9,7 +9,7 @@ import pytest
 sys.path.insert(0, "demo")
 sys.path.insert(0, "src")
 
-from world.generate import generate
+from world.generate import generate, FIELD_PLAN
 from world.spline import TERRAINS, DEFAULT_BOUNDS, height_array, terrain_array
 from world.studio import Studio, Readout, View, COST_TABLES
 
@@ -117,3 +117,47 @@ def test_an_unknown_cost_table_is_refused(studio):
 def test_view_before_load_is_refused():
     with pytest.raises(RuntimeError):
         Studio().view()
+
+
+from world.studio import Sampled, BAND
+
+
+def test_generate_samples_and_loads_in_one_call():
+    s = Studio()
+    v = s.generate(Sampled(seed=11, size=64, warmup=200))
+    assert v.terrain.shape == (64, 64)
+    assert s.sampled.seed == 11
+
+
+def test_generate_records_per_field_timings():
+    """The tab reports these, and the run log stores them. A missing field here
+    would show as a blank readout rather than an error."""
+    s = Studio()
+    s.generate(Sampled(seed=12, size=64, warmup=200))
+    for name, _src in FIELD_PLAN:
+        assert s.timings[name] > 0.0
+    assert s.timings["total"] >= max(s.timings[n] for n, _ in FIELD_PLAN)
+
+
+def test_the_measured_band_is_exposed_for_the_ui_to_mark():
+    """The usable band is narrow and a world sampled outside it is noise or a
+    single blob. The UI marks it, so the value lives here rather than in Tk."""
+    assert BAND == (0.38, 0.45)
+
+
+def test_warmup_defaults_to_the_measured_value_and_is_not_a_slider():
+    """Measured to make no difference to structure in this workload, so it is
+    reported rather than offered. This test pins the default; the absence of a
+    setter is the point."""
+    assert Sampled().warmup == 4000
+
+
+def test_generate_handles_a_size_other_than_64():
+    """Task 2's cache path derives each field's upsample factor from the raw
+    field's own shape rather than recomputing it, so a non-64 size is the case
+    that would expose a mismatch between what generate() sampled and what the
+    studio thinks it sampled. 128 is the only other size the UI offers."""
+    s = Studio()
+    v = s.generate(Sampled(seed=13, size=128, warmup=200))
+    assert v.terrain.shape == (128, 128)
+    assert v.cost.min() >= 1

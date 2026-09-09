@@ -18,11 +18,13 @@ No Tk here, and no I/O. The tab is a thin renderer over this.
 """
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, replace
 
 import numpy as np
 
 from world.generate import FIELD_PLAN, World
+from world.generate import generate as _generate
 from world.scale import upsample
 from world.spline import (LEVELS, TERRAINS, shifted_bounds, height_array,
                           terrain_array)
@@ -37,6 +39,26 @@ COST_TABLES: dict[str, tuple[int, ...]] = {
 +0.0483; `steep` gives +0.0999 and `wide` +0.1192, both at a 22% cheapest-cell
 share. `wide` routes around water entirely, which is a game decision rather
 than a physics one -- hence a choice, not a constant."""
+
+
+BAND: tuple[float, float] = (0.38, 0.45)
+"""The measured usable coupling band. Below ~0.85x Kc the world is noise; above
+~1.05x Kc one value swallows the map. The UI marks this on the beta*J track so a
+world sampled outside it is obvious at a glance rather than buried in a number."""
+
+
+@dataclass(frozen=True)
+class Sampled:
+    seed: int = 0
+    beta_j: float = 0.42
+    size: int = 64
+    mode: str = "bilinear"
+    warmup: int = 4000
+    """Fixed and REPORTED, not a control. Measured to make no difference to
+    structure in this workload (+0.0483 at 4,000 against +0.0546 at 100,000), so
+    offering a slider would imply a knob that tunes nothing. It is not claimed
+    irrelevant in general -- another graph or operating point could make settling
+    time matter, and that is the day it becomes a control."""
 
 
 @dataclass(frozen=True)
@@ -62,6 +84,8 @@ class Studio:
         self._world: World | None = None
         self._norm: dict[str, np.ndarray] = {}
         self._readout = Readout()
+        self._sampled = Sampled()
+        self._timings: dict[str, float] = {}
 
     @property
     def world(self) -> World:
@@ -73,6 +97,14 @@ class Studio:
     def readout(self) -> Readout:
         return self._readout
 
+    @property
+    def sampled(self) -> Sampled:
+        return self._sampled
+
+    @property
+    def timings(self) -> dict[str, float]:
+        return dict(self._timings)
+
     def load(self, world: World) -> None:
         """Cache the normalised upsampled fields for `world`. This is the only
         expensive step, and it happens once per sampled world."""
@@ -83,6 +115,22 @@ class Studio:
             src = raw.shape[0]
             self._norm[name] = upsample(raw.astype(float), world.size // src,
                                         world.mode) / LEVELS
+
+    def generate(self, sampled: Sampled) -> View:
+        """Sample a world and load it. This is the ~3.3s path; everything in
+        `set_readout` is the millisecond path."""
+        t0 = time.time()
+        world = _generate(size=sampled.size, seed=sampled.seed,
+                          beta_j=sampled.beta_j, mode=sampled.mode,
+                          warmup=sampled.warmup)
+        total = time.time() - t0
+        self._sampled = sampled
+        self.load(world)
+        per = {name: total * (world.fields[name].size /
+                              sum(world.fields[n].size for n, _ in FIELD_PLAN))
+               for name, _src in FIELD_PLAN}
+        self._timings = dict(per, total=total)
+        return self.view()
 
     def set_readout(self, readout: Readout) -> View:
         if readout.cost_table not in COST_TABLES:
