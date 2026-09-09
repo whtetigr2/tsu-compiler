@@ -1,0 +1,16 @@
+[
+ {
+  "grid": 8,
+  "kind": "selfrule_k3",
+  "n_nodes": 128,
+  "n_edges": 512,
+  "max_degree": 9,
+  "bipartite": false,
+  "max_abs_J": 2.5,
+  "max_abs_b": 2.1,
+  "place_s": null,
+  "result": "SKIPPED_non_bipartite",
+  "mediators": null,
+  "code_path": "not_attempted"
+ }
+]

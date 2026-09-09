@@ -1,0 +1,108 @@
+{
+  "name": "z1",
+  "degree": {
+    "value": 16,
+    "source": "F-14",
+    "quote": "All nodes in Z1 have connection rules (1,0),(2,1),(2,3),(4,1), giving degree 16"
+  },
+  "offsets": {
+    "value": [
+      [
+        -4,
+        -1
+      ],
+      [
+        -3,
+        2
+      ],
+      [
+        -2,
+        -3
+      ],
+      [
+        -2,
+        -1
+      ],
+      [
+        -1,
+        0
+      ],
+      [
+        -1,
+        2
+      ],
+      [
+        -1,
+        4
+      ],
+      [
+        0,
+        -1
+      ],
+      [
+        0,
+        1
+      ],
+      [
+        1,
+        -4
+      ],
+      [
+        1,
+        -2
+      ],
+      [
+        1,
+        0
+      ],
+      [
+        2,
+        1
+      ],
+      [
+        2,
+        3
+      ],
+      [
+        3,
+        -2
+      ],
+      [
+        4,
+        1
+      ]
+    ],
+    "source": "F-14/F-17",
+    "quote": ""
+  },
+  "bipartite": {
+    "value": true,
+    "source": "F-18",
+    "quote": "Since the graph is 2-colorable"
+  },
+  "schedule": {
+    "value": "chromatic_block_gibbs",
+    "source": "F-19",
+    "quote": "resampling every node v in V1 ... The same is then done for V2"
+  },
+  "max_abs_coupling": {
+    "value": 6.0,
+    "source": "2608.01615v1.pdf (Thermalizers) p.22, Fig. 12 cap-sweep axis: '6 (Z1)'",
+    "quote": "cap-sweep axis values '0.3 0.5 0.75 1 1.5 2 3 6 (Z1) 10' annotate 6 as '(Z1)' -- Extropic's own Z1 hardware |J| cap; corroborated in prose (p.13: 'the hardware caps |J| <= Jmax, |h| <= hmax'; p.20: 'every programmable weight ... has finite dynamic range, |Jij| <= Jmax and |hi| <= hmax')"
+  },
+  "max_abs_bias": {
+    "value": 6.0,
+    "source": "assumed",
+    "quote": "project working value; NOT a sourced Extropic figure"
+  },
+  "coupling_bits": {
+    "value": 6,
+    "source": "assumed",
+    "quote": "project working value; NOT a sourced Extropic figure"
+  },
+  "node_budget": {
+    "value": 250000,
+    "source": "F-15",
+    "quote": "the entire chip has ~250,000 nodes"
+  }
+}

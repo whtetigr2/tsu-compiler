@@ -1,0 +1,33 @@
+name: selfrule_base
+description: >
+  All-bipartite-world plan, Task 3 (Route B): the SAME k=3 categorical shape
+  as specs/lattice_small_8x8_k3.yaml, with the one CROSS-rule dropped --
+  {a_value: 0, b_value: 1, weight: 1.0} (water directly adjacent to rock,
+  the rule tied to that spec's own `forbid_value_pair_over_edges` contract
+  check) does not appear here. Only the three SELF-rules survive
+  (a_value == b_value, one per value), each identical in weight to
+  lattice_small_8x8_k3.yaml's own.
+
+  Domain story, for intuition only and deliberately kept out of src/: same
+  water(0)/rock(1)/grass(2) story as the base layer, minus the shoreline
+  rule -- water can now sit directly against rock; each value still prefers
+  clumping with its own kind.
+
+  Why this file exists: Task 3 asks whether a k=3 categorical layer
+  restricted to self-rules-only stays bipartite, "confirmed... with a real
+  rule set rather than inheriting the claim" (earlier measurement found
+  domain-wall self-rules stay bipartite for the base layer's OWN self-rules
+  in isolation, but this is the first spec that compiles a self-rule-only
+  k=3 layer STANDALONE and measures it, rather than inferring it from the
+  mixed base layer). No `contract` block: the rule this spec would validate
+  (forbid_value_pair_over_edges on water/rock) is exactly the one dropped,
+  so there is nothing left for a contract to check.
+generate:
+  kind: grid
+  width: 8
+  height: 8
+  variable_domain: {domain: categorical, k: 3}
+terms:
+  - {kind: product_over_edges, a_value: 0, b_value: 0, weight: -0.4}
+  - {kind: product_over_edges, a_value: 1, b_value: 1, weight: -0.4}
+  - {kind: product_over_edges, a_value: 2, b_value: 2, weight: -0.4}

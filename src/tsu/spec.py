@@ -351,6 +351,65 @@ def _product_over_edges(t: Mapping[str, Any], edges, var_by_name: Mapping[str, V
     return terms, (rationale,) if terms else ()
 
 
+def _neighbourhood_count_terms(t: Mapping[str, Any], edges,
+                               var_by_name: Mapping[str, Var]):
+    """Term template: squared deviation of a cell's own neighbourhood count
+    from a target -- "a cell's own neighbourhood indicators, minus a
+    target". This is a SHAPE, not a domain rule (Task 5's own brief): for
+    every node n of the spec's edge set, `L_n = (sum over n's neighbours m
+    of the indicator [m == value]) - target`, and the term emits
+    `Product(L_n, L_n, weight)` -- one per node, generic over any
+    edge-defined graph, following `_conserve_over_edges_terms`'s own "one
+    per node of the edge set" precedent rather than being grid-specific.
+
+    `audit/expressibility_matrix.md` row #2 (`neighbourhood`) measured this
+    EXACT shape as EXACT -- but only because that rule's own INTENT is
+    already symmetric ("as close to target as possible"); squaring
+    introduces no distortion there. A ONE-SIDED rule ("at least N") is a
+    DIFFERENT rule, and the SAME shape DISTORTS it (matrix rows #3
+    `morphology`, #9 `ecological`: "at least N" silently becomes "exactly
+    N"). This template does not -- and cannot -- tell the two apart from
+    `value`/`target`/`weight` alone; it is the caller's responsibility to
+    reach for it only where the underlying rule is honestly symmetric (see
+    `tsu.passes.expressibility._one_sided_threshold` for the DISTORTED
+    case's own verdict machinery, which this template deliberately does not
+    duplicate)."""
+    value, target, weight = t["value"], float(t["target"]), float(t["weight"])
+    neighbours: dict[str, list[str]] = {}
+    for u, v in edges:
+        neighbours.setdefault(u, []).append(v)
+        neighbours.setdefault(v, []).append(u)
+    terms = []
+    for n in sorted(neighbours):
+        coeffs: dict[VarRef, float] = {}
+        const = -target
+        for m in neighbours[n]:
+            ind = _value_indicator(var_by_name[m], value)
+            const += ind.const
+            for ref, w in ind.coeffs.items():
+                coeffs[ref] = coeffs.get(ref, 0.0) + w
+        L = LinearForm(coeffs, const)
+        terms.append(Product(L, L, weight))
+    rationale = FormulationRationale(
+        construct="neighbourhood_count",
+        ir_shape="Product(L, L, weight) -- a squared linear form",
+        count=len(terms),
+        scope=f"one per node of the spec's {len(edges)}-edge generated set "
+              f"({len(neighbours)} nodes with at least one neighbour)",
+        reason="a neighbourhood COUNT's own intent is 'as close to target "
+               "as possible', which is symmetric by definition -- squaring "
+               "a linear form over the neighbour indicators keeps this "
+               "pairwise (Product(L, L, weight)) with no change of "
+               "meaning. This is a SHAPE, not a domain rule: it is the "
+               "honest form only where the underlying rule's own intent "
+               "is symmetric-in-count; a ONE-SIDED threshold ('at least "
+               "N') is a different rule and distorts under this same "
+               "shape (audit/expressibility_matrix.md rows #3, #9) -- this "
+               "template does not detect that case, the caller must not "
+               "reach for it there")
+    return terms, (rationale,) if terms else ()
+
+
 def load_spec(path: str) -> WorkloadSpec:
     text = open(path, encoding="utf-8").read()
     raw = yaml.safe_load(text)
@@ -432,6 +491,10 @@ def load_spec(path: str) -> WorkloadSpec:
             coe_terms, coe_rationale = _conserve_over_edges_terms(t, edges)
             extra_terms.extend(coe_terms)
             formulation.extend(coe_rationale)
+        elif kind == "neighbourhood_count":
+            nc_terms, nc_rationale = _neighbourhood_count_terms(t, edges, var_by_name)
+            extra_terms.extend(nc_terms)
+            formulation.extend(nc_rationale)
         else:
             raise ValueError(f"unknown term kind {kind!r}")
     for kind, ir_shape in (("linear", "Linear"), ("product", "Product")):

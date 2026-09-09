@@ -1,0 +1,21 @@
+name: binary_stack_l2
+description: >
+  All-bipartite-world plan, Task 2 (Route A): bit 2 (most-significant) of the
+  3-layer binary stack (see specs/binary_stack_l0.yaml's docstring for the
+  full composition story; demo/binary_world.py's compose_state contributes
+  this file's decoded value as 4*bits[2]).
+
+  Domain story, for intuition only and deliberately kept out of src/: this
+  bit is "plant cover" (1) vs "open ground" (0) -- clumps with itself the
+  same way binary_stack_l0/l1 do.
+
+  Rule shape: SELF-RULE ONLY (a_value == b_value == 1), weight -0.3 (see
+  binary_stack_l1.yaml's docstring on why the three weights differ without
+  changing topology or bipartiteness).
+generate:
+  kind: grid
+  width: 8
+  height: 8
+  variable_domain: {domain: binary}
+terms:
+  - {kind: product_over_edges, a_value: 1, b_value: 1, weight: -0.3}

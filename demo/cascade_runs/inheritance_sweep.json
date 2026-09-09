@@ -1,0 +1,710 @@
+[
+  {
+    "strength": 0.0,
+    "src_w": 8,
+    "factor": 2,
+    "n_fine": 16,
+    "parent_seeds": [
+      7,
+      71,
+      137,
+      211,
+      389
+    ],
+    "per_parent": [
+      {
+        "seed": 7,
+        "n_valid_draws": 478,
+        "n_total_draws": 480,
+        "matches": 40469,
+        "children": 122368,
+        "fraction": 0.33071554654811713
+      },
+      {
+        "seed": 71,
+        "n_valid_draws": 479,
+        "n_total_draws": 480,
+        "matches": 40901,
+        "children": 122624,
+        "fraction": 0.3335480819415449
+      },
+      {
+        "seed": 137,
+        "n_valid_draws": 480,
+        "n_total_draws": 480,
+        "matches": 40737,
+        "children": 122880,
+        "fraction": 0.3315185546875
+      },
+      {
+        "seed": 211,
+        "n_valid_draws": 478,
+        "n_total_draws": 480,
+        "matches": 40706,
+        "children": 122368,
+        "fraction": 0.33265232740585776
+      },
+      {
+        "seed": 389,
+        "n_valid_draws": 479,
+        "n_total_draws": 480,
+        "matches": 41043,
+        "children": 122624,
+        "fraction": 0.3347060934237996
+      }
+    ],
+    "total_matches": 203856,
+    "total_children": 612864,
+    "pooled_fraction": 0.33262844611528825,
+    "wall_s": 11.124722099862993
+  },
+  {
+    "strength": 0.25,
+    "src_w": 8,
+    "factor": 2,
+    "n_fine": 16,
+    "parent_seeds": [
+      7,
+      71,
+      137,
+      211,
+      389
+    ],
+    "per_parent": [
+      {
+        "seed": 7,
+        "n_valid_draws": 479,
+        "n_total_draws": 480,
+        "matches": 47651,
+        "children": 122624,
+        "fraction": 0.3885944024008351
+      },
+      {
+        "seed": 71,
+        "n_valid_draws": 479,
+        "n_total_draws": 480,
+        "matches": 48050,
+        "children": 122624,
+        "fraction": 0.39184825156576203
+      },
+      {
+        "seed": 137,
+        "n_valid_draws": 480,
+        "n_total_draws": 480,
+        "matches": 47854,
+        "children": 122880,
+        "fraction": 0.38943684895833336
+      },
+      {
+        "seed": 211,
+        "n_valid_draws": 478,
+        "n_total_draws": 480,
+        "matches": 47774,
+        "children": 122368,
+        "fraction": 0.3904125261506276
+      },
+      {
+        "seed": 389,
+        "n_valid_draws": 479,
+        "n_total_draws": 480,
+        "matches": 48160,
+        "children": 122624,
+        "fraction": 0.3927453027139875
+      }
+    ],
+    "total_matches": 239489,
+    "total_children": 613120,
+    "pooled_fraction": 0.3906070589770355,
+    "wall_s": 11.010283200070262
+  },
+  {
+    "strength": 0.5,
+    "src_w": 8,
+    "factor": 2,
+    "n_fine": 16,
+    "parent_seeds": [
+      7,
+      71,
+      137,
+      211,
+      389
+    ],
+    "per_parent": [
+      {
+        "seed": 7,
+        "n_valid_draws": 477,
+        "n_total_draws": 480,
+        "matches": 54968,
+        "children": 122112,
+        "fraction": 0.45014412997903563
+      },
+      {
+        "seed": 71,
+        "n_valid_draws": 479,
+        "n_total_draws": 480,
+        "matches": 55588,
+        "children": 122624,
+        "fraction": 0.45332072025052195
+      },
+      {
+        "seed": 137,
+        "n_valid_draws": 479,
+        "n_total_draws": 480,
+        "matches": 55357,
+        "children": 122624,
+        "fraction": 0.4514369128392484
+      },
+      {
+        "seed": 211,
+        "n_valid_draws": 477,
+        "n_total_draws": 480,
+        "matches": 55049,
+        "children": 122112,
+        "fraction": 0.45080745545073375
+      },
+      {
+        "seed": 389,
+        "n_valid_draws": 478,
+        "n_total_draws": 480,
+        "matches": 55545,
+        "children": 122368,
+        "fraction": 0.4539176908995816
+      }
+    ],
+    "total_matches": 276507,
+    "total_children": 611840,
+    "pooled_fraction": 0.45192697437238494,
+    "wall_s": 10.90649010008201
+  },
+  {
+    "strength": 0.75,
+    "src_w": 8,
+    "factor": 2,
+    "n_fine": 16,
+    "parent_seeds": [
+      7,
+      71,
+      137,
+      211,
+      389
+    ],
+    "per_parent": [
+      {
+        "seed": 7,
+        "n_valid_draws": 476,
+        "n_total_draws": 480,
+        "matches": 62579,
+        "children": 121856,
+        "fraction": 0.5135487788865546
+      },
+      {
+        "seed": 71,
+        "n_valid_draws": 479,
+        "n_total_draws": 480,
+        "matches": 63185,
+        "children": 122624,
+        "fraction": 0.5152743345511482
+      },
+      {
+        "seed": 137,
+        "n_valid_draws": 478,
+        "n_total_draws": 480,
+        "matches": 62856,
+        "children": 122368,
+        "fraction": 0.5136637029288703
+      },
+      {
+        "seed": 211,
+        "n_valid_draws": 477,
+        "n_total_draws": 480,
+        "matches": 62711,
+        "children": 122112,
+        "fraction": 0.5135531315513627
+      },
+      {
+        "seed": 389,
+        "n_valid_draws": 478,
+        "n_total_draws": 480,
+        "matches": 63167,
+        "children": 122368,
+        "fraction": 0.5162052170502092
+      }
+    ],
+    "total_matches": 314498,
+    "total_children": 611328,
+    "pooled_fraction": 0.5144505077470687,
+    "wall_s": 11.113888300023973
+  },
+  {
+    "strength": 1.0,
+    "src_w": 8,
+    "factor": 2,
+    "n_fine": 16,
+    "parent_seeds": [
+      7,
+      71,
+      137,
+      211,
+      389
+    ],
+    "per_parent": [
+      {
+        "seed": 7,
+        "n_valid_draws": 476,
+        "n_total_draws": 480,
+        "matches": 70132,
+        "children": 121856,
+        "fraction": 0.575531775210084
+      },
+      {
+        "seed": 71,
+        "n_valid_draws": 479,
+        "n_total_draws": 480,
+        "matches": 70710,
+        "children": 122624,
+        "fraction": 0.5766407881002088
+      },
+      {
+        "seed": 137,
+        "n_valid_draws": 478,
+        "n_total_draws": 480,
+        "matches": 70417,
+        "children": 122368,
+        "fraction": 0.5754527327405857
+      },
+      {
+        "seed": 211,
+        "n_valid_draws": 477,
+        "n_total_draws": 480,
+        "matches": 70334,
+        "children": 122112,
+        "fraction": 0.575979428721174
+      },
+      {
+        "seed": 389,
+        "n_valid_draws": 478,
+        "n_total_draws": 480,
+        "matches": 70753,
+        "children": 122368,
+        "fraction": 0.5781985486401674
+      }
+    ],
+    "total_matches": 352346,
+    "total_children": 611328,
+    "pooled_fraction": 0.5763616258375209,
+    "wall_s": 10.972441100049764
+  },
+  {
+    "strength": 1.5,
+    "src_w": 8,
+    "factor": 2,
+    "n_fine": 16,
+    "parent_seeds": [
+      7,
+      71,
+      137,
+      211,
+      389
+    ],
+    "per_parent": [
+      {
+        "seed": 7,
+        "n_valid_draws": 476,
+        "n_total_draws": 480,
+        "matches": 84244,
+        "children": 121856,
+        "fraction": 0.6913405987394958
+      },
+      {
+        "seed": 71,
+        "n_valid_draws": 478,
+        "n_total_draws": 480,
+        "matches": 84707,
+        "children": 122368,
+        "fraction": 0.6922316291841004
+      },
+      {
+        "seed": 137,
+        "n_valid_draws": 476,
+        "n_total_draws": 480,
+        "matches": 84201,
+        "children": 121856,
+        "fraction": 0.6909877232142857
+      },
+      {
+        "seed": 211,
+        "n_valid_draws": 478,
+        "n_total_draws": 480,
+        "matches": 84608,
+        "children": 122368,
+        "fraction": 0.6914225941422594
+      },
+      {
+        "seed": 389,
+        "n_valid_draws": 477,
+        "n_total_draws": 480,
+        "matches": 84781,
+        "children": 122112,
+        "fraction": 0.6942888495807128
+      }
+    ],
+    "total_matches": 422541,
+    "total_children": 610560,
+    "pooled_fraction": 0.6920548349056603,
+    "wall_s": 11.047161400085315
+  },
+  {
+    "strength": 2.0,
+    "src_w": 8,
+    "factor": 2,
+    "n_fine": 16,
+    "parent_seeds": [
+      7,
+      71,
+      137,
+      211,
+      389
+    ],
+    "per_parent": [
+      {
+        "seed": 7,
+        "n_valid_draws": 475,
+        "n_total_draws": 480,
+        "matches": 95753,
+        "children": 121600,
+        "fraction": 0.7874424342105263
+      },
+      {
+        "seed": 71,
+        "n_valid_draws": 476,
+        "n_total_draws": 480,
+        "matches": 95960,
+        "children": 121856,
+        "fraction": 0.7874868697478992
+      },
+      {
+        "seed": 137,
+        "n_valid_draws": 475,
+        "n_total_draws": 480,
+        "matches": 95743,
+        "children": 121600,
+        "fraction": 0.787360197368421
+      },
+      {
+        "seed": 211,
+        "n_valid_draws": 478,
+        "n_total_draws": 480,
+        "matches": 96294,
+        "children": 122368,
+        "fraction": 0.7869214173640168
+      },
+      {
+        "seed": 389,
+        "n_valid_draws": 477,
+        "n_total_draws": 480,
+        "matches": 96086,
+        "children": 122112,
+        "fraction": 0.7868677935010482
+      }
+    ],
+    "total_matches": 479836,
+    "total_children": 609536,
+    "pooled_fraction": 0.7872151931961361,
+    "wall_s": 10.979684699792415
+  },
+  {
+    "strength": 2.5,
+    "src_w": 8,
+    "factor": 2,
+    "n_fine": 16,
+    "parent_seeds": [
+      7,
+      71,
+      137,
+      211,
+      389
+    ],
+    "per_parent": [
+      {
+        "seed": 7,
+        "n_valid_draws": 475,
+        "n_total_draws": 480,
+        "matches": 104505,
+        "children": 121600,
+        "fraction": 0.8594161184210526
+      },
+      {
+        "seed": 71,
+        "n_valid_draws": 475,
+        "n_total_draws": 480,
+        "matches": 104557,
+        "children": 121600,
+        "fraction": 0.85984375
+      },
+      {
+        "seed": 137,
+        "n_valid_draws": 477,
+        "n_total_draws": 480,
+        "matches": 104970,
+        "children": 122112,
+        "fraction": 0.859620676100629
+      },
+      {
+        "seed": 211,
+        "n_valid_draws": 477,
+        "n_total_draws": 480,
+        "matches": 104741,
+        "children": 122112,
+        "fraction": 0.8577453485324947
+      },
+      {
+        "seed": 389,
+        "n_valid_draws": 478,
+        "n_total_draws": 480,
+        "matches": 104979,
+        "children": 122368,
+        "fraction": 0.857895855125523
+      }
+    ],
+    "total_matches": 523752,
+    "total_children": 609792,
+    "pooled_fraction": 0.8589027078085643,
+    "wall_s": 11.379836400039494
+  },
+  {
+    "strength": 3.0,
+    "src_w": 8,
+    "factor": 2,
+    "n_fine": 16,
+    "parent_seeds": [
+      7,
+      71,
+      137,
+      211,
+      389
+    ],
+    "per_parent": [
+      {
+        "seed": 7,
+        "n_valid_draws": 475,
+        "n_total_draws": 480,
+        "matches": 110715,
+        "children": 121600,
+        "fraction": 0.910485197368421
+      },
+      {
+        "seed": 71,
+        "n_valid_draws": 476,
+        "n_total_draws": 480,
+        "matches": 110863,
+        "children": 121856,
+        "fraction": 0.9097869616596639
+      },
+      {
+        "seed": 137,
+        "n_valid_draws": 477,
+        "n_total_draws": 480,
+        "matches": 111095,
+        "children": 122112,
+        "fraction": 0.9097795466457023
+      },
+      {
+        "seed": 211,
+        "n_valid_draws": 477,
+        "n_total_draws": 480,
+        "matches": 111043,
+        "children": 122112,
+        "fraction": 0.9093537080712788
+      },
+      {
+        "seed": 389,
+        "n_valid_draws": 476,
+        "n_total_draws": 480,
+        "matches": 110806,
+        "children": 121856,
+        "fraction": 0.9093191964285714
+      }
+    ],
+    "total_matches": 554522,
+    "total_children": 609536,
+    "pooled_fraction": 0.9097444613607728,
+    "wall_s": 11.180136000039056
+  },
+  {
+    "strength": 3.5,
+    "src_w": 8,
+    "factor": 2,
+    "n_fine": 16,
+    "parent_seeds": [
+      7,
+      71,
+      137,
+      211,
+      389
+    ],
+    "per_parent": [
+      {
+        "seed": 7,
+        "n_valid_draws": 476,
+        "n_total_draws": 480,
+        "matches": 114922,
+        "children": 121856,
+        "fraction": 0.9430967699579832
+      },
+      {
+        "seed": 71,
+        "n_valid_draws": 476,
+        "n_total_draws": 480,
+        "matches": 115022,
+        "children": 121856,
+        "fraction": 0.9439174107142857
+      },
+      {
+        "seed": 137,
+        "n_valid_draws": 475,
+        "n_total_draws": 480,
+        "matches": 114747,
+        "children": 121600,
+        "fraction": 0.9436430921052632
+      },
+      {
+        "seed": 211,
+        "n_valid_draws": 475,
+        "n_total_draws": 480,
+        "matches": 114588,
+        "children": 121600,
+        "fraction": 0.9423355263157894
+      },
+      {
+        "seed": 389,
+        "n_valid_draws": 476,
+        "n_total_draws": 480,
+        "matches": 114966,
+        "children": 121856,
+        "fraction": 0.9434578518907563
+      }
+    ],
+    "total_matches": 574245,
+    "total_children": 608768,
+    "pooled_fraction": 0.9432903832001682,
+    "wall_s": 11.064239599974826
+  },
+  {
+    "strength": 4.0,
+    "src_w": 8,
+    "factor": 2,
+    "n_fine": 16,
+    "parent_seeds": [
+      7,
+      71,
+      137,
+      211,
+      389
+    ],
+    "per_parent": [
+      {
+        "seed": 7,
+        "n_valid_draws": 476,
+        "n_total_draws": 480,
+        "matches": 117570,
+        "children": 121856,
+        "fraction": 0.9648273371848739
+      },
+      {
+        "seed": 71,
+        "n_valid_draws": 476,
+        "n_total_draws": 480,
+        "matches": 117610,
+        "children": 121856,
+        "fraction": 0.965155593487395
+      },
+      {
+        "seed": 137,
+        "n_valid_draws": 474,
+        "n_total_draws": 480,
+        "matches": 117093,
+        "children": 121344,
+        "fraction": 0.9649673655063291
+      },
+      {
+        "seed": 211,
+        "n_valid_draws": 476,
+        "n_total_draws": 480,
+        "matches": 117461,
+        "children": 121856,
+        "fraction": 0.9639328387605042
+      },
+      {
+        "seed": 389,
+        "n_valid_draws": 476,
+        "n_total_draws": 480,
+        "matches": 117585,
+        "children": 121856,
+        "fraction": 0.9649504332983193
+      }
+    ],
+    "total_matches": 587319,
+    "total_children": 608768,
+    "pooled_fraction": 0.9647665448906644,
+    "wall_s": 10.935043799923733
+  },
+  {
+    "strength": 5.0,
+    "src_w": 8,
+    "factor": 2,
+    "n_fine": 16,
+    "parent_seeds": [
+      7,
+      71,
+      137,
+      211,
+      389
+    ],
+    "per_parent": [
+      {
+        "seed": 7,
+        "n_valid_draws": 476,
+        "n_total_draws": 480,
+        "matches": 120271,
+        "children": 121856,
+        "fraction": 0.986992844012605
+      },
+      {
+        "seed": 71,
+        "n_valid_draws": 477,
+        "n_total_draws": 480,
+        "matches": 120501,
+        "children": 122112,
+        "fraction": 0.9868071933962265
+      },
+      {
+        "seed": 137,
+        "n_valid_draws": 474,
+        "n_total_draws": 480,
+        "matches": 119720,
+        "children": 121344,
+        "fraction": 0.9866165611814346
+      },
+      {
+        "seed": 211,
+        "n_valid_draws": 477,
+        "n_total_draws": 480,
+        "matches": 120450,
+        "children": 122112,
+        "fraction": 0.9863895440251572
+      },
+      {
+        "seed": 389,
+        "n_valid_draws": 475,
+        "n_total_draws": 480,
+        "matches": 119987,
+        "children": 121600,
+        "fraction": 0.9867351973684211
+      }
+    ],
+    "total_matches": 600929,
+    "total_children": 609024,
+    "pooled_fraction": 0.986708241382934,
+    "wall_s": 10.957032900070772
+  }
+]

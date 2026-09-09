@@ -1,0 +1,113 @@
+name: emergence_8x8
+description: >
+  Task 6 (plan 2026-09-04-lattice-rule-taxonomy): the question that
+  motivated the whole plan -- do behavioural rules produce recognisable
+  geography, or just noise? -- built from ONLY the rule classes Task 3's
+  audit/expressibility_matrix.md measured as EXACT *and* gate-fitting at
+  this scale, and ONLY the mechanisms that exist in src/tsu/spec.py
+  (product_over_edges, neighbourhood_count, and hand-written product
+  terms). No new mechanism was invented for this spec.
+
+  Domain story, for intuition only and deliberately kept out of src/: each
+  cell is "raised" (1) or not (0) -- an elevation indicator, the same binary
+  overlay semantics lattice_elev_band_8x8.yaml already uses. Four rules,
+  four of Task 3's EXACT classes:
+
+    1. GRADIENT (`product_over_edges`, a=b=1, weight=-0.4) -- raised cells
+       prefer raised neighbours, the identical proven-safe shape and weight
+       lattice_elev_band_8x8.yaml already measured clean (64 spins, degree
+       4, bipartite, |J|=0.20, |b|=0.80, NO frozen spins). Drives clumping
+       into contiguous patches rather than salt-and-pepper noise.
+
+    2. NEIGHBOURHOOD (`neighbourhood_count`, Task 5's own new template,
+       value=1, target=2, weight=0.1) -- every cell prefers close to 2 of
+       its own 4 grid-neighbours raised, not "as many as possible": this is
+       the SYMMETRIC, matrix-cleared form (audit/expressibility_matrix.md
+       row #2), deliberately weaker than GRADIENT's own coupling so it acts
+       as a second-order counter-force (roughening/thinning GRADIENT's
+       blobs toward a target density) rather than overriding it outright --
+       not "as many neighbours raised as possible" (that would be the
+       one-sided `morphology`/`ecological` shape the matrix found DISTORTED
+       and this spec does not use).
+
+    3. PAIRWISE (a hand-written `product` term, matrix row #1's own honest
+       form -- a single Product between two SPECIFIC cells, not swept over
+       every edge) -- the two opposite corners g0_0 and g7_7 ("two known
+       landmarks") have a mild mutual preference to both be raised
+       (weight=-0.5).
+
+    4. GAMEPLAY (a hand-written `product` term, matrix row #10's own
+       exactly-one-of-K shape: Product(L, L, w), L = sum of K candidate
+       indicators - 1) -- exactly one of three centre candidate cells
+       (g3_3, g3_4, g4_3 -- "which hill the settlement is founded on") is
+       raised, weight=0.5. The `contract.validate` block below adds the
+       CHECKABLE half of this (at-most-one, via three `forbid_both`
+       rules over the same three cells -- the only means TaskContract
+       already has to express "no two of these simultaneously"), so
+       task_validity actually measures whether this rule's own intent held.
+
+  DELIBERATELY EXCLUDED, and why (per this task's own gate -- a class the
+  matrix did not clear, or one this task could not verify safe at THIS
+  scale/composition, does not get built in):
+    - `morphology`, `ecological` -- DISTORTED (matrix rows #3, #9): the
+      nearest pairwise form silently turns "at least N" into "exactly N".
+    - `statistical` -- EXACT in the IR but measures max_degree=63 on an 8x8
+      grid (matrix row #11, C(64,2) edges) -- blows the degree-16 gate by
+      47 for any nonzero weight/target. Expressible and unusable.
+    - `boundary` -- INEXPRESSIBLE, confirmed by the compiler's own
+      `ThreeBodyError` (matrix row #12).
+    - `climate` -- EXACT (matrix row #8), but its distinguishing cost is
+      the CATEGORICAL domain-wall encoding's own structural overhead, which
+      this task measured (via `tsu.passes.analyse.analyse`, not
+      `tsu compile`) to collide with NEIGHBOURHOOD's own clique cost on a
+      full 8x8 k=3 grid: max_degree=18, over the Z1 cap of 16 (product_over_
+      edges alone: max_degree=9; neighbourhood_count alone: max_degree=9;
+      combined: 18, not simply additive by coincidence but close to it here
+      -- the two edge sets share almost no overlap on the same domain-wall
+      chain spins). A binary grid avoids the domain-wall chain entirely (no
+      encoding overhead at all), which is why this spec uses one instead --
+      an honest scope reduction, not a silent substitution: this measured
+      collision is the reason `climate` is missing here, not an oversight.
+    - `cluster`, `topological`, `hydrological` -- all EXACT and, per the
+      matrix's own cost rows (#4, #6, #7), cheap at full 8x8 scale via
+      `conserve_over_edges`. But a version of `conserve_over_edges` that
+      visibly influences the RENDERED terrain needs a capacity gate tying
+      each flow edge to the terrain value of its adjacent cells -- the
+      matrix only verified that gate's ground-state correctness at a
+      3-cell corridor (row #6), never re-measured it at full 8x8 scale
+      combined with this spec's other rules. A capacity-FREE conservation
+      term would compile safely but sits on flow variables entirely
+      disjoint from the terrain grid -- zero causal effect on what gets
+      rendered, which would misrepresent what "emergence" means for this
+      experiment. Left out rather than included as inert decoration.
+
+  Structural pre-check (this task's own budget: `tsu compile` may run
+  ONCE, so every number below comes from `tsu.passes.analyse.analyse` on
+  the ACTUAL lowered model -- the same cheap, non-placement pipeline
+  audit/measure_expressibility.py already uses -- run repeatedly to choose
+  these weights BEFORE the one real compile, never from `tsu compile`
+  itself): n_nodes=64 (binary cells pass through encode() unchanged, no
+  domain-wall chain), max_degree=12 (Z1 cap 16, margin 4), bipartite=False
+  (both NEIGHBOURHOOD's and GAMEPLAY's cliques mediate), |J|max=0.35 (cap
+  6.0), |b|max=0.90 (cap 6.0) -- comfortably inside every Z1 gate, and in
+  the SAME weight-magnitude regime (0.1-0.5) the two cited proven-safe
+  production specs already operate in, not a new untested regime.
+generate:
+  kind: grid
+  width: 8
+  height: 8
+  variable_domain: {domain: binary}
+terms:
+  - {kind: product_over_edges, a_value: 1, b_value: 1, weight: -0.4}
+  - {kind: neighbourhood_count, value: 1, target: 2, weight: 0.1}
+  - {kind: product, a: {g0_0: 1.0}, b: {g7_7: 1.0}, weight: -0.5}
+  - {kind: product, a: {g3_3: 1.0, g3_4: 1.0, g4_3: 1.0, const: -1.0},
+     b: {g3_3: 1.0, g3_4: 1.0, g4_3: 1.0, const: -1.0}, weight: 0.5}
+contract:
+  validate:
+    - {rule: forbid_both, vars: [g3_3, g3_4],
+       message: "two of the three settlement-hill candidates raised at once"}
+    - {rule: forbid_both, vars: [g3_3, g4_3],
+       message: "two of the three settlement-hill candidates raised at once"}
+    - {rule: forbid_both, vars: [g3_4, g4_3],
+       message: "two of the three settlement-hill candidates raised at once"}

@@ -1,0 +1,9 @@
+{
+  "energy_scale": "unavailable: 2^180 too large to enumerate",
+  "coupling_utilisation": 0.15,
+  "precision_headroom": 0.12337867203199988,
+  "beta_recommendation": null,
+  "mixing_indicator": 1.1443933694019282,
+  "regime": "precision_limited",
+  "basis": "two distinct |J| values are closer together than one quantisation step and may become indistinguishable"
+}

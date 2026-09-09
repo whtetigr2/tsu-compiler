@@ -1,0 +1,23 @@
+[
+  {
+    "construct": "product_over_edges",
+    "ir_shape": "Product per edge (both orientations)",
+    "count": 224,
+    "scope": "the spec's 112-edge generated set",
+    "reason": "a pairwise value constraint between two connected variables becomes a Product of their two value-indicator linear forms -- one indicator per side of the edge, so the shape stays pairwise regardless of either variable's own domain size"
+  },
+  {
+    "construct": "neighbourhood_count",
+    "ir_shape": "Product(L, L, weight) -- a squared linear form",
+    "count": 64,
+    "scope": "one per node of the spec's 112-edge generated set (64 nodes with at least one neighbour)",
+    "reason": "a neighbourhood COUNT's own intent is 'as close to target as possible', which is symmetric by definition -- squaring a linear form over the neighbour indicators keeps this pairwise (Product(L, L, weight)) with no change of meaning. This is a SHAPE, not a domain rule: it is the honest form only where the underlying rule's own intent is symmetric-in-count; a ONE-SIDED threshold ('at least N') is a different rule and distorts under this same shape (audit/expressibility_matrix.md rows #3, #9) -- this template does not detect that case, the caller must not reach for it there"
+  },
+  {
+    "construct": "product",
+    "ir_shape": "Product",
+    "count": 2,
+    "scope": "",
+    "reason": ""
+  }
+]

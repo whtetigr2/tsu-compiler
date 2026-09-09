@@ -1,0 +1,11 @@
+{
+  "n_nodes": 180,
+  "n_edges": 423,
+  "max_degree": 12,
+  "bipartite": true,
+  "mediators": 0,
+  "mediators_note": "",
+  "colour_blocks": 2,
+  "max_abs_J": 0.477537640020963,
+  "max_abs_b": 0.9
+}

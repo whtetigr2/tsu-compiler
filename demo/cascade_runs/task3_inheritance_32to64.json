@@ -1,0 +1,40 @@
+{
+  "strength": 1.0,
+  "parent_seeds": [
+    7,
+    71,
+    137,
+    211,
+    389
+  ],
+  "per_parent": [
+    {
+      "seed": 7,
+      "n_valid_draws": 445,
+      "n_total_draws": 480,
+      "matches": 1050513,
+      "children": 1822720,
+      "fraction": 0.5763435963834269
+    },
+    {
+      "seed": 71,
+      "n_valid_draws": 439,
+      "n_total_draws": 480,
+      "matches": 1035029,
+      "children": 1798144,
+      "fraction": 0.5756096285948178
+    },
+    {
+      "seed": 137,
+      "n_valid_draws": 435,
+      "n_total_draws": 480,
+      "matches": 1025532,
+      "children": 1781760,
+      "fraction": 0.5755724676724138
+    }
+  ],
+  "total_matches": 3111074,
+  "total_children": 5402624,
+  "pooled_fraction": 0.5758449968015542,
+  "status": "in_progress"
+}
