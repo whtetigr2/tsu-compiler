@@ -33,12 +33,18 @@ def test_terrain_array_matches_the_scalar_index_exactly():
 
 
 def test_relief_scales_the_amplitude_not_the_base():
-    """relief multiplies the erosion/relief product only. At pv exactly mid the
-    relief term is non-zero, so doubling relief must move the height -- and the
-    continentalness contribution must be untouched."""
-    base_only = height_array(np.array([0.5]), np.array([0.0]), np.array([0.5]))
-    doubled = height_array(np.array([0.5]), np.array([0.0]), np.array([0.5]), relief=2.0)
-    assert not np.isclose(base_only[0], doubled[0])
+    """relief must multiply the erosion x peaks-and-valleys term ONLY, leaving
+    the continentalness base untouched.
+
+    Exact values are asserted because an inequality cannot separate the two.
+    At c=0.5, e=0.0, pv=0.5 the parts are base=0.05, amp=1.00, relief knot=0.10,
+    so the correct height is 0.05 + relief*1.00*0.10 -- 0.15 at relief 1 and
+    0.25 at relief 2. A version that scaled the BASE instead would give 0.15 and
+    0.20: it also changes with relief, which is why `assert not isclose` passed
+    under the very bug this test is named for."""
+    c, e, pv = np.array([0.5]), np.array([0.0]), np.array([0.5])
+    assert height_array(c, e, pv, relief=1.0)[0] == pytest.approx(0.15)
+    assert height_array(c, e, pv, relief=2.0)[0] == pytest.approx(0.25)
 
 
 def test_relief_of_one_is_the_shipped_behaviour():
