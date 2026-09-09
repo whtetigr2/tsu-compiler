@@ -1,5 +1,6 @@
 """Task 2: the readout state machine. These tests build ONE world (slow, real
 sampler) in a module fixture and then exercise the instant path against it."""
+import dataclasses
 import sys
 import time
 
@@ -129,14 +130,23 @@ def test_generate_samples_and_loads_in_one_call():
     assert s.sampled.seed == 11
 
 
-def test_generate_records_per_field_timings():
-    """The tab reports these, and the run log stores them. A missing field here
-    would show as a blank readout rather than an error."""
+def test_per_field_timings_are_apportioned_by_spin_count():
+    """The apportionment CLAIM, not merely its presence.
+
+    The previous version asserted each timing was > 0 and no larger than the
+    total. Both follow algebraically from splitting a positive number into
+    fractions summing to 1, so it passed identically for an equal split
+    (0.333 each) or a reversed one. Measured spin shares at size 64 are
+    0.01449 / 0.05797 / 0.92754, so a ratio assertion separates all three."""
     s = Studio()
-    s.generate(Sampled(seed=12, size=64, warmup=200))
+    s.generate(Sampled(seed=14, size=64, warmup=200))
+    spins = {name: int(s.world.fields[name].size) for name, _src in FIELD_PLAN}
+    total_spins = sum(spins.values())
     for name, _src in FIELD_PLAN:
-        assert s.timings[name] > 0.0
-    assert s.timings["total"] >= max(s.timings[n] for n, _ in FIELD_PLAN)
+        assert s.timings[name] / s.timings["total"] == pytest.approx(
+            spins[name] / total_spins), f"{name} not apportioned by spin count"
+    assert sum(s.timings[n] for n, _src in FIELD_PLAN) == pytest.approx(
+        s.timings["total"])
 
 
 def test_the_measured_band_is_exposed_for_the_ui_to_mark():
@@ -145,11 +155,18 @@ def test_the_measured_band_is_exposed_for_the_ui_to_mark():
     assert BAND == (0.38, 0.45)
 
 
-def test_warmup_defaults_to_the_measured_value_and_is_not_a_slider():
-    """Measured to make no difference to structure in this workload, so it is
-    reported rather than offered. This test pins the default; the absence of a
-    setter is the point."""
-    assert Sampled().warmup == 4000
+def test_warmup_is_reported_and_cannot_be_mutated():
+    """"Reported, not a control" mechanically means: it has a fixed default, it
+    cannot be reassigned, and nothing on Studio offers to change it.
+
+    The previous version asserted only the default value while its docstring
+    claimed the absence of a setter was the point -- so a mutable dataclass with
+    a slider bound to it would have passed."""
+    s = Sampled()
+    assert s.warmup == 4000
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        s.warmup = 8000
+    assert [a for a in dir(Studio) if "warmup" in a.lower()] == []
 
 
 def test_generate_handles_a_size_other_than_64():
