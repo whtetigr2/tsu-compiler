@@ -67,14 +67,31 @@ def test_every_cost_table_keeps_every_cell_walkable(studio):
 
 
 def test_readout_never_resamples(studio, monkeypatch):
-    """THE load-bearing performance property. If a slider reaches the sampler
-    the whole design is defeated, and it would be invisible except as lag."""
-    import world.studio as mod
-    called = []
-    monkeypatch.setattr(mod, "sample_field",
-                        lambda *a, **k: called.append(1), raising=False)
+    """THE load-bearing performance property: if a readout slider reaches the
+    sampler, the whole design is defeated and the only symptom is ~3.3s of lag
+    per drag.
+
+    The patch targets `world.generate.sample_field`, which is where the name is
+    actually BOUND (generate.py does `from world.fields import sample_field` at
+    import time, so patching `world.fields` would not affect it either). An
+    earlier version patched `world.studio.sample_field` with `raising=False` --
+    a name studio.py does not import, so it created an inert attribute and the
+    test could never fail.
+
+    No `raising=False`: if the attribute ever stops existing, this must fail
+    loudly rather than pass silently, since a silent pass is the bug being
+    fixed."""
+    import world.generate as gen_mod
+
+    def _forbidden(*args, **kwargs):
+        raise AssertionError(
+            "a readout control reached the sampler -- readout must recompute "
+            "from the cached fields, never resample")
+
+    monkeypatch.setattr(gen_mod, "sample_field", _forbidden)
     studio.set_readout(Readout(sea_level=0.25, relief=1.4, mountain_line=-0.2))
-    assert called == []
+    studio.set_readout(Readout(cost_table="wide"))
+    studio.view()
 
 
 def test_readout_is_fast_enough_for_a_slider(studio):
