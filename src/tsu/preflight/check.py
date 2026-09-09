@@ -48,8 +48,20 @@ class PreflightReport:
     place_seconds: float
     placed: bool
     place_error: str | None
+    remediations: tuple[str, ...]
     gates: tuple[Gate, ...]
     verdict: str
+
+
+def _remediations(exc: CompileError) -> tuple[str, ...]:
+    """Flatten every `Remediation` the compiler already computed for this
+    failure into readable strings, so a pre-flight report that says "degree
+    exceeded" does not throw away the actionable half of the answer
+    `place()` had already worked out (`Remediation.action` + `.detail`,
+    e.g. "relax target: target.degree >= 19")."""
+    return tuple(f"{r.action}: {r.detail}"
+                 for failure in exc.failures
+                 for r in getattr(failure, "remediations", ()))
 
 
 def _gate(name: str, value: float, limit: float, note: str) -> Gate:
@@ -102,11 +114,13 @@ def preflight(ising: IsingModel, target: TargetProfile = PROFILES["z1"],
 
     placement = None
     place_error = None
+    remediations: tuple[str, ...] = ()
     t0 = time.time()
     try:
         placement = place(ising, rep, target, restarts=restarts, iters=iters)
     except CompileError as exc:
         place_error = str(exc)
+        remediations = _remediations(exc)
     place_seconds = time.time() - t0
 
     mediators = 0
@@ -125,4 +139,5 @@ def preflight(ising: IsingModel, target: TargetProfile = PROFILES["z1"],
         max_degree=rep.max_degree, bipartite=rep.bipartite,
         embedding=embedding, mediators=mediators,
         place_seconds=place_seconds, placed=placement is not None,
-        place_error=place_error, gates=gates, verdict=verdict)
+        place_error=place_error, remediations=remediations,
+        gates=gates, verdict=verdict)

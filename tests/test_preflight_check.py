@@ -146,4 +146,19 @@ def test_the_mediated_fixture_reports_its_mediator_count():
     cost, so a mediator-accounting change would pass unnoticed."""
     r = preflight(triangle())
     assert r.mediators > 0
-    assert {x.name: x for x in r.gates}["node_budget"].value >= 3
+    assert {x.name: x for x in r.gates}["node_budget"].value == r.n_spins + r.mediators
+
+
+def test_a_placement_failure_carries_the_compiler_s_own_remediations():
+    """CompileError already computes what the user should DO about a failure.
+    A pre-flight report that says only "degree exceeded" throws away the actionable
+    half of an answer the compiler had already worked out."""
+    n = 20
+    e = [(i, j) for i in range(n) for j in range(i + 1, n)]
+    im = IsingModel(nodes=tuple(f"n{i}" for i in range(n)), edges=tuple(e),
+                    weights=np.full(len(e), 0.1), biases=np.zeros(n),
+                    beta=1.0, offset=0.0)
+    r = preflight(im)
+    assert r.remediations, "a failed placement must carry its remediations"
+    assert any("degree" in s.lower() for s in r.remediations)
+    assert preflight(grid(4)).remediations == ()
