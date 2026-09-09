@@ -15,14 +15,16 @@ from world.spline import (LEVELS, TERRAINS, DEFAULT_BOUNDS, BOUND_EPS,
 
 
 def test_height_array_matches_the_scalar_spline_exactly():
-    """The array path is an optimisation, not a second implementation. If it
-    ever diverges from the scalar reference the sliders would show terrain the
-    rest of the system does not agree with -- and nothing else would notice."""
+    """The array path is an optimisation, not a second implementation, and
+    BIT-IDENTICAL is the requirement rather than merely close: the result feeds
+    an integer terrain classification, where a last-ULP difference at a band
+    boundary flips a cell to the neighbouring terrain. An earlier np.interp
+    version was equal to ~2e-16 and did exactly that."""
     vals = [i / LEVELS for i in range(LEVELS + 1)] + [0.17, 0.5, 0.83]
     c, e, pv = (np.array(x, dtype=float) for x in zip(*itertools.product(vals, repeat=3)))
     fast = height_array(c, e, pv)
     slow = np.array([height(a, b, d) for a, b, d in zip(c, e, pv)])
-    assert np.allclose(fast, slow, atol=1e-12)
+    assert np.array_equal(fast, slow), "array and scalar paths must be bit-identical"
 
 
 def test_terrain_array_matches_the_scalar_index_exactly():
