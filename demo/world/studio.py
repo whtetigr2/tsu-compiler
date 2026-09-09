@@ -47,6 +47,30 @@ BAND: tuple[float, float] = (0.38, 0.45)
 world sampled outside it is obvious at a glance rather than buried in a number."""
 
 
+CONTROLS: dict[str, dict[str, str]] = {
+    "beta_j": {"science": "beta*J  (fraction of Kc)", "programmer": "clumpiness"},
+    "seed": {"science": "PRNG seed", "programmer": "world seed"},
+    "size": {"science": "lattice edge (cells)", "programmer": "map size"},
+    "sea_level": {"science": "water band offset", "programmer": "sea level"},
+    "mountain_line": {"science": "upper band offset", "programmer": "snow line"},
+    "relief": {"science": "relief amplitude x", "programmer": "ruggedness"},
+    "cost_table": {"science": "traversal cost vector", "programmer": "terrain difficulty"},
+    "warmup": {"science": "Gibbs sweeps before readout", "programmer": "settle time"},
+}
+"""Two vocabularies over identical controls. The science name is the true one;
+the programmer name is the useful one. Showing both stops the UI quietly lying
+about what a knob is."""
+
+
+def label(control: str, vocabulary: str) -> str:
+    """Raises rather than falling back to the control's raw key: a silent
+    fallback would render an internal name in the UI and look intentional."""
+    if vocabulary not in ("science", "programmer"):
+        raise ValueError(
+            f"unknown vocabulary {vocabulary!r}; expected 'science' or 'programmer'")
+    return CONTROLS[control][vocabulary]
+
+
 @dataclass(frozen=True)
 class Sampled:
     seed: int = 0

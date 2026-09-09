@@ -36,12 +36,18 @@ def test_a_saved_run_restores_every_slider(tmp_path, studio):
 
 
 def test_provenance_records_the_jax_backend(tmp_path, studio):
-    """thrml SIMULATES the sampling Z1 would do, on CPU here. A report that
-    omits the backend invites the reader to assume hardware was involved."""
+    """thrml SIMULATES the sampling a Z1 would do, on CPU here. A report that
+    omits the backend invites the reader to assume hardware was involved.
+
+    The value is checked, not merely its truthiness: `_versions()` falls back to
+    the string "unknown" on any failure, which is truthy, so a truthiness check
+    would pass on a silently-broken read -- and "unknown" does not record the
+    backend, which is the thing the artifact exists to state."""
     save_run(studio, tmp_path)
     prov = json.loads((tmp_path / "provenance.json").read_text(encoding="utf-8"))
-    assert prov["jax_backend"]
-    assert "thrml" in prov and "jax" in prov
+    assert prov["jax_backend"] in ("cpu", "gpu", "tpu")
+    assert prov["thrml"] != "unavailable"
+    assert prov["jax"] != "unavailable"
 
 
 def test_studio_json_records_the_resolved_tables_not_just_the_slider_names(

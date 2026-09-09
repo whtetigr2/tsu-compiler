@@ -84,6 +84,14 @@ from tsu.backends.thrml_backend import sample as thrml_sample  # noqa: E402
 from tsu.passes.route import assert_beta_consistent, BetaMismatchError  # noqa: E402 -- Task 7
 from worldfile import save_world  # noqa: E402 -- A2: save/load provenance-carrying worlds
 import frontier as frontier_mod  # noqa: E402 -- B1: capacity frontier panel
+# Task 5: World Studio tab -- world.studio/run_log/export imported as modules,
+# same pattern as frontier_mod above. Aliased (import world.studio as ...)
+# rather than `from world.studio import Sampled` etc. because this file
+# already defines its OWN `Sampled` (live sampler settings, a different
+# concept) -- the alias keeps the two apart instead of shadowing one.
+import world.studio as world_studio  # noqa: E402
+import world.run_log as world_run_log  # noqa: E402
+import world.export as world_export  # noqa: E402
 import theme  # noqa: E402 -- Task 0: theme foundation, see theme.py's own docstring
 from scope import (beta_to_temperature, temperature_control_state,  # noqa: E402
                     magnetization, energy_histogram, local_field_response,
@@ -123,6 +131,17 @@ PAL = np.array([_rgb(theme.WATER), _rgb(theme.ROCK), _rgb(theme.GRASS)], float)
 CELL_UP = 32                    # px per grid cell in the rendered world image (render_world.py uses 64; halved here so a redraw fits inside one animation tick)
 WORLD_DISPLAY_PX = 320          # DECODED WORLD canvas is square, this many px/side
 WORLD_CELL_PX = WORLD_DISPLAY_PX // W   # px per grid cell ON SCREEN (for clicks + pin markers)
+
+# Task 5: World Studio tab. Separate constants from the WORLD_* ones above --
+# those belong to the raw-lattice DECODED WORLD panel (an 8x8 grid decoded from
+# the compiled receipt); this tab renders demo/world/studio.py's OWN terrain
+# grid (64 or 128 cells/side, a completely different pipeline). Kept named
+# WS_* throughout so nothing here is ever mistaken for the receipt-driven path.
+WS_DISPLAY_PX = 320              # world image canvas, square, this many px/side
+WS_SIZES = (64, 128)             # the only sizes this task has MEASURED timing for
+                                  # (~3.3s / ~5.2s) -- see task-5-brief.md
+WS_BETA_MIN, WS_BETA_MAX = 0.0, 0.60   # slider range; BAND=(0.38, 0.45) sits inside it
+WS_BETA_TRACK_W, WS_BETA_TRACK_H = 300, 16  # matches the beta*J tk.Scale's own length=300
 
 # Live sampling parameters used BY THIS APP (not receipt values -- disclosed
 # as such in the SAMPLER panel). Chosen from a measured timing check: a
@@ -2415,8 +2434,32 @@ class LatticeApp(tk.Tk):
         # _refresh_layer_view's composite branch.
         self.composite_base_grid: np.ndarray | None = None
 
+        # Task 5: World Studio tab state. ONE Studio instance for the whole
+        # session -- it IS the sampled-versus-derived boundary this tab
+        # exists to show (world.studio.Studio's own docstring); a fresh
+        # instance per Generate would defeat the point. ws_has_world tracks
+        # whether that Studio has ever sampled a world yet (its own `.world`
+        # property raises RuntimeError before the first Generate), which
+        # gates the Readout controls and Save run below.
+        self.ws_studio = world_studio.Studio()
+        self.ws_has_world = False
+        self.ws_photo = None          # keep a reference; Tk drops PhotoImages with none
+        self.ws_vocab = tk.StringVar(value="science")
+        self.ws_seed_var = tk.IntVar(value=world_studio.Sampled().seed)
+        self.ws_beta_var = tk.DoubleVar(value=world_studio.Sampled().beta_j)
+        self.ws_size_var = tk.IntVar(value=world_studio.Sampled().size)
+        default_readout = world_studio.Readout()
+        self.ws_sea_var = tk.DoubleVar(value=default_readout.sea_level)
+        self.ws_mtn_var = tk.DoubleVar(value=default_readout.mountain_line)
+        self.ws_relief_var = tk.DoubleVar(value=default_readout.relief)
+        self.ws_cost_var = tk.StringVar(value=default_readout.cost_table)
+        self.ws_sampled_controls: list[tk.Widget] = []  # disabled while Generate runs
+        self.ws_readout_controls: list[tk.Widget] = []  # disabled until a world exists, and while Generate runs
+
         self._build_layout()
         self._populate_static_panels()
+        self._ws_refresh_labels()          # Task 5: initial vocabulary pass
+        self._ws_set_readout_controls_state("disabled")  # no world sampled yet
 
         self._start_worker(random.randint(0, 2**31 - 1))
 
@@ -2964,6 +3007,202 @@ class LatticeApp(tk.Tk):
                                          font=(MONO_FAMILY, 8), anchor="w",
                                          justify="left", wraplength=340)
         self.composite_label.pack(fill="x", pady=(2, 0))
+
+        # Task 5: WORLD STUDIO -- new full-width row below LAYERS, same
+        # "new row" pattern Task 6/7 used for SCOPE/LAYERS. This tab is a
+        # THIN RENDERER over demo/world/studio.py (see that module's own
+        # docstring) -- no generator logic lives here, only widget wiring.
+        #
+        # The task's one non-negotiable requirement (task-5-brief.md): controls
+        # render in three VISUALLY DISTINCT, LABELLED groups -- Sampled (needs
+        # Generate), Reported, Readout (instant) -- because a user who cannot
+        # tell which group a control belongs to will misread every result they
+        # get, and so will anyone they show it to. Each of the three gets its
+        # own accent colour (gold/dim/olive) on both its title and its 1px
+        # border, carried through consistently. A fourth cell (PREVIEW & SAVE)
+        # holds the rendered image, the vocabulary toggle and Save run -- it is
+        # deliberately titled and coloured differently (plain FG, no border) so
+        # it is never mistaken for a fourth control group.
+        content.grid_rowconfigure(3, weight=0, minsize=400)
+        self.ws_panel = Panel(content, "WORLD STUDIO  (Extropic Z1 thermodynamic "
+                                        "world sampler -- demo/world/studio.py)")
+        self.ws_panel.grid(row=3, column=0, columnspan=5, sticky="nsew", pady=(6, 0))
+        ws_row = tk.Frame(self.ws_panel.body, bg=PANEL_BG)
+        ws_row.pack(fill="both", expand=True)
+
+        def _ws_cell(title, width=None, title_fg=ACCENT, border_fg=None):
+            cell = tk.Frame(ws_row, bg=PANEL_BG, width=width)
+            if border_fg is not None:
+                cell.config(highlightthickness=1, highlightbackground=border_fg,
+                            highlightcolor=border_fg)
+            cell.pack(side="left", fill="both", expand=(width is None), padx=6)
+            tk.Label(cell, text=title, bg=PANEL_BG, fg=title_fg,
+                      font=(MONO_FAMILY, 8, "bold"), anchor="w", justify="left"
+                      ).pack(fill="x", padx=4, pady=(2, 0))
+            return cell
+
+        # -- PREVIEW & SAVE (not a control group) --------------------------
+        prev_cell = _ws_cell("PREVIEW & SAVE  (not a control group)",
+                              width=WS_DISPLAY_PX + 24, title_fg=FG)
+        vocab_row = tk.Frame(prev_cell, bg=PANEL_BG)
+        vocab_row.pack(fill="x", padx=4, pady=(2, 4))
+        tk.Label(vocab_row, text="labels:", bg=PANEL_BG, fg=DIM,
+                  font=(MONO_FAMILY, 7)).pack(side="left")
+        for v in ("science", "programmer"):
+            tk.Radiobutton(vocab_row, text=v, value=v, variable=self.ws_vocab,
+                            command=self._ws_refresh_labels, bg=PANEL_BG, fg=FG,
+                            selectcolor=BORDER, activebackground=PANEL_BG,
+                            activeforeground=FG, font=(MONO_FAMILY, 7), anchor="w",
+                            highlightthickness=0).pack(side="left", padx=(4, 0))
+        self.ws_canvas = tk.Canvas(prev_cell, width=WS_DISPLAY_PX, height=WS_DISPLAY_PX,
+                                    bg=PANEL_BG, highlightthickness=0)
+        self.ws_canvas.pack(padx=4)
+        self.ws_placeholder_id = self.ws_canvas.create_text(
+            WS_DISPLAY_PX / 2, WS_DISPLAY_PX / 2,
+            text="(no world sampled yet this session -- click Generate)",
+            fill=DIM, font=MONO, width=WS_DISPLAY_PX - 20, justify="center")
+        self.ws_image_item = self.ws_canvas.create_image(0, 0, anchor="nw")
+        self.ws_bounds_label = tk.Label(prev_cell, text="", bg=PANEL_BG, fg=DIM,
+                                          font=(MONO_FAMILY, 7), anchor="w",
+                                          justify="left", wraplength=WS_DISPLAY_PX)
+        self.ws_bounds_label.pack(fill="x", padx=4, pady=(2, 0))
+        self.ws_save_btn = tk.Button(prev_cell, text="Save run", command=self._ws_on_save_run,
+                                       bg=PANEL_BG, fg=FG, activebackground=BORDER,
+                                       activeforeground=FG, relief="flat", padx=10, pady=3,
+                                       state="disabled")
+        self.ws_save_btn.pack(anchor="w", padx=4, pady=(4, 0))
+        self.ws_save_status = tk.Label(prev_cell, text="", bg=PANEL_BG, fg=DIM,
+                                         font=(MONO_FAMILY, 7), anchor="w",
+                                         justify="left", wraplength=WS_DISPLAY_PX)
+        self.ws_save_status.pack(fill="x", padx=4, pady=(2, 0))
+
+        # -- SAMPLED (needs Generate) ---------------------------------------
+        sampled_cell = _ws_cell("SAMPLED  (needs Generate -- measured ~3.3s at "
+                                 "64x64, ~5.2s at 128x128)", width=260,
+                                 title_fg=ACCENT, border_fg=theme.GOLD_DIM)
+        self.ws_seed_label = tk.Label(sampled_cell, text="", bg=PANEL_BG, fg=FG,
+                                        font=MONO, anchor="w")
+        self.ws_seed_label.pack(fill="x", padx=4, pady=(4, 0))
+        seed_spin = tk.Spinbox(sampled_cell, from_=0, to=2**31 - 1,
+                                textvariable=self.ws_seed_var, bg=theme.INSET, fg=FG,
+                                buttonbackground=PANEL_BG, relief="flat", font=MONO,
+                                width=14)
+        seed_spin.pack(fill="x", padx=4)
+        self.ws_sampled_controls.append(seed_spin)
+
+        self.ws_beta_label = tk.Label(sampled_cell, text="", bg=PANEL_BG, fg=FG,
+                                        font=MONO, anchor="w")
+        self.ws_beta_label.pack(fill="x", padx=4, pady=(6, 0))
+        self.ws_beta_value_label = tk.Label(sampled_cell, text="", bg=PANEL_BG, fg=FG,
+                                              font=(MONO_FAMILY, 8), anchor="w")
+        self.ws_beta_value_label.pack(fill="x", padx=4)
+        beta_scale = tk.Scale(
+            sampled_cell, from_=WS_BETA_MIN, to=WS_BETA_MAX, resolution=0.01,
+            orient="horizontal", showvalue=0, length=WS_BETA_TRACK_W, bg=PANEL_BG,
+            fg=FG, troughcolor=BG, highlightthickness=0, bd=0,
+            variable=self.ws_beta_var, command=self._ws_on_beta_change)
+        beta_scale.pack(padx=4)
+        self.ws_sampled_controls.append(beta_scale)
+        # The measured usable band (world_studio.BAND) drawn as a fixed green
+        # region on its own track beneath the slider, with a marker line at the
+        # current value -- the brief's literal requirement ("marked on the
+        # beta*J control"), not just stated in a caption a user could miss.
+        self.ws_beta_track = tk.Canvas(sampled_cell, width=WS_BETA_TRACK_W,
+                                         height=WS_BETA_TRACK_H, bg=BG,
+                                         highlightthickness=0)
+        self.ws_beta_track.pack(padx=4, pady=(2, 0))
+        band_x0 = ((world_studio.BAND[0] - WS_BETA_MIN)
+                   / (WS_BETA_MAX - WS_BETA_MIN) * WS_BETA_TRACK_W)
+        band_x1 = ((world_studio.BAND[1] - WS_BETA_MIN)
+                   / (WS_BETA_MAX - WS_BETA_MIN) * WS_BETA_TRACK_W)
+        self.ws_beta_track.create_rectangle(band_x0, 0, band_x1, WS_BETA_TRACK_H,
+                                              fill=GOOD, outline="")
+        self.ws_beta_marker_id = self.ws_beta_track.create_line(
+            0, 0, 0, WS_BETA_TRACK_H, fill=ACCENT, width=2)
+        tk.Label(sampled_cell,
+                  text=f"measured usable band {world_studio.BAND[0]:.2f}-"
+                       f"{world_studio.BAND[1]:.2f} (green, above): below it the "
+                       f"world is noise, above it one value swallows the map",
+                  bg=PANEL_BG, fg=DIM, font=(MONO_FAMILY, 7), anchor="w",
+                  justify="left", wraplength=250).pack(fill="x", padx=4, pady=(2, 0))
+        self._ws_on_beta_change(self.ws_beta_var.get())  # initial marker + value text
+
+        self.ws_size_label = tk.Label(sampled_cell, text="", bg=PANEL_BG, fg=FG,
+                                        font=MONO, anchor="w")
+        self.ws_size_label.pack(fill="x", padx=4, pady=(6, 0))
+        size_row = tk.Frame(sampled_cell, bg=PANEL_BG)
+        size_row.pack(fill="x", padx=4)
+        for sz in WS_SIZES:
+            rb = tk.Radiobutton(size_row, text=f"{sz}x{sz}", value=sz,
+                                 variable=self.ws_size_var, bg=PANEL_BG, fg=FG,
+                                 selectcolor=BORDER, activebackground=PANEL_BG,
+                                 activeforeground=FG, font=MONO, anchor="w",
+                                 highlightthickness=0)
+            rb.pack(side="left")
+            self.ws_sampled_controls.append(rb)
+
+        self.ws_generate_btn = tk.Button(sampled_cell, text="Generate",
+                                           command=self._ws_on_generate,
+                                           bg=PANEL_BG, fg=ACCENT, activebackground=BORDER,
+                                           activeforeground=ACCENT, relief="flat",
+                                           padx=10, pady=4)
+        self.ws_generate_btn.pack(fill="x", padx=4, pady=(8, 0))
+        self.ws_sampled_controls.append(self.ws_generate_btn)
+        self.ws_generate_status = tk.Label(sampled_cell, text="(no world sampled yet)",
+                                             bg=PANEL_BG, fg=DIM, font=(MONO_FAMILY, 7),
+                                             anchor="w", justify="left", wraplength=250)
+        self.ws_generate_status.pack(fill="x", padx=4, pady=(4, 0))
+
+        # -- REPORTED ---------------------------------------------------
+        reported_cell = _ws_cell("REPORTED  (not a control -- fixed values, "
+                                  "read after Generate)", width=300,
+                                  title_fg=DIM, border_fg=BORDER)
+        self.ws_warmup_label = tk.Label(reported_cell, text="", bg=PANEL_BG, fg=DIM,
+                                          font=(MONO_FAMILY, 8), anchor="w",
+                                          justify="left", wraplength=290)
+        self.ws_warmup_label.pack(fill="x", padx=4, pady=(4, 0))
+        self.ws_fields_label = tk.Label(reported_cell, text="(no world sampled yet)",
+                                          bg=PANEL_BG, fg=DIM, font=(MONO_FAMILY, 8),
+                                          anchor="w", justify="left", wraplength=290)
+        self.ws_fields_label.pack(fill="x", padx=4, pady=(4, 0))
+        self.ws_timings_label = tk.Label(reported_cell, text="", bg=PANEL_BG, fg=DIM,
+                                           font=(MONO_FAMILY, 8), anchor="w",
+                                           justify="left", wraplength=290)
+        self.ws_timings_label.pack(fill="x", padx=4, pady=(4, 0))
+
+        # -- READOUT (instant) -----------------------------------------------
+        readout_cell = _ws_cell("READOUT  (instant -- recomputed from cached "
+                                 "fields, never resamples)", width=300,
+                                 title_fg=GOOD, border_fg=GOOD)
+
+        def _ws_readout_slider(var, frm, to, res):
+            lbl = tk.Label(readout_cell, text="", bg=PANEL_BG, fg=FG, font=MONO, anchor="w")
+            lbl.pack(fill="x", padx=4, pady=(4, 0))
+            scale = tk.Scale(readout_cell, from_=frm, to=to, resolution=res,
+                              orient="horizontal", showvalue=1, length=280, bg=PANEL_BG,
+                              fg=FG, troughcolor=BG, highlightthickness=0, bd=0,
+                              variable=var, command=self._ws_on_readout_change)
+            scale.pack(padx=4)
+            self.ws_readout_controls.append(scale)
+            return lbl
+
+        self.ws_sea_label = _ws_readout_slider(self.ws_sea_var, -1.0, 1.0, 0.01)
+        self.ws_mtn_label = _ws_readout_slider(self.ws_mtn_var, -1.0, 1.0, 0.01)
+        self.ws_relief_label = _ws_readout_slider(self.ws_relief_var, 0.0, 2.0, 0.05)
+
+        self.ws_cost_label = tk.Label(readout_cell, text="", bg=PANEL_BG, fg=FG,
+                                        font=MONO, anchor="w")
+        self.ws_cost_label.pack(fill="x", padx=4, pady=(6, 0))
+        cost_row = tk.Frame(readout_cell, bg=PANEL_BG)
+        cost_row.pack(fill="x", padx=4)
+        for key in world_studio.COST_TABLES:
+            rb = tk.Radiobutton(cost_row, text=key, value=key, variable=self.ws_cost_var,
+                                 command=self._ws_on_readout_change, bg=PANEL_BG, fg=FG,
+                                 selectcolor=BORDER, activebackground=PANEL_BG,
+                                 activeforeground=FG, font=MONO, anchor="w",
+                                 highlightthickness=0)
+            rb.pack(side="left")
+            self.ws_readout_controls.append(rb)
 
         # Layout-fix (2026-09): `bottom` used to pack every button, the
         # speed control, AND the footer disclosure into ONE side="left" row
@@ -3719,6 +3958,17 @@ class LatticeApp(tk.Tk):
             self.regenerate_status.config(
                 text=f"regenerate failed: {msg['message']}", fg=BAD)
             self._log(f"[{msg['band']}] regenerate failed: {msg['message']}")
+            return
+
+        # Task 5: World Studio's Generate result -- see _ws_on_generate. Same
+        # dedicated-kind-then-return pattern as band_regenerated/_error above:
+        # this message carries no `raw`/`draw_idx` and must never reach the
+        # base-sampler bookkeeping below.
+        if kind == "world_generated":
+            self._on_world_generated()
+            return
+        if kind == "world_generate_error":
+            self._on_world_generate_error(msg["message"])
             return
 
         self.total_draws += 1
@@ -4529,6 +4779,181 @@ class LatticeApp(tk.Tk):
                 n_world_spins=len(self.receipt.world_idx),
                 spins_per_cell=self.spins_per_cell, grid_w=W)
         raise KeyError(key)
+
+    # -- Task 5: World Studio tab -----------------------------------------
+    # Every method below only reads/writes self.ws_studio (a world.studio.
+    # Studio) and Tk widgets -- no sampling math, no readout math, no file
+    # format. That all lives in demo/world/studio.py, demo/world/run_log.py
+    # and demo/world/export.py, per the brief's Global Constraint ("No
+    # generator logic goes in lattice_app.py").
+
+    def _ws_set_sampled_controls_state(self, state: str):
+        for w in self.ws_sampled_controls:
+            w.config(state=state)
+
+    def _ws_set_readout_controls_state(self, state: str):
+        for w in self.ws_readout_controls:
+            w.config(state=state)
+
+    def _ws_refresh_labels(self):
+        """Redraw every control's name in the currently selected vocabulary
+        (world_studio.label). Called once at startup and every time the
+        science/programmer toggle changes -- values are untouched, only the
+        NAMES beside them change."""
+        vocab = self.ws_vocab.get()
+        L = world_studio.label
+        self.ws_seed_label.config(text=f"{L('seed', vocab)}")
+        self.ws_beta_label.config(text=f"{L('beta_j', vocab)}")
+        self.ws_size_label.config(text=f"{L('size', vocab)}")
+        self.ws_sea_label.config(text=f"{L('sea_level', vocab)}")
+        self.ws_mtn_label.config(text=f"{L('mountain_line', vocab)}")
+        self.ws_relief_label.config(text=f"{L('relief', vocab)}")
+        self.ws_cost_label.config(text=f"{L('cost_table', vocab)}")
+        self._ws_refresh_reported()
+
+    def _ws_refresh_reported(self):
+        """The REPORTED group's own text -- warmup (always known, it is
+        Studio's current Sampled even before the first Generate) and, once a
+        world exists, each field's grid size and this Studio's own timings
+        (never recomputed here; read straight from studio.timings, same rule
+        FRONTIER follows for demo/frontier.py's numbers)."""
+        vocab = self.ws_vocab.get()
+        s = self.ws_studio.sampled
+        self.ws_warmup_label.config(
+            text=f"{world_studio.label('warmup', vocab)}: {s.warmup}  (fixed -- "
+                 f"measured to make no difference to structure; see Sampled.warmup)")
+        if not self.ws_has_world:
+            self.ws_fields_label.config(text="(no world sampled yet -- click Generate)")
+            self.ws_timings_label.config(text="")
+            return
+        w = self.ws_studio.world
+        timings = self.ws_studio.timings
+        lines = [f"{name}: {arr.shape[0]}x{arr.shape[1]} cells (~{timings.get(name, 0.0):.2f}s)"
+                 for name, arr in w.fields.items()]
+        self.ws_fields_label.config(text="\n".join(lines))
+        self.ws_timings_label.config(
+            text=f"total sampling time: {timings.get('total', 0.0):.2f}s  (per-field "
+                 f"times above are APPORTIONED by cell count, not measured "
+                 f"individually -- see world.run_log's own README text)")
+
+    def _ws_on_beta_change(self, value):
+        """beta*J moved. Only updates the value readout and the band-track
+        marker -- beta*J is SAMPLED, so it takes effect only on the next
+        Generate, never here."""
+        v = float(value)
+        in_band = world_studio.BAND[0] <= v <= world_studio.BAND[1]
+        self.ws_beta_value_label.config(
+            text=f"{v:.2f}" + ("  (in measured band)" if in_band else
+                                "  (outside measured band)"),
+            fg=GOOD if in_band else WARN)
+        frac = (v - WS_BETA_MIN) / (WS_BETA_MAX - WS_BETA_MIN)
+        x = max(0.0, min(1.0, frac)) * WS_BETA_TRACK_W
+        self.ws_beta_track.coords(self.ws_beta_marker_id, x, 0, x, WS_BETA_TRACK_H)
+
+    def _ws_on_readout_change(self, *_args):
+        """Any of the four readout controls moved. Ignored before the first
+        Generate: Studio.set_readout/.view() need a cached world that does
+        not exist yet (Studio.world raises RuntimeError), and the Readout
+        controls are kept disabled until then anyway -- this guard is the
+        second line of defence against a stray queued event."""
+        if not self.ws_has_world:
+            return
+        r = world_studio.Readout(
+            sea_level=float(self.ws_sea_var.get()),
+            mountain_line=float(self.ws_mtn_var.get()),
+            relief=float(self.ws_relief_var.get()),
+            cost_table=self.ws_cost_var.get())
+        self.ws_studio.set_readout(r)
+        self._ws_redraw()
+
+    def _ws_redraw(self):
+        """Recompute nothing -- studio.view() already did (Studio.generate /
+        Studio.set_readout both return it, and this re-reads the same view()
+        rather than trust a stale caller-supplied one). Renders view.terrain
+        through world.export.PALETTE exactly like the app's other image
+        panels render a decoded grid through their own palette (see
+        render_world_image / render_band_image above): index the palette by
+        the terrain grid, wrap the RGB array in a PIL Image, blit it."""
+        view = self.ws_studio.view()
+        pal = np.array(world_export.PALETTE, dtype=np.uint8)
+        img = Image.fromarray(pal[view.terrain], "RGB")
+        # NEAREST, not LANCZOS (contrast with _update_world): this is a
+        # categorical terrain-index grid, not a continuous height field --
+        # smoothing it would blur real band boundaries into fake gradients.
+        disp = img.resize((WS_DISPLAY_PX, WS_DISPLAY_PX), Image.NEAREST)
+        self.ws_photo = ImageTk.PhotoImage(disp)
+        self.ws_canvas.itemconfig(self.ws_image_item, image=self.ws_photo)
+        self.ws_canvas.itemconfig(self.ws_placeholder_id, state="hidden")
+        self.ws_bounds_label.config(
+            text="resolved band bounds: " + ", ".join(f"{b:.3f}" for b in view.bounds))
+        self._ws_refresh_reported()
+
+    def _ws_on_generate(self):
+        """Sample a fresh world -- the ~3.3-5.2s path. Runs studio.generate on
+        a background thread (same responsive-UI pattern every other sampling
+        call in this app uses, e.g. _regenerate_band_async above) and posts
+        exactly one message back through the existing queue when done. Every
+        Sampled AND Readout control is disabled for the duration: Studio is
+        not declared thread-safe, and a readout slider dragged mid-sample
+        would call set_readout/view() while studio.generate is still mutating
+        this same Studio's cached fields on the worker thread."""
+        seed = int(self.ws_seed_var.get())
+        beta_j = float(self.ws_beta_var.get())
+        size = int(self.ws_size_var.get())
+        warmup = world_studio.Sampled().warmup  # fixed -- see CONTROLS['warmup']; never a control
+        sampled = world_studio.Sampled(seed=seed, beta_j=beta_j, size=size,
+                                        mode="bilinear", warmup=warmup)
+        self._ws_set_sampled_controls_state("disabled")
+        self._ws_set_readout_controls_state("disabled")
+        self.ws_save_btn.config(state="disabled")
+        self.ws_generate_status.config(
+            text=f"sampling {size}x{size} world on thrml (measured ~3.3s at "
+                 f"64x64, ~5.2s at 128x128 on this machine)...", fg=DIM)
+
+        def work():
+            try:
+                self.ws_studio.generate(sampled)
+            except Exception as exc:  # never crash the app over one Generate click
+                self.in_q.put({"kind": "world_generate_error", "message": str(exc)})
+                return
+            self.in_q.put({"kind": "world_generated"})
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_world_generated(self):
+        self.ws_has_world = True
+        self._ws_set_sampled_controls_state("normal")
+        self._ws_set_readout_controls_state("normal")
+        self.ws_save_btn.config(state="normal")
+        s = self.ws_studio.sampled
+        total = self.ws_studio.timings.get("total", 0.0)
+        self.ws_generate_status.config(
+            text=f"generated in {total:.2f}s  (size={s.size}, seed={s.seed}, "
+                 f"beta*J={s.beta_j:.2f})", fg=GOOD)
+        self._ws_redraw()
+
+    def _on_world_generate_error(self, message: str):
+        self._ws_set_sampled_controls_state("normal")
+        if self.ws_has_world:  # a later failed Generate must not lock out a world already on screen
+            self._ws_set_readout_controls_state("normal")
+        self.ws_generate_status.config(text=f"generate failed: {message}", fg=BAD)
+        self._log(f"[world studio] generate failed: {message}")
+
+    def _ws_on_save_run(self):
+        """Wire Save run to world.run_log.save_run verbatim -- this app
+        invents no second serialisation of a Studio."""
+        if not self.ws_has_world:
+            return
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
+        out_dir = WORLDS_DIR / "world_studio" / f"run_{stamp}"
+        try:
+            paths = world_run_log.save_run(self.ws_studio, out_dir)
+        except Exception as exc:  # never crash the app over a save click
+            self.ws_save_status.config(text=f"save failed: {exc}", fg=BAD)
+            self._log(f"[world studio] save failed: {exc}")
+            return
+        self.ws_save_status.config(text=f"saved {len(paths)} files to {out_dir}", fg=GOOD)
+        self._log(f"[world studio] saved run to {out_dir}")
 
     # -- Task 7: per-layer regenerate ------------------------------------
     def _on_regenerate_layer(self):
