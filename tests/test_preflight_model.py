@@ -52,6 +52,8 @@ def test_loads_a_spec_and_agrees_with_the_compiler(tmp_path):
     assert mine.edges == theirs.edges
     assert np.array_equal(mine.weights, theirs.weights)
     assert np.array_equal(mine.biases, theirs.biases)
+    assert float(mine.beta) == float(theirs.beta)
+    assert float(mine.offset) == float(theirs.offset)
 
 
 def test_exactly_one_input_is_required(tmp_path):
@@ -84,3 +86,19 @@ def test_a_duplicate_edge_is_refused(tmp_path):
     with pytest.raises(ValueError, match="duplicate"):
         load_model(edges=_write_edges(
             tmp_path, edges=[[0, 1, 0.5], [1, 0, 0.5]]))
+
+
+@pytest.mark.parametrize("bad", [
+    [[0, 1]],                        # two elements: no weight
+    [{"i": 0, "j": 1, "w": 0.5}],    # dict-shaped rather than a triple
+    [[0, 1, "heavy"]],               # non-numeric weight
+])
+def test_a_malformed_edge_entry_names_the_file_and_the_schema(tmp_path, bad):
+    """A user who mis-shapes one edge must get a message naming the file, the
+    offending entry and the schema -- not a raw IndexError or KeyError escaping
+    the parser's internals, which says nothing about what to fix.
+
+    Every other parse failure in this module already does that; the per-item
+    loop was the one path that did not."""
+    with pytest.raises(ValueError, match="malformed"):
+        load_model(edges=_write_edges(tmp_path, edges=bad))

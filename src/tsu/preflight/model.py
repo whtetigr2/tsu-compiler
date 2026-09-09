@@ -40,8 +40,14 @@ def _from_edges(path: Path) -> IsingModel:
             f"truncate, which would change the model you asked about")
 
     edges, weights, seen = [], [], set()
-    for item in raw:
-        i, j, w = int(item[0]), int(item[1]), float(item[2])
+    for pos, item in enumerate(raw):
+        try:
+            i, j, w = int(item[0]), int(item[1]), float(item[2])
+        except (IndexError, KeyError, TypeError, ValueError) as exc:
+            raise ValueError(
+                f"{path}: edge {pos} is malformed ({item!r}) -- expected "
+                f"[i, j, w] and the file must match {EDGE_SCHEMA} ({exc})"
+            ) from exc
         if not (0 <= i < n and 0 <= j < n):
             raise ValueError(f"{path}: edge ({i},{j}) has a node index outside "
                              f"0..{n - 1}")
@@ -64,7 +70,8 @@ def _from_edges(path: Path) -> IsingModel:
         beta=beta, offset=0.0)
 
 
-def load_model(spec=None, edges=None) -> IsingModel:
+def load_model(spec: str | Path | None = None,
+               edges: str | Path | None = None) -> IsingModel:
     """Load from a workload spec OR an edge-list JSON, never both.
 
     The spec path runs the same `encode` -> `lower` the rest of the toolchain
