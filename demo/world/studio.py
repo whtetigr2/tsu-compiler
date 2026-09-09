@@ -30,15 +30,25 @@ from world.spline import (LEVELS, TERRAINS, shifted_bounds, height_array,
                           terrain_array)
 
 COST_TABLES: dict[str, tuple[int, ...]] = {
-    "shipped": (4, 3, 1, 1, 2, 3),
+    "shipped": tuple(t.cost for t in TERRAINS),
     "steep": (8, 4, 1, 2, 4, 8),
     "wide": (12, 5, 1, 2, 5, 12),
 }
-"""Measured against the shuffled-null permutation test: the shipped table put
-57% of cells at the cheapest cost and gave a real-vs-shuffled detour gap of
-+0.0483; `steep` gives +0.0999 and `wide` +0.1192, both at a 22% cheapest-cell
-share. `wide` routes around water entirely, which is a game decision rather
-than a physics one -- hence a choice, not a constant."""
+"""Movement cost per terrain, indexed by terrain index.
+
+`shipped` is TERRAINS' own costs and is the only entry whose effect the in-repo
+audit reproduces: `audit/routing_shuffled.py` measures `w.cost`, which is always
+built from TERRAINS, and reports a real-vs-shuffled detour gap of +0.0483.
+
+`steep` and `wide` come from an EXPLORATORY SWEEP that was run as a throwaway
+probe and never committed, so no receipt for them exists here. That sweep found
+larger gaps and a lower cheapest-cell share for both, which is why they are
+offered -- but no audit script currently accepts a cost table, so those figures
+are NOT reproduced by anything in this repository and should not be cited as if
+they were. Parameterising `routing_shuffled.py` would close that gap.
+
+`wide` also routes around water entirely rather than crossing it, which is a
+game-feel decision rather than a physics one."""
 
 
 BAND: tuple[float, float] = (0.38, 0.45)

@@ -8,7 +8,7 @@ import pytest
 sys.path.insert(0, "demo")
 sys.path.insert(0, "src")
 
-from world.studio import Studio, Sampled, Readout
+from world.studio import Studio, Sampled, Readout, COST_TABLES
 from world.run_log import save_run, load_run
 
 
@@ -53,11 +53,19 @@ def test_provenance_records_the_jax_backend(tmp_path, studio):
 def test_studio_json_records_the_resolved_tables_not_just_the_slider_names(
         tmp_path, studio):
     """The slider values alone are not enough to check the work: the reader
-    needs the band bounds and costs those sliders actually resolved to."""
+    needs the band bounds and costs those sliders actually RESOLVED to.
+
+    The values are compared, not their lengths. An earlier version asserted
+    len == 5 and len == 6 -- but the unshifted DEFAULT_BOUNDS is also length 5
+    and the wrong cost table is also length 6, so a save_run writing the
+    defaults passed it verbatim."""
+    from world.spline import shifted_bounds
     save_run(studio, tmp_path)
     d = json.loads((tmp_path / "studio.json").read_text(encoding="utf-8"))
-    assert len(d["resolved_bounds"]) == 5
-    assert len(d["resolved_costs"]) == 6
+    r = studio.readout
+    assert d["resolved_bounds"] == [
+        float(b) for b in shifted_bounds(r.sea_level, r.mountain_line)]
+    assert d["resolved_costs"] == list(COST_TABLES[r.cost_table])
     assert d["readout"]["cost_table"] == "wide"
 
 

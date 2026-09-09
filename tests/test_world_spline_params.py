@@ -51,8 +51,8 @@ def test_relief_scales_the_amplitude_not_the_base():
 
 def test_relief_of_one_is_the_shipped_behaviour():
     c = np.array([0.0, 0.5, 1.0]); e = np.array([0.2, 0.5, 0.9]); pv = np.array([1.0, 0.3, 0.0])
-    assert np.allclose(height_array(c, e, pv, relief=1.0),
-                       [height(a, b, d) for a, b, d in zip(c, e, pv)], atol=1e-12)
+    assert np.array_equal(height_array(c, e, pv, relief=1.0),
+                       [height(a, b, d) for a, b, d in zip(c, e, pv)])
 
 
 def test_sea_level_raises_the_water_bounds():

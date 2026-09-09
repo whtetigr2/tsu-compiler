@@ -34,3 +34,12 @@ def test_an_unknown_vocabulary_is_refused():
 def test_an_unknown_control_is_refused():
     with pytest.raises(KeyError):
         label("gravity", "science")
+
+
+def test_controls_covers_exactly_the_keys_the_app_asks_for():
+    """Both other tests iterate CONTROLS, so neither can notice a key the app
+    requires but CONTROLS lacks -- and label() raises KeyError from the layout
+    builder, making that a startup crash with a green suite."""
+    assert set(CONTROLS) == {
+        "beta_j", "seed", "size", "sea_level", "mountain_line", "relief",
+        "cost_table", "warmup"}

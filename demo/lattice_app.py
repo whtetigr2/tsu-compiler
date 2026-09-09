@@ -4897,7 +4897,11 @@ class LatticeApp(tk.Tk):
         not declared thread-safe, and a readout slider dragged mid-sample
         would call set_readout/view() while studio.generate is still mutating
         this same Studio's cached fields on the worker thread."""
-        seed = int(self.ws_seed_var.get())
+        try:
+            seed = int(self.ws_seed_var.get())
+        except (tk.TclError, ValueError):
+            self.ws_generate_status.config(text="seed must be a whole number", fg=WARN)
+            return
         beta_j = float(self.ws_beta_var.get())
         size = int(self.ws_size_var.get())
         warmup = world_studio.Sampled().warmup  # fixed -- see CONTROLS['warmup']; never a control
@@ -4936,6 +4940,7 @@ class LatticeApp(tk.Tk):
         self._ws_set_sampled_controls_state("normal")
         if self.ws_has_world:  # a later failed Generate must not lock out a world already on screen
             self._ws_set_readout_controls_state("normal")
+            self.ws_save_btn.config(state="normal")
         self.ws_generate_status.config(text=f"generate failed: {message}", fg=BAD)
         self._log(f"[world studio] generate failed: {message}")
 
@@ -5106,12 +5111,21 @@ class LatticeApp(tk.Tk):
         old = self.worker
         old.stop_evt.set()
         # drain whatever is left in the queue so stale draws from the old
-        # worker never get attributed to the new run
+        # worker never get attributed to the new run -- but World Studio posts
+        # its own completion into this same queue, and losing one BRICKS that
+        # tab: the sample succeeded, Studio holds the world, and the main thread
+        # never learns, so every control stays disabled with no recovery short
+        # of a restart. Filter and requeue rather than discard.
+        kept = []
         try:
             while True:
-                self.in_q.get_nowait()
+                msg = self.in_q.get_nowait()
+                if isinstance(msg, dict) and msg.get("kind") == "world_generated":
+                    kept.append(msg)
         except queue.Empty:
             pass
+        for msg in kept:
+            self.in_q.put_nowait(msg)
 
     def _start_worker(self, seed_base: int):
         clamp = self.clamp.as_dict() or None

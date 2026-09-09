@@ -178,3 +178,11 @@ def test_generate_handles_a_size_other_than_64():
     v = s.generate(Sampled(seed=13, size=128, warmup=200))
     assert v.terrain.shape == (128, 128)
     assert v.cost.min() >= 1
+    assert np.array_equal(v.terrain, s.world.terrain)
+
+
+def test_the_shipped_cost_table_tracks_TERRAINS_rather_than_copying_it():
+    """A hand-copied literal would let an edit to any Terrain.cost silently make
+    the option named "shipped" stop being the shipped table, with a green suite.
+    export.py solved the same hazard structurally for the palette."""
+    assert COST_TABLES["shipped"] == tuple(t.cost for t in TERRAINS)
