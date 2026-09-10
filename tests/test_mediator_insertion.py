@@ -89,6 +89,39 @@ def test_mediator_couplings_stay_within_the_target_cap():
         assert abs(w) < 6.0
 
 
+def test_mediator_coupling_is_the_one_function_insert_mediators_itself_calls():
+    """WHAT THIS PINS (A-1 refactor, external review 2026-09-09): the gadget
+    formula A = arccosh(exp(2*beta*|J|))/(2*beta) now lives in exactly ONE
+    place -- `tsu.passes.route.mediator_coupling` -- and `insert_mediators`
+    calls it rather than re-deriving the expression inline a second time.
+    `tsu.preflight.check.preflight` also calls this SAME function (see
+    tests/test_preflight_check.py) to predict a non-bipartite model's
+    post-mediation coupling before ever placing anything -- this project
+    has been bitten before by a constant re-derived in a second place and
+    quietly drifting from the first (see this module's own PROVENANCE
+    comments elsewhere in the codebase), so this pins there being one
+    function, not two independent expressions of the same math.
+    HOW IT FAILS: if `mediator_coupling` is removed or renamed, the import
+    below raises ImportError. If `insert_mediators` reverts to computing
+    `math.acosh(math.exp(2*beta*absJ))/(2*beta)` inline instead of calling
+    `mediator_coupling`, this test can still pass by coincidence (the two
+    expressions are mathematically identical) -- so the point of this test
+    is the IMPORT succeeding at all combined with bit-for-bit equality
+    (`==`, not `pytest.approx`) against a value computed by calling
+    `mediator_coupling` directly on the same inputs the fixture also feeds
+    `insert_mediators`, which a future accidental divergence in either
+    implementation would break."""
+    from tsu.passes.route import mediator_coupling
+    orig = _triangle(beta=4.0, J_value=-1.25)
+    med, rep = insert_mediators(orig, analyse(orig))
+    mediator_weights = [abs(w) for (u, v), w in zip(med.edges, med.weights)
+                        if u in med.mediator_nodes or v in med.mediator_nodes]
+    assert mediator_weights, "the triangle must have needed at least one mediator"
+    expected = mediator_coupling(1.25, 4.0)
+    for w in mediator_weights:
+        assert w == expected
+
+
 @pytest.mark.parametrize("beta", [1.0, 4.0, 8.0])
 @pytest.mark.parametrize("absJ", [0.5, 1.25, 2.5, 5.0])
 def test_coupling_formula_recovers_J_across_beta_and_J(beta, absJ):

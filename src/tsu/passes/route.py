@@ -144,6 +144,27 @@ def _greedy_local_search(n: int, adj: list[list[int]], colour: list[int]) -> Non
                     q.append(v)
 
 
+def mediator_coupling(absJ: float, beta: float) -> float:
+    """A = arccosh(exp(2*beta*|J|)) / (2*beta) -- see this module's own
+    docstring for the derivation. This is the SOLE implementation of that
+    formula: `insert_mediators` below calls it (rather than re-deriving the
+    expression inline), and so does `tsu.preflight.check.preflight`, which
+    predicts a non-bipartite model's post-mediation coupling from its own
+    beta and |J|max WITHOUT ever running placement (A-1, external review
+    2026-09-09) -- this project has been bitten before by a constant
+    re-derived in a second place and quietly drifting from the first, so
+    this closed form now lives in exactly one place, not two.
+
+    No finiteness guards here: `insert_mediators` already checks `beta` once
+    (for the whole model) and `absJ` per-edge, at the exact points of use,
+    with error messages naming the specific model/edge involved -- richer
+    context than this small, general-purpose function could give on its
+    own. A caller that skips those guards (as `preflight` must, since it is
+    predicting ahead of any per-edge iteration) is responsible for its own
+    finiteness check; see `preflight`'s own call site."""
+    return math.acosh(math.exp(2.0 * beta * absJ)) / (2.0 * beta)
+
+
 PARTITION_METHOD = "bfs_depth_parity_with_greedy_local_search"
 
 
@@ -222,7 +243,7 @@ def insert_mediators(ising: IsingModel, report: GraphReport
                 f"(A = arccosh(exp(2*beta*|J|))/(2*beta)) would silently "
                 f"produce a NaN/inf mediator coupling into a model that "
                 f"would still look successfully compiled")
-        A = math.acosh(math.exp(2.0 * beta * absJ)) / (2.0 * beta)
+        A = mediator_coupling(absJ, beta)
         m = next_index
         next_index += 1
         new_names.append(f"__mediator_{m - n}")
