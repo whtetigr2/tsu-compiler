@@ -152,6 +152,40 @@ def test_sample_chains_flattened_equals_sample_bit_for_bit():
     assert np.array_equal(chains.reshape(-1, chains.shape[-1]), flat_expected)
 
 
+def test_every_chain_gets_its_own_random_key():
+    """The chains must be INDEPENDENT runs, not n copies of one run.
+
+    If the per-chain keys were ever shared -- `jnp.repeat(k, n)` where
+    `jax.random.split(k, n)` belongs, or a vmapped lambda closing over one key
+    -- every chain would come back bit-identical and NOTHING else in this suite
+    would notice. The shape tests, the sample/sample_chains reshape agreement,
+    the warmup guard and the distribution checks would all still pass, because
+    one correct chain duplicated n times has both the right shape and the right
+    marginal distribution.
+
+    What it would silently destroy is everything downstream that treats chains
+    as independent: Gelman-Rubin R-hat would read sqrt((n-1)/n) forever and
+    never flag a divergence no matter how badly the chains disagreed, and ESS
+    would be overestimated by a factor of n_chains, making every error bar too
+    small by sqrt(n_chains). Both are the numbers tsu.ess and
+    tsu.preflight.diagnostics exist to make honest.
+
+    Each trajectory here is 50 samples x 2 spins = 100 bits, so two genuinely
+    independent chains colliding is negligible; measured, this returns 8 of 8
+    distinct (and 16 of 16 at n_chains=16).
+    """
+    prog, _ = two_spin_program()
+    n_chains, n_samples = 8, 50
+    chains = np.asarray(sample_chains(prog, n_chains=n_chains,
+                                      n_samples=n_samples, n_warmup=50,
+                                      steps_per_sample=2, seed=0))
+    distinct = {c.tobytes() for c in chains}
+    assert len(distinct) == n_chains, (
+        f"only {len(distinct)} distinct trajectories across {n_chains} chains "
+        f"-- identical chains mean the per-chain keys are not being split, and "
+        f"every R-hat and ESS computed from them is meaningless")
+
+
 def test_sample_chains_refuses_zero_warmup_same_as_sample():
     prog, _ = two_spin_program()
     with pytest.raises(AssertionError, match="n_warmup"):
