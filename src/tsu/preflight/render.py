@@ -123,7 +123,11 @@ def write_preflight(report, out_dir) -> list[Path]:
              f"max degree {report.max_degree}",
              f"- bipartite: **{report.bipartite}** — embedding path "
              f"`{report.embedding}`, {report.mediators} mediators",
-             f"- placement took {report.place_seconds:.3f}s\n",
+             # F5 (branch review): `.3g`, not `.3f` -- a real, measured
+             # place_seconds below 5e-4 (this project's own live value:
+             # 7.128715515136719e-05) rounds to the literal "0.000" under
+             # `.3f`, indistinguishable from an instantaneous placement.
+             f"- placement took {report.place_seconds:.3g}s\n",
              "| gate | value | limit | % of limit | status | note |",
              "|---|---|---|---|---|---|"]
     for g in report.gates:
@@ -303,10 +307,18 @@ def write_regime(rows, band, cross, out_dir, *, onsager,
             flags.append("**provisional**")
         if r.ess_unavailable:
             flags.append("no error bar")
+        # F5 (branch review): `.3g`, not `.3f`, for `error` and `tau` -- a
+        # real, measured abs_m_err below 5e-4 (this project's own live
+        # value: 0.0004600829406846147) rounded to the literal "0.000"
+        # under `.3f`, indistinguishable from `_fmt_opt`'s None case even
+        # though `_fmt_opt` was built specifically so a None never renders
+        # that way (see its own docstring). `n_eff` stays `.0f` -- an
+        # effective sample COUNT rounds to a whole number sensibly and was
+        # never the field that collided with zero.
         lines.append(
             f"| {r.beta_j:g} | {r.size} | {r.abs_m:.3f} | "
-            f"{_fmt_opt(r.abs_m_err, r.ess_reason, '.3f')} | {r.chi:.3g} | "
-            f"{r.binder:.3f} | {_fmt_opt(r.tau, r.ess_reason, '.2f')} | "
+            f"{_fmt_opt(r.abs_m_err, r.ess_reason, '.3g')} | {r.chi:.3g} | "
+            f"{r.binder:.3f} | {_fmt_opt(r.tau, r.ess_reason, '.3g')} | "
             f"{_fmt_opt(r.n_eff, r.ess_reason, '.0f')} | {r.r_hat:.3f} | "
             f"{r.n_samples_used:,} | {', '.join(flags)} |")
     lines.append("\n`tau` here is tau_A = 1 + 2 * sum_k rho_k (Sokal/emcee "

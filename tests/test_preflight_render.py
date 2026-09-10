@@ -13,7 +13,7 @@ import pytest
 sys.path.insert(0, "src")
 
 from tsu.passes.lower import IsingModel
-from tsu.preflight.check import preflight
+from tsu.preflight.check import Gate, PreflightReport, preflight
 from tsu.preflight.diagnostics import RHAT_THRESHOLD
 from tsu.preflight.sweep import RegimeRow
 from tsu.preflight.render import provenance, write_preflight, write_regime
@@ -180,6 +180,40 @@ def test_a_placement_failure_shows_its_remediations_in_the_report(tmp_path):
     assert any(r.lower() in txt for r in
               [s.split(":", 1)[-1].strip().lower() for s in rep.remediations]) \
         or any(s.lower() in txt for s in rep.remediations)
+
+
+def _minimal_report(**overrides) -> PreflightReport:
+    """A PreflightReport with placeholder-but-valid values, matching this
+    file's own `_row()`/`_rows()` fixtures -- used where a test needs to
+    control one field (here, `place_seconds`) without running a real
+    `preflight()` compile."""
+    gates = (Gate(name="max_degree", value=2.0, limit=16.0, status="ok",
+                  note="test"),)
+    base = dict(n_spins=4, n_couplings=3, max_degree=2, bipartite=True,
+               embedding="grid_embed", mediators=0,
+               place_seconds=0.001, placed=True, place_error=None,
+               remediations=(), gates=gates, verdict="ok")
+    base.update(overrides)
+    return PreflightReport(**base)
+
+
+def test_a_real_small_place_seconds_does_not_render_as_0_000s(tmp_path):
+    """WHAT THIS PINS (F5, branch review): `place_seconds` (a REAL,
+    measured wall-clock duration) must not collide with the reading of an
+    exact zero when it is small -- report.md's 'placement took 0.000s'
+    line for a MEASURED 7.1e-05s duration is indistinguishable from an
+    instantaneous (or unmeasured) placement, the same category of bug F5
+    found for `error`.
+    HOW IT FAILS: formatting place_seconds with `.3f` instead of `.3g`/
+    `.2e` prints '0.000s' for any real duration under 5e-4 seconds.
+    PROVENANCE: branch review F5's exact live value, place_seconds =
+    7.128715515136719e-05 ('placement took 0.000s' in the shipped
+    report.md)."""
+    rep = _minimal_report(place_seconds=7.128715515136719e-05)
+    write_preflight(rep, tmp_path)
+    txt = (tmp_path / "report.md").read_text(encoding="utf-8")
+    assert "0.000s" not in txt, \
+        "a real 7.1e-05s placement duration must not render as 0.000s"
 
 
 # --------------------------------------------------------------------------
@@ -351,26 +385,44 @@ def test_a_row_with_no_reliable_ess_prints_its_reason_not_a_number(tmp_path):
     """WHAT THIS PINS: a row whose abs_m_err/tau/n_eff are None (tsu.ess
     refused an estimate) must render its ess_reason text in report.md, and
     must keep None (JSON null) in regime.json -- never 0.0, never a blank
-    table cell.
+    table cell. ALSO (F5, branch review, strengthening this test): a row
+    with a REAL, MEASURED, but small error bar (4.6e-4, the exact live
+    value from the review's own reproduction) must not collide with the
+    None case by ALSO rendering as the literal '0.000' -- the two must
+    stay visually distinguishable, which was the whole point of
+    `_fmt_opt` existing in the first place (built so a None never renders
+    that way) and which `.3f` formatting defeated for any real error
+    bar below 5e-4. This test's ORIGINAL fixture (errors 0.02/0.30) was
+    far too large to ever trigger `.3f`'s rounding-to-zero -- it passed
+    the `"0.000" not in txt` assertion even under the shipped F5 bug,
+    which is exactly the branch review's own critique of it.
     HOW IT FAILS: the brief's own sample write_regime body formats the table
     row unconditionally as f"{r.abs_m_err:.3f}" / f"{r.tau:.2f}" /
-    f"{r.n_eff:.0f}" -- calling that on this fixture raises
+    f"{r.n_eff:.0f}" -- calling that on the None-error row raises
     `TypeError: unsupported format string passed to NoneType.__format__`
     (confirmed by hand: `f'{None:.3f}'` raises exactly this in Python 3.14).
     A defensive fix that substitutes `r.abs_m_err or 0.0` would instead print
     '0.000', which reads as an exact zero measurement -- the precise
     violation of this task's rule 1 ('a zero error bar reads as an exact
-    measurement, which is the opposite of what happened').
+    measurement, which is the opposite of what happened'). And separately,
+    formatting a REAL small error with `.3f` (rather than `.3g`/`.2e`)
+    prints '0.000' too, for the SAME reason with a different cause --
+    F5's own live defect, added to this test rather than only a new one
+    because both are the identical user-facing symptom.
     PROVENANCE: RegimeRow's own docstring in sweep.py -- 'abs_m_err, tau and
     n_eff are None together... They are optional rather than zero-filled on
-    purpose.'"""
+    purpose.' The small-error value (0.0004600829406846147) and its
+    beta_j/size/abs_m (0.05/64/0.109) are the branch review's F5 live
+    reproduction verbatim (regime.json's real abs_m_err for a report.md
+    row that printed 'error = 0.000')."""
     reason = ("unavailable: N/tau=812 (N=6400, tau~=7.88) is below the "
               "reliability threshold 5000 the AR(1) validation established "
               "(largest attempt: n_samples=32000, budget max_samples=32000)")
     unavailable_row = _row(0.44, 16, 0.50, None, 0.30, 1.0, tau=None,
                           n_eff=None, ess_reason=reason, ess_unavailable=True,
                           n_samples_used=32_000)
-    rows = [_row(0.2, 16, 0.05, 0.02, 0.02, 1.0), unavailable_row]
+    small_err_row = _row(0.05, 64, 0.109, 0.0004600829406846147, 0.013, 1.0)
+    rows = [_row(0.2, 16, 0.05, 0.02, 0.02, 1.0), unavailable_row, small_err_row]
 
     write_regime(rows, None, None, tmp_path, onsager=None)
 
@@ -382,8 +434,29 @@ def test_a_row_with_no_reliable_ess_prints_its_reason_not_a_number(tmp_path):
 
     txt = (tmp_path / "report.md").read_text(encoding="utf-8")
     assert "N/tau=812" in txt or "below the reliability threshold" in txt
-    assert "0.000" not in txt, \
-        "a None error bar must never render as the literal zero 0.000"
+
+    def _cells(line: str) -> list[str]:
+        return [c.strip() for c in line.strip().strip("|").split("|")]
+
+    # Checked CELL BY CELL, not as a raw substring of the whole line: the
+    # real small error bar correctly renders as "0.00046" below, which
+    # (harmlessly) CONTAINS the substring "0.000" as its own leading
+    # digits -- a whole-text substring check would flag that as a false
+    # positive. What must never appear is a table CELL that is the bare
+    # literal "0.000" (no None case AND no real small value should ever
+    # collapse to exactly that).
+    for ln in txt.splitlines():
+        if ln.startswith("| 0."):
+            assert "0.000" not in _cells(ln), \
+                f"a table cell must never render as the bare literal " \
+                f"0.000 -- neither a None error bar nor a real small " \
+                f"one: {ln!r}"
+
+    small_err_line = next(ln for ln in txt.splitlines()
+                          if ln.startswith("| 0.05 |"))
+    assert "0.00046" in small_err_line, \
+        f"the real small error bar (4.6e-4) must render as an actual " \
+        f"small number, not disappear or collapse to zero: {small_err_line!r}"
 
 
 def test_n_samples_used_is_rendered_so_escalated_rows_are_visible(tmp_path):
