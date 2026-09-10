@@ -2,22 +2,99 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import sys
+from pathlib import Path
+
+import numpy as np
 
 from .passes.analyse import analyse
 from .passes.encode import encode
 from .passes.lower import lower
+from .passes.route import BetaMismatchError, assert_beta_consistent
 from .passes.search import compile_spec
 from .preflight.check import preflight as run_preflight
 from .preflight.model import load_model
-from .preflight.render import write_preflight
+from .preflight.render import write_preflight, write_regime
+from .preflight.sweep import sweep, usable_band
 from .receipt import replay, write_receipt
 from .report import render_explain, render_report
 from .simulate import simulate
 from .spec import load_spec
 from .target import PROFILES
 from .viz import render
+
+
+def sweep_single_model(model, *, beta_min, beta_max, beta_steps, out_dir):
+    """Sweep ONE fixed-size model across beta -- what `regime` actually does.
+
+    `--spec`/`--edges` (via `load_model`) give exactly one fixed-size
+    IsingModel, not the model_fn(size, beta_j) family `sweep()` was written
+    to generate. But beta is a scalar multiplier on the whole energy, so a
+    sweep over it on a FIXED graph is well posed on its own -- a temperature
+    sweep -- and yields <|m|>, chi, the Binder cumulant, tau, N_eff and
+    R-hat against beta, plus the susceptibility peak. What it cannot give is
+    the Binder CROSSING, which genuinely needs two or more sizes; `crossing`
+    is always None here, and the report explains why (see the appended
+    paragraph below -- write_regime's own crossing=None message is generic
+    and would otherwise mislead a reader into thinking the range just
+    didn't happen to bracket a transition).
+
+    Every candidate beta_j is checked against `model`'s OWN (unreplaced)
+    beta via `assert_beta_consistent` before it is ever sampled: a model
+    carrying mediator spins (`model.mediator_nodes`) has temperature-
+    dependent couplings baked in (spec 5.3.5, `route.py`), so resampling it
+    at a beta other than the one those couplings were computed at would
+    silently reproduce the WRONG physical couplings. An unmediated model
+    (`mediator_nodes` empty) has nothing to protect and sweeps freely --
+    `assert_beta_consistent` no-ops for it. Raises `BetaMismatchError`
+    (from the FIRST refused beta_j, before any sampling) when the model is
+    mediated and the swept range does not sit at its own beta throughout.
+    """
+    couplings = np.linspace(beta_min, beta_max, beta_steps).tolist()
+    n_spins = len(model.nodes)
+
+    def model_fn(size, beta_j):
+        # Checked against the ORIGINAL `model`, not the beta-replaced copy
+        # returned below -- checking the copy would always trivially agree
+        # with itself and never catch anything.
+        assert_beta_consistent(model, beta_j)
+        return dataclasses.replace(model, beta=beta_j)
+
+    rows = sweep(model_fn, sizes=[n_spins], couplings=couplings)
+    band = usable_band(rows)
+    # Onsager's Kc applies ONLY to a uniform square lattice in zero field.
+    # `load_model`'s output (spec or edge-list) carries no lattice-topology
+    # metadata -- just nodes/edges/weights/biases -- so that fact cannot be
+    # determined here. Printing it where it might not apply is the exact
+    # months-long mistake this project already made once (see sweep.py's
+    # module docstring); None is the honest answer given what this function
+    # actually has to work with.
+    paths = write_regime(rows, band, None, out_dir, onsager=None)
+
+    # write_regime's own crossing=None message ("the range may not bracket
+    # the transition") is correct for a genuine two-size sweep that simply
+    # never crossed, but MISLEADING here: this sweep has no size family at
+    # all, so the crossing is not unobserved, it is structurally
+    # unavailable from a single model. Append the real reason rather than
+    # let the generic one stand uncorrected -- report.md must say WHY.
+    report_path = Path(out_dir) / "report.md"
+    report_path.write_text(
+        report_path.read_text(encoding="utf-8") +
+        "\n## Why no Binder crossing\n\n"
+        f"This sweep covers a single size ({n_spins} spins) because "
+        "`--spec`/`--edges` load exactly one fixed-size model -- there is "
+        "no size family to sweep. Locating the transition by finite-size "
+        "scaling requires two or more sizes' Binder curves to cross; a "
+        "single `--spec`/`--edges` model cannot provide that, so no "
+        "crossing is computed or inferred here. Everything else above "
+        "(<|m|>, chi, U, tau, N_eff, R-hat, and the susceptibility peak) is "
+        "measured directly from this model's own sweep and is unaffected "
+        "by the missing size family.\n",
+        encoding="utf-8")
+
+    return rows, band, paths
 
 
 def _force_utf8_stdout() -> None:
@@ -79,10 +156,17 @@ def main(argv=None) -> int:
     rg.add_argument("--beta-min", type=float, default=0.05)
     rg.add_argument("--beta-max", type=float, default=0.60)
     rg.add_argument("--beta-steps", type=int, default=10)
-    rg.add_argument("--sizes", type=int, nargs="+", default=[8, 16])
     # "--beta-steps", NOT "--steps": sweep()'s own `steps` parameter means
     # Gibbs steps per sample, a different axis entirely -- one flag meaning
     # two things in this CLI is how a user ends up sweeping the wrong one.
+    # No "--sizes": `--spec`/`--edges` (via load_model()) give exactly ONE
+    # fixed-size model, so there is no family of sizes for this flag to
+    # mean anything over -- `regime` always sweeps beta at that one size
+    # (see sweep_single_model). Dropped rather than accepted-and-ignored or
+    # accepted-and-rejected-by-hand: argparse's own "unrecognized
+    # arguments" error for `--sizes` on this subcommand is already an
+    # honest, correct message (the flag genuinely does not exist here), so
+    # a second hand-written check would just duplicate it.
 
     a = p.parse_args(argv)
 
@@ -157,18 +241,24 @@ def main(argv=None) -> int:
 
     if a.cmd == "regime":
         # --spec/--edges (via load_model) give exactly ONE fixed-size
-        # IsingModel; sweep() needs model_fn(size, beta_j) -> IsingModel, a
-        # GENERATOR across the --sizes this parser accepts. Nothing in this
-        # branch's inputs bridges that gap (task 1-4's load_model has no
-        # size parameter), so this command reports that honestly rather than
-        # silently sweeping only the one size --spec/--edges happened to
-        # describe. It does not call load_model at all: failing that first,
-        # on a user's otherwise-valid spec, would blame the wrong thing.
-        print("  regime: --spec/--edges give one model; a sweep needs a "
-              "family of sizes.\n  Provide a spec whose generator takes a "
-              "size, or import tsu.preflight.sweep.sweep directly with your "
-              "own model_fn.", file=sys.stderr)
-        return 2
+        # IsingModel -- sweep_single_model sweeps beta at that one size
+        # (see its own docstring for why that is well posed, and what it
+        # cannot give: the Binder crossing, which needs a size family).
+        model = load_model(spec=a.spec, edges=a.edges)
+        try:
+            rows, band, paths = sweep_single_model(
+                model, beta_min=a.beta_min, beta_max=a.beta_max,
+                beta_steps=a.beta_steps, out_dir=a.out)
+        except BetaMismatchError as exc:
+            # Refuse cleanly (spec 5.3.5): a mediated model's couplings are
+            # only correct at the beta they were computed at, so this is a
+            # real refusal to report, not a crash to hide.
+            print(f"  regime: refused -- {exc}", file=sys.stderr)
+            return 2
+        for out_path in paths:
+            print(f"  -> {out_path}")
+        print(f"  usable band: {band}")
+        return 0
 
     return 1
 
