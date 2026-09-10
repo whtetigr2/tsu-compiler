@@ -42,7 +42,32 @@ class RegimeRow:
     `abs_m_err`, `tau` and `n_eff` are None together whenever tsu.ess judged the
     run too short to support a trustworthy estimate; `ess_reason` then says why.
     They are optional rather than zero-filled on purpose -- a zero error bar
-    reads as an exact measurement, which is the opposite of what happened."""
+    reads as an exact measurement, which is the opposite of what happened.
+
+    `ess_unavailable` and `provisional` are DELIBERATELY SEPARATE fields, not
+    one merged flag, because they mean different things:
+      - `provisional` (R-hat > RHAT_THRESHOLD): the chains disagree with each
+        other, so the MEAN ITSELF (abs_m, binder, chi) is suspect. A row like
+        this must never set the edge of a band a user will trust.
+      - `ess_unavailable` (tsu.ess judged N/tau too low): only the tau
+        ESTIMATE is too noisy to quantify an ERROR BAR. This does not make the
+        mean wrong -- abs_m/binder/chi are still the best estimates the draws
+        support -- it makes the uncertainty on that mean unquantified.
+    Conflating the two would be actively harmful: tau genuinely diverges near
+    an ordering transition (critical slowing down), which is exactly the
+    region `usable_band` exists to locate. A row there is disproportionately
+    likely to be ESS-unavailable precisely because the physics is interesting,
+    so treating ESS-unavailability as disqualifying would make this tool
+    refuse to find the band where it actually is.
+
+    `n_samples_used` is the `n_samples` the escalation loop in `sweep`
+    actually settled on for THIS row -- equal to the `n_samples` argument
+    when the first attempt already cleared tsu.ess's reliability floor, and
+    larger than it when the row needed one or more doublings to get there (or
+    to exhaust `max_samples` and still refuse). It is itself a physics
+    readout, not just bookkeeping: tau grows near an ordering transition
+    (critical slowing down), so the rows that needed the most draws to
+    certify are the ones nearest the transition."""
     beta_j: float
     size: int
     abs_m: float
@@ -53,7 +78,9 @@ class RegimeRow:
     n_eff: float | None
     r_hat: float
     ess_reason: str
+    ess_unavailable: bool
     provisional: bool
+    n_samples_used: int
 
 
 def binder(m: np.ndarray) -> float:
@@ -71,14 +98,38 @@ def susceptibility(m: np.ndarray, n_spins: int) -> float:
     return float(n_spins * (np.mean(m ** 2) - np.mean(np.abs(m)) ** 2))
 
 
-def sweep(model_fn, sizes, couplings, *, seed: int = 0, n_chains: int = 8,
-          n_samples: int = 400, n_warmup: int = 4000,
-          steps: int = 8) -> list[RegimeRow]:
+def sweep(model_fn, sizes, couplings, *, seed: int = 0, n_chains: int = 16,
+          n_samples: int = 2000, n_warmup: int = 4000, steps: int = 8,
+          max_samples: int = 32_000) -> list[RegimeRow]:
     """Sample `model_fn(size, beta_j) -> IsingModel` over every (size, coupling).
 
     Diagnostics are computed PER CHAIN before pooling: tau from the concatenated
     per-chain series of the order parameter, R-hat across chains. Pooling first
     would destroy exactly the structure both statistics exist to detect.
+
+    DEFAULTS: `n_chains=16, n_samples=2000` gives `n_total=32,000`, clearing
+    `tsu.ess.RELIABILITY_MIN_N_OVER_TAU=5000` even once tau exceeds 1 by a
+    healthy margin. The original defaults here (`n_chains=8, n_samples=400`,
+    `n_total=3,200`) could never clear that floor -- even literally i.i.d.
+    draws (tau~1, the best case) give N/tau~3,362 < 5,000, so every row would
+    be ESS-unavailable regardless of how well the chain mixed. Measured cost:
+    raising to these defaults is free, not a tradeoff -- JAX vmaps the chains
+    in parallel and warmup dominates wall time, so 10x the draws (16x2000 vs
+    8x400) cost about the same wall-clock per (size, coupling) point.
+
+    ESCALATION: tau grows near an ordering transition (critical slowing
+    down), so a FIXED draw count is guaranteed to fail to certify a row
+    exactly where the measurement matters most -- refusing outright there
+    would mean this tool only ever answers the easy half of its own question.
+    When `effective_sample_size` refuses a row, `sweep` resamples THAT
+    (size, coupling) point with `n_samples` doubled and tries again, doubling
+    repeatedly until either the estimate clears tsu.ess's reliability floor
+    or the NEXT doubling would exceed `max_samples`. `max_samples` is a
+    STATED COMPUTE BUDGET, not a judgement that the quantity is unmeasurable:
+    a row that still refuses once the budget is exhausted reports
+    `n_samples_used` as the largest attempt actually made, and `ess_reason`
+    names that attempt, rather than being reported as if tau there were
+    inherently inaccessible.
     """
     rows: list[RegimeRow] = []
     for size in sizes:
@@ -86,22 +137,44 @@ def sweep(model_fn, sizes, couplings, *, seed: int = 0, n_chains: int = 8,
             ising = model_fn(size, bj)
             rep = analyse(ising)
             prog = build_program(ising, rep)
-            # sample_chains, NOT sample: sample() flattens the chain boundary
-            # on purpose, and its own docstring warns that autocorrelation and
-            # ESS are meaningless across it. Reshaping sample()'s output by hand
-            # happens to recover the right order today, but only by coincidence.
-            draws = np.asarray(sample_chains(
-                prog, n_chains=n_chains, n_samples=n_samples,
-                n_warmup=n_warmup, steps_per_sample=steps, seed=seed))
-            spins = 2 * draws.astype(int) - 1
-            per_chain = spins.mean(axis=2)          # (n_chains, n_samples)
 
-            m_all = per_chain.ravel()
-            est = effective_sample_size(np.abs(per_chain))
-            rh = r_hat(np.abs(per_chain))
-            # est.ess is None when the run cannot support a trustworthy
-            # estimate; the row is then provisional and carries est.reason
-            # rather than a plausible-looking error bar.
+            cur_n_samples = n_samples
+            while True:
+                # sample_chains, NOT sample: sample() flattens the chain
+                # boundary on purpose, and its own docstring warns that
+                # autocorrelation and ESS are meaningless across it.
+                # Reshaping sample()'s output by hand happens to recover the
+                # right order today, but only by coincidence.
+                draws = np.asarray(sample_chains(
+                    prog, n_chains=n_chains, n_samples=cur_n_samples,
+                    n_warmup=n_warmup, steps_per_sample=steps, seed=seed))
+                spins = 2 * draws.astype(int) - 1
+                per_chain = spins.mean(axis=2)      # (n_chains, n_samples)
+
+                m_all = per_chain.ravel()
+                est = effective_sample_size(np.abs(per_chain))
+                rh = r_hat(np.abs(per_chain))
+                if est.reliable:
+                    break
+                next_n_samples = cur_n_samples * 2
+                if next_n_samples > max_samples:
+                    # Budget exhausted: report the largest attempt actually
+                    # made, not a plausible-looking number from a run that
+                    # never happened.
+                    break
+                cur_n_samples = next_n_samples
+
+            # est.ess is None when the run cannot support a trustworthy tau/
+            # ESS estimate even after escalation; abs_m_err then carries None
+            # too rather than a plausible-looking error bar, and
+            # ess_unavailable=True records WHY without disqualifying the
+            # row's mean-based fields (abs_m, binder, chi) -- see RegimeRow's
+            # docstring for why the two are kept separate. `provisional`
+            # reflects R-hat ALONE: only chain disagreement makes the mean
+            # itself untrustworthy.
+            reason = est.reason if est.reliable else (
+                f"{est.reason} (largest attempt: n_samples={cur_n_samples}, "
+                f"budget max_samples={max_samples})")
             rows.append(RegimeRow(
                 beta_j=float(bj), size=int(size),
                 abs_m=float(np.mean(np.abs(m_all))),
@@ -109,8 +182,10 @@ def sweep(model_fn, sizes, couplings, *, seed: int = 0, n_chains: int = 8,
                            if est.ess is not None else None),
                 chi=susceptibility(m_all, rep.n_nodes),
                 binder=binder(m_all), tau=est.iat, n_eff=est.ess, r_hat=rh,
-                ess_reason=est.reason,
-                provisional=bool(rh > RHAT_THRESHOLD or not est.reliable)))
+                ess_reason=reason,
+                ess_unavailable=not est.reliable,
+                provisional=bool(rh > RHAT_THRESHOLD),
+                n_samples_used=cur_n_samples))
     return rows
 
 
@@ -138,8 +213,16 @@ def crossing(rows_a, rows_b):
 def usable_band(rows, saturate: float = SATURATION):
     """(low, high) coupling where the model orders but has not saturated.
 
-    Provisional rows are excluded: a coupling whose chains disagree must not set
-    an edge of the band a user will trust.
+    Filters on `provisional` ONLY -- R-hat above threshold, meaning the chains
+    disagree and the mean itself is suspect -- never on `ess_unavailable`. The
+    band is defined purely from `binder` (has ordering started) and `abs_m`
+    (has it saturated), neither of which depends on tau at all: an
+    ESS-unavailable row's mean is still the best estimate the draws support,
+    only its error bar is unquantified. Excluding it anyway would be actively
+    wrong here, not just overcautious -- tau genuinely diverges near an
+    ordering transition (critical slowing down), so ESS-unavailable rows
+    cluster exactly where the band's edge is, and dropping them would make
+    this function refuse to locate the transition precisely where it exists.
     """
     good = sorted((r for r in rows if not r.provisional),
                   key=lambda r: r.beta_j)

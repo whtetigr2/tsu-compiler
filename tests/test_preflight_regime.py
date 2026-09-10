@@ -2,6 +2,7 @@
 
 The Binder cumulant's two limits are known exactly, so it is checked against
 them rather than against our own sampler."""
+import inspect
 import sys
 
 import numpy as np
@@ -10,6 +11,9 @@ import pytest
 sys.path.insert(0, "src")
 sys.path.insert(0, "demo")
 
+from tsu.ess import RELIABILITY_MIN_N_OVER_TAU
+from tsu.passes.lower import IsingModel
+from tsu.preflight.diagnostics import RHAT_THRESHOLD
 from tsu.preflight.sweep import (RegimeRow, binder, crossing, susceptibility,
                                  usable_band, sweep, SATURATION)
 
@@ -55,7 +59,8 @@ def test_susceptibility_of_a_gaussian_matches_its_closed_form():
 def _rows(size, us, couplings):
     return [RegimeRow(beta_j=b, size=size, abs_m=0.0, abs_m_err=0.0, chi=0.0,
                       binder=u, tau=1.0, n_eff=100.0, r_hat=1.0,
-                      ess_reason="ok", provisional=False)
+                      ess_reason="ok", ess_unavailable=False, provisional=False,
+                      n_samples_used=2000)
             for b, u in zip(couplings, us)]
 
 
@@ -88,7 +93,8 @@ def test_usable_band_starts_at_ordering_and_ends_at_saturation():
     cs = [0.1, 0.2, 0.3, 0.4, 0.5]
     rows = [RegimeRow(beta_j=b, size=16, abs_m=m, abs_m_err=0.01, chi=1.0,
                       binder=u, tau=1.0, n_eff=100.0, r_hat=1.0,
-                      ess_reason="ok", provisional=False)
+                      ess_reason="ok", ess_unavailable=False, provisional=False,
+                      n_samples_used=2000)
             for b, m, u in zip(cs, [0.05, 0.12, 0.40, 0.80, 0.97],
                                [0.02, 0.10, 0.35, 0.58, 0.66])]
     lo, hi = usable_band(rows)
@@ -98,11 +104,16 @@ def test_usable_band_starts_at_ordering_and_ends_at_saturation():
 
 
 def test_a_provisional_row_is_excluded_from_the_band():
-    """A row whose chains disagree must not silently set the band's edge."""
+    """A row whose chains disagree (R-hat above threshold) must not silently
+    set the band's edge -- even though its ESS estimate happens to be fine
+    here, `provisional` alone (never `ess_unavailable`) is what disqualifies
+    a row; see `test_ess_unavailable_row_still_counts_toward_the_band` for
+    the complementary case."""
     cs = [0.1, 0.2, 0.3]
     rows = [RegimeRow(beta_j=b, size=16, abs_m=m, abs_m_err=0.01, chi=1.0,
                       binder=u, tau=1.0, n_eff=100.0, r_hat=rh,
-                      ess_reason="ok", provisional=rh > 1.01)
+                      ess_reason="ok", ess_unavailable=False,
+                      provisional=rh > RHAT_THRESHOLD, n_samples_used=2000)
             for b, m, u, rh in zip(cs, [0.05, 0.40, 0.80],
                                    [0.02, 0.35, 0.58], [1.0, 1.9, 1.0])]
     band = usable_band(rows)
@@ -112,6 +123,57 @@ def test_a_provisional_row_is_excluded_from_the_band():
     # provisional row.
     assert band is not None, "a provisional row must be skipped, not abort the band"
     assert 0.2 not in band
+
+
+def test_ess_unavailable_row_still_counts_toward_the_band():
+    """An R-hat-clean row whose ESS estimate is unavailable must still count
+    toward the band -- refusing an ERROR BAR does not mean the MEAN (abs_m,
+    binder) is wrong, and tau genuinely diverges near a transition (critical
+    slowing down), which is exactly the region this function exists to
+    locate. Conflating the two (the shape this task's brief originally
+    shipped: `provisional = r_hat>threshold or not reliable`) would make
+    usable_band refuse to find the band precisely where it is.
+
+    Same beta_j/abs_m/binder fixture as
+    test_usable_band_starts_at_ordering_and_ends_at_saturation (expected band
+    (0.3, 0.4)), but every row here has tau/n_eff/abs_m_err=None and
+    ess_unavailable=True, provisional=False throughout -- so a usable_band
+    that (incorrectly) filtered on ess_unavailable too would collapse `good`
+    to the empty list and return None instead of (0.3, 0.4). Verified this
+    fails under that reversion (`good = [r for r in rows if not (r.provisional
+    or r.ess_unavailable)]`) before confirming it passes against the actual
+    (provisional-only) filter."""
+    cs = [0.1, 0.2, 0.3, 0.4, 0.5]
+    rows = [RegimeRow(beta_j=b, size=16, abs_m=m, abs_m_err=None, chi=1.0,
+                      binder=u, tau=None, n_eff=None, r_hat=1.0,
+                      ess_reason="unavailable: N/tau below the reliability "
+                                 "threshold (largest attempt: n_samples=32000, "
+                                 "budget max_samples=32000)",
+                      ess_unavailable=True, provisional=False, n_samples_used=32_000)
+            for b, m, u in zip(cs, [0.05, 0.12, 0.40, 0.80, 0.97],
+                               [0.02, 0.10, 0.35, 0.58, 0.66])]
+    band = usable_band(rows)
+    assert band is not None, \
+        "an ESS-unavailable (but R-hat-clean) row must still count toward the band"
+    assert band == (0.3, 0.4)
+
+
+def test_sweep_defaults_clear_the_ess_reliability_floor():
+    """n_chains * n_samples must clear tsu.ess's own reliability floor in the
+    BEST case (tau ~ 1) -- otherwise every row sweep() produces at its own
+    defaults is unconditionally ESS-unavailable regardless of how well the
+    chain mixes, independent of mixing quality entirely. This is exactly the
+    contradiction this task's Concern 1 found (8*400=3,200 against a floor of
+    5,000, even at tau~1).
+
+    Reads the floor from tsu.ess directly (not a hardcoded 5000) and the
+    defaults off sweep's own signature via inspect.signature (not restated
+    literals), so this test tracks either constant if it is ever re-derived
+    rather than silently drifting from the code."""
+    sig = inspect.signature(sweep)
+    n_chains = sig.parameters["n_chains"].default
+    n_samples = sig.parameters["n_samples"].default
+    assert n_chains * n_samples >= RELIABILITY_MIN_N_OVER_TAU
 
 
 @pytest.mark.slow
@@ -128,8 +190,17 @@ def test_sweep_runs_end_to_end_and_carries_the_ess_refusal_through():
     far below tsu.ess's own reliability floor (RELIABILITY_MIN_N_OVER_TAU =
     5000 -- see tsu/ess.py), so effective_sample_size MUST return
     ess=None/iat=None regardless of how well the chain mixes, and sweep() must
-    carry that refusal through as None fields and provisional=True rather than
-    substituting a raw standard error (trap #2 in this task's brief).
+    carry that refusal through as None fields and ess_unavailable=True rather
+    than substituting a raw standard error (trap #2 in this task's brief).
+    `provisional` is a SEPARATE question (R-hat alone, see FIX 1) -- this toy
+    run's R-hat is not pinned to any particular value, so `provisional` is
+    checked for internal consistency against R-hat directly rather than
+    against a fixed expectation.
+
+    `max_samples=n_samples` pins this to a SINGLE attempt (FIX 3's escalation
+    loop breaks immediately once the next doubling, 80, would exceed the
+    40-sample budget) -- this test is about the refusal surfacing correctly,
+    not about escalation, which gets its own tests below.
     """
     from world.fields import compile_layer
 
@@ -138,7 +209,8 @@ def test_sweep_runs_end_to_end_and_carries_the_ess_refusal_through():
         return ising
 
     rows = sweep(model_fn, sizes=[3], couplings=[0.2, 0.6], seed=0,
-                n_chains=4, n_samples=40, n_warmup=100, steps=2)
+                n_chains=4, n_samples=40, n_warmup=100, steps=2,
+                max_samples=40)
 
     assert len(rows) == 2
     for r in rows:
@@ -148,9 +220,93 @@ def test_sweep_runs_end_to_end_and_carries_the_ess_refusal_through():
         assert -1e-9 <= r.binder <= 2.0 / 3.0 + 1e-9
         assert r.r_hat > 0.0
         # 4*40 = 160 total draws is nowhere near tsu.ess's reliability floor
-        # of 5000, at ANY tau -- this is not a statement about mixing quality.
+        # of 5000, at ANY tau -- this is not a statement about mixing quality,
+        # so it is unconditionally true regardless of what this toy's R-hat
+        # happens to be. max_samples=40 forbids any escalation, so this stays
+        # a single-attempt check.
         assert r.n_eff is None
         assert r.tau is None
         assert r.abs_m_err is None
-        assert r.provisional is True
+        assert r.ess_unavailable is True
         assert r.ess_reason != ""
+        assert r.n_samples_used == 40
+        # provisional reflects R-hat ALONE (FIX 1) -- checked as a relation to
+        # r.r_hat, not a fixed True/False, since this toy's actual R-hat isn't
+        # pinned by this test.
+        assert r.provisional == (r.r_hat > RHAT_THRESHOLD)
+
+
+def _independent_spins_model(size, beta_j):
+    """Zero edges, zero bias: every spin an independent fair coin flip on
+    every draw, so tau ~= 1 EXACTLY (Sokal-estimated, not merely nominally --
+    see the module docstring on `sample_chains`' `_edgeless_sample` path,
+    which draws i.i.d. and bypasses thrml/JAX MCMC entirely). Deliberately
+    used here instead of a real ferromagnet: the three escalation tests below
+    are about the LOOP's bookkeeping (does it retry, does it stop, does it
+    skip retrying), not about genuine critical slowing down -- which the
+    already-slow `test_sweep_runs_end_to_end_and_carries_the_ess_refusal_through`
+    test above exercises with a real thrml sampling run instead. `beta_j` is
+    accepted (to match `sweep`'s `model_fn(size, beta_j)` contract) and
+    unused, since there is nothing for it to couple."""
+    return IsingModel(nodes=tuple(f"n{i}" for i in range(size)),
+                      edges=(), weights=np.array([], dtype=float),
+                      biases=np.zeros(size), beta=1.0, offset=0.0)
+
+
+def test_a_refused_row_escalates_until_it_clears():
+    """A row that refuses at the base draw count must be resampled at larger
+    n_samples rather than accepted as unavailable outright -- tau grows near
+    a transition (critical slowing down), so a fixed draw count is guaranteed
+    to fail exactly where the measurement matters most. n_chains=8,
+    n_samples=100 (n_total=800) is far short of the 5000 floor at any tau, so
+    the first attempt is certain to refuse; doubling (100->200->400->800)
+    reaches n_total=6400, comfortably over the floor at tau~1.
+
+    Mutation-checked: accepting the first refusal instead of escalating
+    (`break` right after the first `effective_sample_size` call, before the
+    `if est.reliable` check) makes this test fail, since n_samples_used would
+    then equal the starting 100 and tau/n_eff would stay None. Verified by
+    temporarily reverting `sweep`'s loop and re-running this test."""
+    rows = sweep(_independent_spins_model, sizes=[4], couplings=[0.0], seed=0,
+                n_chains=8, n_samples=100, n_warmup=10, steps=1,
+                max_samples=20_000)
+    r = rows[0]
+    assert r.n_samples_used > 100, \
+        "a row that refuses at n_samples=100 must escalate past it"
+    assert r.tau is not None
+    assert r.n_eff is not None
+    assert r.ess_unavailable is False
+
+
+def test_escalation_stops_at_the_max_samples_budget():
+    """Escalation must not loop forever chasing a floor a tiny budget can
+    never reach: n_chains=4, n_samples=50 (n_total=200) refuses by roughly an
+    order of magnitude regardless of tau, and max_samples=60 is barely above
+    the starting n_samples, so the very next doubling (100) already exceeds
+    it. The row must come back unavailable rather than escalating past the
+    stated budget, and `n_samples_used`/`ess_reason` must reflect the actual
+    (failed) attempt made, not a number that was never sampled."""
+    rows = sweep(_independent_spins_model, sizes=[4], couplings=[0.0], seed=0,
+                n_chains=4, n_samples=50, n_warmup=10, steps=1,
+                max_samples=60)
+    r = rows[0]
+    assert r.ess_unavailable is True
+    assert r.n_samples_used <= 60
+    assert "n_samples=" in r.ess_reason, \
+        "the refusal reason must name the largest attempt actually made"
+
+
+def test_a_row_that_clears_on_the_first_attempt_does_not_escalate():
+    """The complementary case to both tests above: an easy row (n_chains=8,
+    n_samples=1000, n_total=8000, well over the 5000 floor at tau~1) must NOT
+    be resampled at all. This is the test that would catch an escalation loop
+    that always iterates at least once regardless of the first result --
+    which would silently spend the whole compute budget even on rows that
+    never needed it."""
+    rows = sweep(_independent_spins_model, sizes=[4], couplings=[0.0], seed=0,
+                n_chains=8, n_samples=1000, n_warmup=10, steps=1,
+                max_samples=32_000)
+    r = rows[0]
+    assert r.n_samples_used == 1000
+    assert r.ess_unavailable is False
+    assert r.tau is not None
