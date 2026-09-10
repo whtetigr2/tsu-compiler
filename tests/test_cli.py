@@ -4,10 +4,23 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from tsu.cli import main, sweep_single_model
+from tsu.cli import main, susceptibility_note, sweep_single_model
 from tsu.passes.analyse import analyse
 from tsu.passes.lower import IsingModel
 from tsu.passes.route import BetaMismatchError, insert_mediators
+from tsu.preflight.sweep import RegimeRow
+
+
+def _chi_row(beta_j, chi, provisional=False):
+    """A minimal RegimeRow varying only what `susceptibility_note` reads
+    (beta_j, chi, provisional) -- the other 10 required fields are filled
+    with placeholder-but-valid values, matching test_preflight_render.py's
+    own `_row()` helper pattern for the same dataclass."""
+    return RegimeRow(beta_j=beta_j, size=16, abs_m=0.2, abs_m_err=0.01,
+                     chi=chi, binder=0.1, tau=1.0, n_eff=100.0,
+                     r_hat=(2.0 if provisional else 1.0),
+                     ess_reason="ok", ess_unavailable=False,
+                     provisional=provisional, n_samples_used=2000)
 
 
 def test_preflight_subcommand_writes_its_three_files_and_exits_zero(tmp_path):
@@ -160,6 +173,14 @@ def test_regime_report_explains_why_no_binder_crossing_was_computed(tmp_path):
     without an explicit `crossing` argument again (a `TypeError` from the
     now-required parameter) or passed anything other than `None` for a
     single-model sweep (which has no second size to cross with).
+
+    Susceptibility is reported "in the band's place" here too, but this
+    fixture only sweeps 2 beta points (`--beta-steps 2`), so an INTERIOR
+    maximum is structurally impossible (see `susceptibility_note`'s own
+    tests in this file for the interior-vs-edge distinction) -- the
+    correct output for 2 points is "no peak was observed", never a claimed
+    peak, and this test checks exactly that rather than asserting the
+    (here, impossible) "peaks at" phrasing.
     PROVENANCE: the task brief's own required statement ("locating the
     transition by finite-size scaling requires a size family, which a
     single --spec/--edges model cannot provide") and
@@ -184,9 +205,78 @@ def test_regime_report_explains_why_no_binder_crossing_was_computed(tmp_path):
     assert "lower edge" in text.lower() and "crossing" in text.lower(), \
         "the report must tie the missing band to the missing crossing, " \
         "not state them as two unrelated facts"
-    assert "susceptibility peak" in text.lower(), \
-        "the susceptibility peak must be reported in the band's place, " \
-        "labeled as indicative rather than a located transition"
+    assert "chi" in text.lower(), \
+        "susceptibility must be reported in the band's place"
+    assert "no peak was observed" in text.lower(), \
+        "with only 2 swept points an interior peak is impossible -- the " \
+        "report must say so, not claim one at the range's edge"
+    assert "peaks at" not in text.lower()
+
+
+def test_susceptibility_note_does_not_claim_a_peak_for_monotonic_chi():
+    """WHAT THIS PINS: a monotonically increasing chi, maximal at the LAST
+    swept point, must NOT be reported as a peak -- a maximum at the
+    boundary of the swept range means the true peak (if any) lies outside
+    the range measured, exactly the "where I stopped looking, printed as a
+    measurement" mistake `usable_band`'s old upper edge made, one layer
+    down. Direction is reported (raise --beta-max) since it is genuinely
+    actionable, unlike a location that was never actually observed.
+
+    Fixture values are the REAL numbers from a coordinator's live run of
+    `tsu regime --edges` on a 16-node 1D Ising ring (chi = 0.46, 0.619,
+    0.836, 1.11 at beta*J = 0.1, 0.267, 0.433, 0.6) -- not invented, so
+    this pins the exact live defect that was found, not a hypothetical.
+    HOW IT FAILS: `susceptibility_note` calling
+    `max(good, key=lambda r: r.chi)` and reporting it as a peak
+    unconditionally, without checking whether it sits at an interior point
+    of the swept range, makes `"peaks at" in text.lower()` true -- this is
+    the exact live defect a coordinator review caught in report.md
+    ("The susceptibility peaks at beta*J = 0.6 (chi = 1.11)").
+    PROVENANCE: the coordinator's own reported chi/beta_j values from a
+    real `tsu regime --edges` run on a 16-node ring."""
+    rows = [_chi_row(0.1, 0.46), _chi_row(0.267, 0.619),
+            _chi_row(0.433, 0.836), _chi_row(0.6, 1.11)]
+    text = susceptibility_note(rows)
+    assert "peaks at" not in text.lower()
+    assert "may not bracket" in text.lower()
+    assert "--beta-max" in text, \
+        "the direction chi is still rising in (raise --beta-max) must be " \
+        "reported -- it is what makes this actionable"
+
+
+def test_susceptibility_note_reports_a_peak_for_an_interior_maximum():
+    """Mutation check for the test above: same shape of fixture (four
+    points, non-provisional), but the maximum moved to an INTERIOR point
+    (beta_j=0.267, strictly between the smallest and largest swept beta_j)
+    -- `susceptibility_note` must go back to claiming a peak there. This
+    confirms the "no peak" branch in the previous test is actually
+    conditioned on edge-vs-interior, not a permanently disabled feature
+    that would make the previous test pass vacuously regardless of input.
+    HOW IT FAILS: any change that stops recognizing a genuine interior
+    maximum (e.g. always taking the "edge" branch, or an off-by-one in the
+    `lo_beta < peak.beta_j < hi_beta` interior test) makes the "peaks at"
+    assertion below fail, or wrongly reports beta_j=0.1/0.6 as the peak."""
+    rows = [_chi_row(0.1, 0.46), _chi_row(0.267, 0.90),
+            _chi_row(0.433, 0.70), _chi_row(0.6, 0.50)]
+    text = susceptibility_note(rows)
+    assert "peaks at beta*j = 0.267" in text.lower()
+    assert "may not bracket" not in text.lower()
+    assert "--beta-max" not in text and "--beta-min" not in text
+
+
+def test_susceptibility_note_reports_the_low_edge_direction_too():
+    """The symmetric edge case to the monotonic-increasing test above: chi
+    largest at the FIRST swept point (still rising toward smaller beta*J)
+    must point the reader at --beta-min, not --beta-max -- the two edge
+    branches are genuinely different code paths (which endpoint the
+    maximum sits at), not one branch covering both by accident."""
+    rows = [_chi_row(0.1, 0.90), _chi_row(0.267, 0.70),
+            _chi_row(0.433, 0.60), _chi_row(0.6, 0.50)]
+    text = susceptibility_note(rows)
+    assert "peaks at" not in text.lower()
+    assert "may not bracket" in text.lower()
+    assert "--beta-min" in text
+    assert "--beta-max" not in text
 
 
 def test_compile_then_visualize_produces_all_four_layers(tmp_path, capsys):

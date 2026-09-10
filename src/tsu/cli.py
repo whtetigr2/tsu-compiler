@@ -26,6 +26,68 @@ from .target import PROFILES
 from .viz import render
 
 
+def susceptibility_note(rows) -> str:
+    """Describe the swept susceptibility for a reader, WITHOUT claiming a
+    peak that was not actually observed.
+
+    A maximum sitting at either EDGE of the swept couplings is not a peak
+    -- it means the true maximum (if one exists at all) lies outside the
+    range that was actually measured. Reporting "chi peaks at beta*J = X"
+    when X is simply the last (or first) point the sweep happened to try
+    is the identical mistake `usable_band`'s old upper edge made ("where I
+    stopped looking" printed as a measurement of the model), one layer
+    down: a coordinator review caught this live on a 16-node 1D Ising
+    ring, whose chi rose monotonically to its largest value at the LAST
+    swept beta_j (1.11 at beta*J=0.6, the top of the range) -- correctly
+    NOT a peak, since the ring has no finite-temperature transition at any
+    coupling (Ising 1925) and chi was simply still climbing when the sweep
+    stopped.
+
+    Only an INTERIOR maximum (strictly between the smallest and largest
+    swept beta_j among the non-provisional rows) is reported as a peak.
+    At either edge, this reports the direction chi is still moving and
+    which CLI flag would extend the sweep to look further -- genuinely
+    actionable, unlike a location that was never actually observed.
+    """
+    good = sorted((r for r in rows if not r.provisional), key=lambda r: r.beta_j)
+    if not good:
+        return ("Every row in this sweep was provisional (R-hat above "
+                "threshold, chains disagree), so even the susceptibility "
+                "peak's location cannot be reported here.")
+    peak = max(good, key=lambda r: r.chi)
+    lo_beta, hi_beta = good[0].beta_j, good[-1].beta_j
+    if lo_beta < peak.beta_j < hi_beta:
+        return (
+            f"The susceptibility peaks at beta*J = {peak.beta_j:g} (chi = "
+            f"{peak.chi:.3g}) within this sweep's own range. That is "
+            "reported here as an INDICATIVE signal only, not a located "
+            "transition: the susceptibility peak drifts with system size "
+            "(see `tsu.preflight.sweep`'s module docstring), and this "
+            "sweep has only one size to measure it at, so there is no way "
+            "to tell how much it would move on a different-size graph. It "
+            "plays no part in the (absent) band above.")
+    if len(good) < 2:
+        return (
+            "This sweep has only one non-provisional row, so nothing can "
+            "be said about where chi peaks (interior or otherwise) from a "
+            "single point.")
+    if peak.beta_j >= hi_beta:
+        return (
+            f"chi is still rising at the TOP of this sweep's range "
+            f"(largest measured chi = {peak.chi:.3g}, at beta*J = "
+            f"{peak.beta_j:g}, the last point swept, not an interior "
+            "point) -- no peak was observed within this range, so the "
+            "range may not bracket one and it may lie above --beta-max. "
+            "Raising --beta-max would show whether chi turns over.")
+    return (
+        f"chi is still rising toward the BOTTOM of this sweep's range "
+        f"(largest measured chi = {peak.chi:.3g}, at beta*J = "
+        f"{peak.beta_j:g}, the first point swept, not an interior point) "
+        "-- no peak was observed within this range, so the range may not "
+        "bracket one and it may lie below --beta-min. Lowering --beta-min "
+        "would show whether chi turns over.")
+
+
 def sweep_single_model(model, *, beta_min, beta_max, beta_steps, out_dir):
     """Sweep ONE fixed-size model across beta -- what `regime` actually does.
 
@@ -88,23 +150,7 @@ def sweep_single_model(model, *, beta_min, beta_max, beta_steps, out_dir):
     # lines later in write_regime's own output. Append the real reason for
     # both, tied together, rather than let them stand as two apparently
     # independent, contradictory-looking limitations.
-    good_rows = [r for r in rows if not r.provisional]
-    if good_rows:
-        peak = max(good_rows, key=lambda r: r.chi)
-        peak_text = (
-            f"The susceptibility peaks at beta*J = {peak.beta_j:g} (chi = "
-            f"{peak.chi:.3g}) within this sweep's own range. That is "
-            "reported here as an INDICATIVE signal only, not a located "
-            "transition: the susceptibility peak drifts with system size "
-            "(see `tsu.preflight.sweep`'s module docstring), and this "
-            "sweep has only one size to measure it at, so there is no way "
-            "to tell how much it would move on a different-size graph. It "
-            "plays no part in the (absent) band above.")
-    else:
-        peak_text = (
-            "Every row in this sweep was provisional (R-hat above "
-            "threshold, chains disagree), so even the susceptibility "
-            "peak's location cannot be reported here.")
+    peak_text = susceptibility_note(rows)
     report_path = Path(out_dir) / "report.md"
     report_path.write_text(
         report_path.read_text(encoding="utf-8") +

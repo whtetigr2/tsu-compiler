@@ -69,6 +69,29 @@ def _as_unavailable(text: str) -> str:
     return text if text.lower().startswith("unavailable") else f"unavailable: {text}"
 
 
+def _format_band(band) -> str:
+    """Render `usable_band`'s return value for a human reader.
+
+    `band` is a `(lo, hi)` pair, either fully closed or OPEN ABOVE (`hi is
+    None`, meaning no row at or above the crossing reached SATURATION
+    within the sweep -- see `tsu.preflight.sweep.usable_band`'s own
+    docstring). The open case is spelled out as an explicit half-open
+    interval rather than left to fall through to Python's own tuple repr:
+    `f"{band}"` on `(0.2, None)` prints the literal substring "None" next
+    to a beta value, which reads as a formatting bug, not as "unbounded" --
+    exactly the "where I stopped looking, printed as a measurement"
+    failure this project already fixed once for the band's edges
+    themselves. `None` is never printed bare anywhere else in this
+    module's report (see `_fmt_opt`/`_as_unavailable` above); this keeps
+    that rule.
+    """
+    lo, hi = band
+    if hi is None:
+        return (f"[{lo:g}, +inf) -- open above (no row in this sweep "
+                "reached saturation at or above the crossing)")
+    return f"({lo:g}, {hi:g})"
+
+
 def _fmt_opt(value, reason: str, fmt: str) -> str:
     """Format `value` with `fmt`, or `unavailable: <reason>` when it is None.
 
@@ -234,7 +257,7 @@ def write_regime(rows, band, cross, out_dir, *, onsager,
                      f"comparison **because this graph is a uniform square "
                      f"lattice in zero field**, the only condition under "
                      f"which it applies.")
-    lines.append(f"\nUsable band: **{band}**\n" if band else
+    lines.append(f"\nUsable band: **{_format_band(band)}**\n" if band else
                  "\nNo usable band was found in this sweep.\n")
     lines += ["| beta*J | L | <\\|m\\|> | error | chi | U | tau | N_eff | "
               "R-hat | N_samples | flags |",

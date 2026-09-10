@@ -323,6 +323,56 @@ def test_onsager_is_printed_only_when_it_applies(tmp_path):
     assert "0.4407" in with_it or "0.440687" in with_it
 
 
+def test_a_closed_usable_band_renders_as_a_plain_pair(tmp_path):
+    """WHAT THIS PINS: a normal, fully-closed band (both edges are real
+    numbers) still renders as a simple `(lo, hi)` pair -- the guard against
+    regression is
+    `test_an_open_above_band_renders_as_an_explicit_interval_not_a_python_tuple`
+    below (the open case), but that fix must not change this, far more
+    common, closed case.
+    HOW IT FAILS: a `_format_band` that always appends the "open above"
+    wording, or that mishandles a plain `(float, float)` tuple, makes the
+    "0.4" / "0.6" substring checks below fail or pollutes the line with
+    "open above" text that does not apply here.
+    PROVENANCE: `usable_band`'s own closed-band return shape,
+    `(float(lo), float(hi))` (src/tsu/preflight/sweep.py)."""
+    write_regime(_rows(), (0.4, 0.6), 0.45, tmp_path, onsager=None)
+    text = (tmp_path / "report.md").read_text(encoding="utf-8")
+    band_line = next(ln for ln in text.splitlines()
+                     if ln.startswith("Usable band:"))
+    assert "(0.4, 0.6)" in band_line
+    assert "open" not in band_line.lower()
+    assert "None" not in band_line
+
+
+def test_an_open_above_band_renders_as_an_explicit_interval_not_a_python_tuple(tmp_path):
+    """WHAT THIS PINS: `usable_band`'s open-above return, `(lo, None)`
+    (no row at or above the crossing reached SATURATION within the
+    sweep -- see `tsu.preflight.sweep.usable_band`), renders in report.md
+    as an explicit half-open interval a reader can parse on sight -- not
+    Python's own tuple repr, which would print the literal substring
+    "None" next to a beta value and read as a formatting bug rather than
+    "unbounded". A coordinator review flagged this as a formatting bug
+    waiting for the first multi-size caller (no CLI path reaches this
+    today, but `usable_band`/`write_regime` are public and library-usable
+    on their own).
+    HOW IT FAILS: `write_regime`'s markdown line reverting to the plain
+    f-string it used before this fix, `f"Usable band: **{band}**"`, makes
+    this fail: with `band=(0.2, None)`, that renders "Usable band:
+    **(0.2, None)**", and the `"None" not in band_line` assertion below
+    catches exactly that regression.
+    PROVENANCE: `usable_band`'s own `(lo, None)` open-above convention
+    (src/tsu/preflight/sweep.py, the "no row saturates" branch)."""
+    write_regime(_rows(), (0.2, None), 0.2, tmp_path, onsager=None)
+    text = (tmp_path / "report.md").read_text(encoding="utf-8")
+    band_line = next(ln for ln in text.splitlines()
+                     if ln.startswith("Usable band:"))
+    assert "None" not in band_line
+    assert "0.2" in band_line
+    assert "open" in band_line.lower(), \
+        "an open-above band must read as an explicit open interval"
+
+
 def test_the_regime_report_also_states_no_hardware_was_involved(tmp_path):
     """WHAT THIS PINS: write_regime's report.md carries the same no-hardware
     disclaimer as write_preflight's, since it is the file most likely to be
