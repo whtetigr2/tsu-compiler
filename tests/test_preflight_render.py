@@ -267,6 +267,86 @@ def test_a_non_provisional_sweep_does_not_claim_any_row_is_provisional(tmp_path)
     assert not any("**provisional**" in ln for ln in table_rows)
 
 
+# ---------------------------------------------------------------------------
+# F3 (branch review): mutation-proving the flags column and provenance().
+# The review applied two mutations to render.py -- (M1) `flags = []`,
+# deleting the two `if` lines that populate it, and (M2) hardcoding
+# `out["jax_backend"] = "cpu"` / `out["thrml"] = "0.1.4"` -- and the FULL
+# 812-test suite stayed green under both. The tests above only check
+# ABSENCE (no row wrongly flagged) and self-comparison (production vs
+# production, which trivially agrees on a CPU-only machine); neither can
+# detect the flag column being deleted outright or the provenance fields
+# being replaced with plausible-looking literals. The tests below close
+# both gaps, and were mutation-verified per this task's process: apply the
+# mutation, watch the new test fail, revert, confirm green (see
+# .superpowers/sdd/2026-09-09-preflight-and-regime/branch-fixes-report.md
+# for the transcript).
+# ---------------------------------------------------------------------------
+
+def test_a_provisional_rows_own_table_row_is_flagged_provisional(tmp_path):
+    """WHAT THIS PINS: the SPECIFIC table row for a provisional (R-hat >
+    RHAT_THRESHOLD) measurement carries the **provisional** flag IN THAT
+    ROW's own line, alongside a clean row that must NOT carry it.
+    HOW IT FAILS: render.py's flags column gutted (`flags = []`, the
+    review's own mutation M1) leaves every row's flag cell empty
+    regardless of `r.provisional`, so `"**provisional**" in provisional_row`
+    fails. Neither existing test in this file (positional presence-of-the-
+    word, or absence-only on an all-clean fixture) can catch this, because
+    both are satisfied by "the flag is never emitted at all"."""
+    rows = [_row(0.2, 8, 0.05, 0.02, 0.02, 1.0),
+            _row(0.4, 8, 0.40, 0.35, 0.35, 1.5)]
+    assert rows[0].provisional is False and rows[1].provisional is True
+    write_regime(rows, None, None, tmp_path, onsager=None)
+    lines = (tmp_path / "report.md").read_text(encoding="utf-8").splitlines()
+    clean_row = next(ln for ln in lines if ln.startswith("| 0.2 |"))
+    provisional_row = next(ln for ln in lines if ln.startswith("| 0.4 |"))
+    assert "**provisional**" in provisional_row
+    assert "**provisional**" not in clean_row
+
+
+def test_an_ess_unavailable_rows_own_table_row_is_flagged_no_error_bar(tmp_path):
+    """Complementary case for the OTHER flag M1 deletes: a row with
+    `ess_unavailable=True` must carry "no error bar" in ITS OWN line, and
+    a reliable row must not."""
+    rows = [_row(0.2, 8, 0.05, None, 0.02, 1.0, tau=None, n_eff=None,
+                ess_reason="unavailable: test stub", ess_unavailable=True),
+            _row(0.4, 8, 0.40, 0.35, 0.35, 1.0)]
+    write_regime(rows, None, None, tmp_path, onsager=None)
+    lines = (tmp_path / "report.md").read_text(encoding="utf-8").splitlines()
+    unavailable_row = next(ln for ln in lines if ln.startswith("| 0.2 |"))
+    clean_row = next(ln for ln in lines if ln.startswith("| 0.4 |"))
+    assert "no error bar" in unavailable_row
+    assert "no error bar" not in clean_row
+
+
+def test_provenance_asks_jax_for_the_backend_rather_than_hardcoding_cpu(monkeypatch):
+    """WHAT THIS PINS: provenance()'s `jax_backend` field comes from a LIVE
+    call to `jax.default_backend()`, not a hardcoded "cpu" literal --
+    caught here via monkeypatch rather than trusting this machine's own
+    backend to differ from "cpu" (it does not: this project's own JAX
+    backend is CPU-only, which is exactly why the existing
+    test_provenance_records_the_backend_and_versions -- comparing
+    production to production -- can never catch this mutation on any
+    machine this suite actually runs on; that is the review's own
+    critique of it).
+    HOW IT FAILS: the review's own M2 mutation
+    (`out["jax_backend"] = "cpu"`) makes this fail regardless of what
+    jax.default_backend() is patched to return."""
+    import jax
+    from tsu.preflight.render import provenance
+    monkeypatch.setattr(jax, "default_backend", lambda: "gpu-test-stub")
+    assert provenance()["jax_backend"] == "gpu-test-stub"
+
+
+def test_provenance_asks_thrml_for_its_version_rather_than_hardcoding_it(monkeypatch):
+    """Complementary case for the thrml-version half of M2
+    (`out["thrml"] = "0.1.4"`)."""
+    import thrml
+    from tsu.preflight.render import provenance
+    monkeypatch.setattr(thrml, "__version__", "0.0.0-test-stub")
+    assert provenance()["thrml"] == "0.0.0-test-stub"
+
+
 def test_a_row_with_no_reliable_ess_prints_its_reason_not_a_number(tmp_path):
     """WHAT THIS PINS: a row whose abs_m_err/tau/n_eff are None (tsu.ess
     refused an estimate) must render its ess_reason text in report.md, and
