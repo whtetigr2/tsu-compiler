@@ -31,6 +31,28 @@ def triangle() -> IsingModel:
                       beta=1.0, offset=0.0)
 
 
+def _bigbias() -> IsingModel:
+    """A small bipartite grid whose peak |b| (9.0) exceeds z1's
+    max_abs_bias cap (6.0, source="assumed" -- see target.py) while |J|
+    stays well under its own, separately-sourced (Extropic-documented,
+    NOT assumed) cap. The exact live repro from the branch review's F2:
+    `preflight --edges .../bigbias.json` -> verdict FAIL on "|b| against
+    the hardware's bias cap" for a value target.py's own Sourced field
+    marks "assumed", not a hardware fact."""
+    n = 4
+    idx = {(x, y): y * n + x for y in range(n) for x in range(n)}
+    e = []
+    for (x, y), i in idx.items():
+        for dx, dy in ((1, 0), (0, 1)):
+            if (x + dx, y + dy) in idx:
+                e.append((i, idx[(x + dx, y + dy)]))
+    biases = np.zeros(n * n)
+    biases[0] = 9.0
+    return IsingModel(nodes=tuple(f"n{i}" for i in range(n * n)),
+                      edges=tuple(e), weights=np.full(len(e), 0.5),
+                      biases=biases, beta=1.0, offset=0.0)
+
+
 def test_a_grid_is_reported_bipartite_and_directly_embeddable():
     r = preflight(grid(8))
     assert r.bipartite is True
@@ -85,9 +107,20 @@ def test_the_node_budget_gate_reports_the_share_used():
 
 
 def test_every_gate_carries_its_limit_and_a_note():
-    """A gate without its limit is a number the reader cannot act on."""
+    """A gate without its limit is a number the reader cannot act on.
+
+    UPDATED (F2, branch review): `limit > 0` loosened to `limit >= 0` --
+    preflight now carries a delegated `colouring` gate (sourced from
+    tsu.gates.gate_checks(), which the review's own comparison table found
+    missing from preflight entirely), a structural binary check ("any
+    violation at all fails") whose natural limit is 0, not some positive
+    threshold. `limit == 0` is still fully actionable (a reader knows
+    'zero violations tolerated'), so the test's actual intent -- every
+    gate carries a limit a reader can act on, and a note -- is preserved;
+    only the illustrative `> 0` bound no longer covers every gate shape
+    this tool reports."""
     for g in preflight(grid(6)).gates:
-        assert g.limit > 0
+        assert g.limit >= 0
         assert g.note.strip()
 
 
@@ -162,3 +195,163 @@ def test_a_placement_failure_carries_the_compiler_s_own_remediations():
     assert r.remediations, "a failed placement must carry its remediations"
     assert any("degree" in s.lower() for s in r.remediations)
     assert preflight(grid(4)).remediations == ()
+
+
+# ---------------------------------------------------------------------------
+# F2 (branch review): preflight's gates now DELEGATE to tsu.gates.gate_checks()
+# -- the same evaluation the real compile pipeline (passes/search.py) uses --
+# instead of an independent reimplementation that (a) never carried
+# target.py's `assumed` provenance, so an Extropic-documented fact
+# (max_abs_coupling) and a genuine project guess (max_abs_bias) rendered
+# IDENTICALLY even though target.py's own docstring records fixing that
+# exact conflation once already; (b) had no colouring gate; (c) had no
+# --allow-assumed downgrade path. node_budget is the one gate DELIBERATELY
+# left un-delegated (see its own note/test below) -- gate_checks() measures
+# it as n_nodes alone (correct for the real pipeline, which runs it BEFORE
+# placement/mediators are known), while preflight folds in analyse()'s
+# pre-placement mediator ESTIMATE up front; the two serve different
+# purposes and are not reconciled, per this task's explicit allowance to
+# report such a discrepancy rather than force a merge.
+# ---------------------------------------------------------------------------
+
+def test_max_abs_bias_gate_is_marked_assumed_and_max_abs_coupling_is_not():
+    """WHAT THIS PINS: the max_abs_bias gate (target.py:
+    Sourced(6.0, "assumed", ...)) carries assumed=True; max_abs_coupling
+    (Sourced(6.0, "2608.01615v1.pdf...", ...), an Extropic-documented
+    fact) carries assumed=False -- the two currently share a numeric value
+    (6.0) but must never render identically (target.py's own docstring:
+    "Never conflate these two fields again just because their VALUES
+    happen to agree").
+    HOW IT FAILS: a Gate built without sourcing `assumed` from
+    target.is_assumed(...) (this branch's shipped behaviour) leaves the
+    dataclass default (False) for both, so `g["max_abs_bias"].assumed is
+    True` fails."""
+    r = preflight(grid(6))
+    g = {x.name: x for x in r.gates}
+    assert g["max_abs_bias"].assumed is True
+    assert g["max_abs_coupling"].assumed is False
+
+
+def test_max_abs_bias_note_never_claims_it_is_a_hardware_fact():
+    """WHAT THIS PINS: the max_abs_bias gate's note must never POSSESSIVELY
+    claim to be "the hardware's" anything -- target.py marks this field
+    assumed ("project working value; NOT a sourced Extropic figure"), and
+    the shipped note ("|b| against the hardware's bias cap") rendered
+    IDENTICALLY to max_abs_coupling's (an actual Extropic-documented
+    fact), making the two indistinguishable to a reader on the exact FAIL
+    verdict the branch review's own bigbias repro produces. The fix's own
+    ASSUMED marker text ("...NOT a sourced hardware figure") legitimately
+    mentions the word "hardware" while NEGATING it -- that is the
+    opposite of the defect, so this checks for the possessive claim
+    specifically, not the bare word.
+    HOW IT FAILS: the shipped literal note string in check.py says "the
+    hardware's bias cap" for max_abs_bias too, so
+    `"the hardware's" not in note` fails against the unfixed defect."""
+    r = preflight(_bigbias())
+    g = {x.name: x for x in r.gates}
+    note = g["max_abs_bias"].note.lower()
+    assert "the hardware's" not in note
+    assert "assumed" in note or "not a sourced" in note
+    assert g["max_abs_bias"].status == "fail"
+
+
+def test_a_bigbias_model_fails_on_the_assumed_bias_cap_not_a_hardware_fact():
+    """Full F2 reproduction: |b|=9 > cap=6 (assumed) fails the gate and the
+    overall verdict, while |J| stays comfortably under its own (real,
+    sourced) cap -- the two gates must reach OPPOSITE statuses despite
+    sharing a numeric cap value."""
+    r = preflight(_bigbias())
+    g = {x.name: x for x in r.gates}
+    assert g["max_abs_bias"].status == "fail"
+    assert g["max_abs_coupling"].status == "ok"
+    assert r.verdict == "fail"
+
+
+def test_preflight_gates_agree_with_gates_gate_checks_for_degree_coupling_and_bias():
+    """WHAT THIS PINS: preflight's degree/max_abs_coupling/max_abs_bias
+    gates are SOURCED from tsu.gates.gate_checks() -- the same evaluation
+    the real compile pipeline uses -- not a second, independently-computed
+    set of numbers that could silently drift from it (the branch review's
+    own comparison table found exactly this kind of drift for
+    node_budget/colouring/assumed/--allow-assumed).
+    HOW IT FAILS: a reimplementation that recomputes peak |J|/|b|/degree by
+    hand (this branch's shipped check.py) can still numerically AGREE by
+    coincidence on an ordinary fixture, so this uses `_bigbias` (which
+    exercises a FAILING gate) and checks every field gate_checks()
+    computes -- measured, limit, assumed -- not just the pass/fail
+    outcome."""
+    from tsu.gates import gate_checks
+    from tsu.passes.analyse import analyse
+    model = _bigbias()
+    rep = analyse(model)
+    delegated = {gc.gate: gc for gc in gate_checks(model, rep, PROFILES["z1"], False)}
+    r = preflight(model)
+    g = {x.name: x for x in r.gates}
+    assert g["max_degree"].value == delegated["degree"].measured
+    assert g["max_degree"].limit == delegated["degree"].limit
+    assert g["max_abs_coupling"].value == delegated["coupling_cap"].measured
+    assert g["max_abs_coupling"].limit == delegated["coupling_cap"].limit
+    assert g["max_abs_bias"].value == delegated["field_cap"].measured
+    assert g["max_abs_bias"].limit == delegated["field_cap"].limit
+    assert g["max_abs_bias"].assumed == delegated["field_cap"].assumed
+
+
+def test_preflight_now_carries_a_colouring_gate():
+    """WHAT THIS PINS: the colouring gate gates.py already evaluates (a
+    structural check that analyse()'s own colouring never puts two
+    adjacent nodes in the same colour block) is present in preflight's
+    gate set too -- the branch review's comparison table found it present
+    in gates.py and absent from preflight."""
+    r = preflight(grid(6))
+    names = {x.name for x in r.gates}
+    assert "colouring" in names
+    assert {x.name: x for x in r.gates}["colouring"].status == "ok"
+
+
+def test_allow_assumed_downgrades_a_failing_assumed_gate_but_warns_not_oks():
+    """WHAT THIS PINS: --allow-assumed (threaded through to
+    gates.gate_checks) downgrades a FAILING assumed gate (max_abs_bias
+    here) instead of failing the whole preflight on it -- gates.py already
+    supports this; the branch's shipped preflight had no such flag at
+    all. The verdict must still visibly reflect that something was
+    downgraded (silently reporting "ok" would hide from a reader that a
+    limit was overridden, not cleared) -- this project's convention is
+    "warn", not "fail" and not silently "ok".
+    HOW IT FAILS: a preflight() with no allow_assumed parameter at all
+    (this branch's shipped signature) makes the first call raise
+    TypeError; one that accepts the flag but never threads it into
+    gate_checks() leaves max_abs_bias failing (status=='fail',
+    verdict=='fail') regardless of allow_assumed."""
+    r = preflight(_bigbias(), allow_assumed=True)
+    g = {x.name: x for x in r.gates}
+    assert g["max_abs_bias"].status == "downgraded"
+    assert g["max_abs_bias"].downgraded is True
+    assert r.verdict != "fail"
+    r_off = preflight(_bigbias(), allow_assumed=False)
+    assert r_off.verdict == "fail"
+
+
+def test_node_budget_note_distinguishes_its_estimate_from_placements_actual_count():
+    """WHAT THIS PINS (F9): node_budget's gate value folds in analyse()'s
+    pre-placement mediator ESTIMATE (deliberately NOT delegated to
+    gates.gate_checks(), which measures node_budget as n_nodes alone --
+    see check.py's own comment for why the two definitions serve
+    different purposes and are not reconciled). Without a note explaining
+    this, a reader sees two different mediator-related numbers on the
+    page (this gate's value, and the `mediators` line reporting
+    placement's ACTUAL count) with no explanation of which is which --
+    exactly the branch review's F9 finding on a 25-node odd cycle
+    (node_budget showed 25, one line above showed '1 mediators', with no
+    explanation of the discrepancy).
+    HOW IT FAILS: the branch's SHIPPED note ("spins required, including
+    estimated mediators, against the die's node budget") already contains
+    the substring "estimat[ed]" -- so a weak check for that word ALONE
+    would pass against the unfixed defect too. This additionally requires
+    the word "actual" (pointing a reader at the `mediators` line above),
+    which the shipped note does not contain."""
+    r = preflight(triangle())
+    note = {x.name: x for x in r.gates}["node_budget"].note.lower()
+    assert "estimate" in note
+    assert "actual" in note, \
+        "the note must point a reader at placement's ACTUAL count, not " \
+        "just name this gate's own estimate"

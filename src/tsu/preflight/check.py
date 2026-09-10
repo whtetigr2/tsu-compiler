@@ -17,6 +17,7 @@ from dataclasses import dataclass
 import networkx as nx
 
 from tsu.failures import CompileError
+from tsu.gates import GateCheck, gate_checks
 from tsu.passes.analyse import analyse
 from tsu.passes.place import place, _try_grid_embed
 from tsu.passes.lower import IsingModel
@@ -35,6 +36,13 @@ class Gate:
     limit: float
     status: str
     note: str
+    assumed: bool = False
+    # True iff this gate would have FAILED but was overridden by
+    # --allow-assumed (F2, branch review) -- distinct from `status`, which
+    # is separately set to "downgraded" in that case so a reader sees it
+    # in the same place as ok/warn/fail rather than needing to cross-
+    # reference two fields.
+    downgraded: bool = False
 
 
 @dataclass(frozen=True)
@@ -64,43 +72,107 @@ def _remediations(exc: CompileError) -> tuple[str, ...]:
                  for r in getattr(failure, "remediations", ()))
 
 
-def _gate(name: str, value: float, limit: float, note: str) -> Gate:
+def _status(value: float, limit: float, downgraded: bool) -> str:
+    if downgraded:
+        return "downgraded"
+    if limit <= 0:
+        # A zero-limit gate (e.g. colouring: any violation at all fails)
+        # has no headroom to "warn" about -- `value >= limit*WARN_FRACTION`
+        # would degenerate to `value >= 0`, always true, warning even at
+        # value=0 (no violation). Binary ok/fail is the only sound reading.
+        return "fail" if value > limit else "ok"
     if value > limit:
-        status = "fail"
-    elif value >= limit * WARN_FRACTION:
-        status = "warn"
-    else:
-        status = "ok"
+        return "fail"
+    if value >= limit * WARN_FRACTION:
+        return "warn"
+    return "ok"
+
+
+def _gate(name: str, value: float, limit: float, note: str, *,
+          assumed: bool = False, downgraded: bool = False) -> Gate:
     return Gate(name=name, value=float(value), limit=float(limit),
-                status=status, note=note)
+                status=_status(value, limit, downgraded), note=note,
+                assumed=assumed, downgraded=downgraded)
+
+
+# F2 (branch review): display name + base note text for the three gates
+# delegated to tsu.gates.gate_checks() below. The base note for
+# max_abs_bias deliberately never says "hardware" -- target.py marks that
+# field source="assumed" ("project working value; NOT a sourced Extropic
+# figure"), and the shipped note ("|b| against the hardware's bias cap")
+# rendered IDENTICALLY to max_abs_coupling's (an Extropic-documented
+# fact), exactly the conflation target.py's own docstring records fixing
+# once already ("Never conflate these two fields again just because their
+# VALUES happen to agree"). Every note below gets an explicit ASSUMED
+# marker appended (see `_delegated_gate`) whenever `target.is_assumed(...)`
+# says so, sourced from `gate_checks()` itself -- never hand-guessed here.
+_DELEGATED_GATES = {
+    "degree": ("max_degree", "peak node degree against the hardware's connectivity"),
+    "coupling_cap": ("max_abs_coupling", "|J| against the hardware's coupling cap"),
+    "field_cap": ("max_abs_bias", "|b| against the bias cap"),
+}
+
+
+def _delegated_gate(gc: GateCheck) -> Gate:
+    display_name, base_note = _DELEGATED_GATES[gc.gate]
+    note = (f"{base_note} (ASSUMED -- not a sourced hardware figure)"
+           if gc.assumed else base_note)
+    return _gate(display_name, gc.measured, gc.limit, note,
+                assumed=gc.assumed, downgraded=gc.downgraded)
 
 
 def preflight(ising: IsingModel, target: TargetProfile = PROFILES["z1"],
-              *, restarts: int = 6, iters: int = 40_000) -> PreflightReport:
+              *, allow_assumed: bool = False,
+              restarts: int = 6, iters: int = 40_000) -> PreflightReport:
     rep = analyse(ising)
 
-    # Gates are computed FIRST, from the model alone. place() raises
-    # CompileError on a degree or budget violation before it returns, so
-    # computing them afterwards left two of the four gates unreachable except
-    # as an uncaught traceback -- in a tool whose whole purpose is reporting
-    # headroom rather than crashing.
-    #
-    # The budget gate uses analyse()'s mediator ESTIMATE (-1 when the graph is
-    # too large for an exact max-cut, treated as 0 here) rather than the count
-    # placement actually needed. The two can disagree, which is why the report
-    # carries both.
+    # F2 (branch review): degree/coupling_cap/field_cap/colouring are
+    # DELEGATED to tsu.gates.gate_checks() -- the SAME evaluation the real
+    # compile pipeline (passes/search.py) uses -- rather than an
+    # independent reimplementation. Before this, preflight's own gates (a)
+    # never carried target.py's `assumed` provenance at all, so a sourced
+    # Extropic fact and a genuine project guess rendered identically; (b)
+    # had no colouring gate; (c) had no --allow-assumed downgrade. All
+    # three are closed by consuming gate_checks()'s output directly.
+    checks = gate_checks(ising, rep, target, allow_assumed)
+    by_gate = {gc.gate: gc for gc in checks}
+
+    gates = tuple(_delegated_gate(by_gate[g]) for g in
+                 ("degree", "coupling_cap", "field_cap"))
+
+    colouring = by_gate["colouring"]
+    gates += (_gate(
+        "colouring", 0.0 if colouring.passed else 1.0, 0.0,
+        "adjacent nodes must never share a colour block (a structural "
+        "invariant of analyse()'s own colouring, checked here for "
+        "agreement with tsu.gates)",
+        assumed=colouring.assumed, downgraded=colouring.downgraded),)
+
+    # node_budget is DELIBERATELY NOT delegated: gate_checks() measures it
+    # as report.n_nodes alone -- correct for the real compile pipeline,
+    # which evaluates gates BEFORE placement runs (mediators are not known
+    # yet there; a later mediator overage is caught downstream by
+    # placement itself, which raises CompileError on it, not by
+    # re-checking this gate). preflight runs standalone and can afford to
+    # fold in analyse()'s pre-placement mediator ESTIMATE up front instead,
+    # so a user sees the risk before waiting on the slower placement
+    # search -- a deliberately DIFFERENT, more conservative measurement
+    # for a different purpose, not an accidental disagreement. The note
+    # below says so explicitly (F9, branch review: this project's own
+    # comparison found node_budget's value and the `mediators` line below
+    # contradicting each other, unlabelled, on a 25-node odd cycle).
     est_mediators = max(rep.mediators, 0)
-    gates = (
-        _gate("max_abs_coupling", rep.max_abs_J, target.max_abs_coupling.value,
-              "|J| against the hardware's coupling cap"),
-        _gate("max_abs_bias", rep.max_abs_b, target.max_abs_bias.value,
-              "|b| against the hardware's bias cap"),
-        _gate("max_degree", rep.max_degree, target.degree.value,
-              "peak node degree against the hardware's connectivity"),
-        _gate("node_budget", rep.n_nodes + est_mediators,
-              target.node_budget.value,
-              "spins required, including estimated mediators, against the die"),
-    )
+    node_budget_assumed = target.is_assumed("node_budget")
+    node_budget_note = (
+        "spins required, INCLUDING analyse()'s pre-placement mediator "
+        "ESTIMATE (0 when the graph exceeds the exact max-cut limit), "
+        "against the die's node budget -- see the `mediators` line above "
+        "for placement's ACTUAL count, which may differ")
+    if node_budget_assumed:
+        node_budget_note += " (ASSUMED -- not a sourced hardware figure)"
+    gates += (_gate("node_budget", rep.n_nodes + est_mediators,
+                    target.node_budget.value, node_budget_note,
+                    assumed=node_budget_assumed),)
 
     # ASK which path placement took; do not infer it. Bipartiteness is
     # NECESSARY and not SUFFICIENT for a direct grid embed -- a bipartite graph
@@ -130,9 +202,15 @@ def preflight(ising: IsingModel, target: TargetProfile = PROFILES["z1"],
                  else "grid_embed" if direct and mediators == 0
                  else "annealed")
 
+    # A "downgraded" gate (F2: --allow-assumed overrode a would-have-failed
+    # ASSUMED gate) must not silently verdict "ok" -- that would hide from
+    # a reader that a limit was overridden, not cleared -- so it counts
+    # toward "warn" alongside genuine warn-fraction gates, same as before.
     verdict = ("fail" if place_error is not None
                or any(x.status == "fail" for x in gates)
-               else "warn" if any(x.status == "warn" for x in gates) else "ok")
+               else "warn" if any(x.status in ("warn", "downgraded")
+                                  for x in gates)
+               else "ok")
 
     return PreflightReport(
         n_spins=rep.n_nodes, n_couplings=rep.n_edges,

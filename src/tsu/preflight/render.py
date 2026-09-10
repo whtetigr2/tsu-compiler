@@ -124,12 +124,19 @@ def write_preflight(report, out_dir) -> list[Path]:
              f"- bipartite: **{report.bipartite}** — embedding path "
              f"`{report.embedding}`, {report.mediators} mediators",
              f"- placement took {report.place_seconds:.3f}s\n",
-             "| gate | value | limit | % of limit | status |",
-             "|---|---|---|---|---|"]
+             "| gate | value | limit | % of limit | status | note |",
+             "|---|---|---|---|---|---|"]
     for g in report.gates:
         pct = 100.0 * g.value / g.limit if g.limit else float("nan")
+        # F2/F9 (branch review): the note column -- previously written to
+        # preflight.json only, never rendered here -- is what lets a
+        # reader see an ASSUMED (not Extropic-sourced) limit marked
+        # visibly next to the gate it applies to, and what distinguishes
+        # node_budget's pre-placement mediator ESTIMATE from the
+        # `mediators` line above (placement's ACTUAL count), rather than
+        # leaving two numbers that can disagree unexplained on the page.
         lines.append(f"| {g.name} | {g.value:g} | {g.limit:g} | "
-                     f"{pct:.1f}% | **{g.status}** |")
+                     f"{pct:.1f}% | **{g.status}** | {g.note} |")
     if not report.bipartite:
         lines.append(
             "\n> The interaction graph is **not bipartite**, so it cannot be "

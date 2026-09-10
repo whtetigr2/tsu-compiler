@@ -47,6 +47,56 @@ def test_preflight_subcommand_writes_its_three_files_and_exits_zero(tmp_path):
         assert (out / name).exists(), f"missing {name}"
 
 
+def _write_bigbias_edges(tmp_path):
+    """A tiny bipartite path graph whose peak |b| (9.0) exceeds z1's
+    max_abs_bias cap (6.0, source="assumed") while |J| stays under its own
+    (Extropic-documented) cap -- the branch review's own F2 repro shape
+    (`preflight --edges .../bigbias.json`), as an edge-list `--edges` file
+    for the real CLI entry point."""
+    d = dict(nodes=3, edges=[[0, 1, 0.5], [1, 2, 0.5]],
+             biases=[9.0, 0.0, 0.0], beta=1.0)
+    p = tmp_path / "bigbias.json"
+    p.write_text(json.dumps(d), encoding="utf-8")
+    return p
+
+
+def test_preflight_allow_assumed_flag_downgrades_the_verdict(tmp_path):
+    """WHAT THIS PINS (F2, branch review): `tsu preflight --edges ...
+    --allow-assumed` downgrades a failing ASSUMED gate (max_abs_bias)
+    instead of failing the whole run on it, threaded all the way from the
+    CLI flag through to tsu.gates.gate_checks()'s own `allow_assumed`
+    parameter -- this branch shipped preflight with no such flag at all
+    (compile already has one; preflight's reimplementation dropped it).
+    HOW IT FAILS: a CLI with no --allow-assumed argument makes argparse
+    reject this command line before main() ever runs; one that parses the
+    flag but never threads it into `run_preflight(...)` leaves rc == 1
+    (verdict fail) and preflight.json's max_abs_bias status "fail"
+    regardless of the flag.
+    PROVENANCE: branch review F2's own bigbias repro and severity table
+    ("--allow-assumed downgrade: honoured [gates.py] / no such flag
+    [preflight/check.py]")."""
+    edges = _write_bigbias_edges(tmp_path)
+
+    out_fail = tmp_path / "pf_fail"
+    rc_fail = main(["preflight", "--edges", str(edges), "--out", str(out_fail)])
+    assert rc_fail == 1
+    data_fail = json.loads((out_fail / "preflight.json").read_text(encoding="utf-8"))
+    assert data_fail["verdict"] == "fail"
+    bias_gate_fail = next(g for g in data_fail["gates"] if g["name"] == "max_abs_bias")
+    assert bias_gate_fail["status"] == "fail"
+
+    out_ok = tmp_path / "pf_allow"
+    rc_ok = main(["preflight", "--edges", str(edges), "--out", str(out_ok),
+                  "--allow-assumed"])
+    assert rc_ok == 0
+    data_ok = json.loads((out_ok / "preflight.json").read_text(encoding="utf-8"))
+    assert data_ok["verdict"] != "fail"
+    bias_gate_ok = next(g for g in data_ok["gates"] if g["name"] == "max_abs_bias")
+    assert bias_gate_ok["status"] == "downgraded"
+    assert bias_gate_ok["assumed"] is True
+    assert bias_gate_ok["downgraded"] is True
+
+
 def _write_regime_edges(tmp_path, beta=0.2):
     """A tiny unmediated model: a 4-node path graph, small couplings. Small
     enough that sweep()'s own production defaults (16 chains x 2000 samples,

@@ -130,6 +130,35 @@ def test_the_report_states_that_no_hardware_was_involved(tmp_path):
     assert "no hardware" in txt or "simulat" in txt
 
 
+def test_report_marks_an_assumed_gate_limit_visibly(tmp_path):
+    """WHAT THIS PINS (F2, branch review): report.md's gates table renders
+    a `note` column, and an ASSUMED (not Extropic-sourced) gate's note is
+    marked visibly there -- before this, `write_preflight`'s table had NO
+    note column at all (value/limit/%/status only), so `assumed`/
+    `downgraded` were carried in preflight.json but invisible on the page
+    a reader actually reads, which was itself part of the F2 defect: an
+    Extropic-documented fact (max_abs_coupling) and a genuine project
+    guess (max_abs_bias) rendered IDENTICALLY on report.md's table.
+    HOW IT FAILS: a report.md whose gates table has no note column (or
+    one that never says ASSUMED for max_abs_bias) makes the substring
+    assertions below fail.
+    PROVENANCE: target.py's Sourced(6.0, "assumed", ...) for max_abs_bias;
+    branch review F2."""
+    n = 3
+    im = IsingModel(nodes=tuple(f"n{i}" for i in range(n)),
+                    edges=((0, 1), (1, 2)), weights=np.full(2, 0.5),
+                    biases=np.array([9.0, 0.0, 0.0]), beta=1.0, offset=0.0)
+    rep = preflight(im)
+    write_preflight(rep, tmp_path)
+    txt = (tmp_path / "report.md").read_text(encoding="utf-8")
+    assert "| note |" in txt, "the gates table must render a note column"
+    assert "max_abs_bias" in txt and "ASSUMED" in txt
+    lines = [ln for ln in txt.splitlines() if ln.startswith("| max_abs_bias")]
+    assert lines, "max_abs_bias must appear as a gate row"
+    assert "ASSUMED" in lines[0]
+    assert "the hardware's" not in lines[0].lower()
+
+
 def test_a_placement_failure_shows_its_remediations_in_the_report(tmp_path):
     """WHAT THIS PINS: when placement fails, the compiler's own remediation
     text (not just a bare 'fail' verdict) reaches report.md.

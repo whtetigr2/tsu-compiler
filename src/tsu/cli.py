@@ -235,6 +235,13 @@ def main(argv=None) -> int:
         q = sub.add_parser(name)
         q.add_argument("--spec"); q.add_argument("--edges")
         q.add_argument("--out", default=f"{name}_out")
+    pf = sub.choices["preflight"]
+    pf.add_argument("--allow-assumed", action="store_true",
+                    help="downgrade a failing gate whose limit is an "
+                         "ASSUMED (not Extropic-sourced) value, e.g. "
+                         "max_abs_bias, instead of failing on it (F2, "
+                         "matches `compile`'s existing --allow-assumed "
+                         "and tsu.gates.gate_checks()'s own semantics)")
     rg = sub.choices["regime"]
     rg.add_argument("--beta-min", type=float, default=0.05)
     rg.add_argument("--beta-max", type=float, default=0.60)
@@ -315,7 +322,7 @@ def main(argv=None) -> int:
 
     if a.cmd == "preflight":
         model = load_model(spec=a.spec, edges=a.edges)
-        rep = run_preflight(model)
+        rep = run_preflight(model, allow_assumed=a.allow_assumed)
         for out_path in write_preflight(rep, a.out):
             print(f"  -> {out_path}")
         print(f"  verdict: {rep.verdict.upper()}  "
