@@ -415,3 +415,105 @@ def test_a_row_that_clears_on_the_first_attempt_does_not_escalate():
     assert r.n_samples_used == 1000
     assert r.ess_unavailable is False
     assert r.tau is not None
+
+
+# ---------------------------------------------------------------------------
+# F6 (branch review): N_eff must never exceed the number of draws actually
+# taken. tsu.ess's windowed tau estimate can dip below 1.0 on a fast-mixing
+# chain (routine, not a bug in tsu.ess -- see ess.py's own module docstring),
+# which makes N_eff = N_total/tau print LARGER than N_total. "your effective
+# sample size exceeds your sample size" is flagged in the branch review as
+# the one line that ends a conversation with a reviewer, even though the
+# review independently confirmed (exact Boltzmann enumeration, RMS sigma_off
+# 1.07 over 10 couplings) that the resulting error bars are still correctly
+# calibrated -- this is a presentation/estimator-artifact defect, not a wrong
+# number. tsu.ess itself is deliberately NOT touched here (it is validated
+# against arviz/statsmodels with its own test suite); the floor belongs at
+# the one call site that renders tau/N_eff to a reader.
+# ---------------------------------------------------------------------------
+
+def test_reported_ess_is_floored_and_never_exceeds_the_total_draw_count(monkeypatch):
+    """WHAT THIS PINS: `sweep()` floors the REPORTED tau at 1.0 (and, with
+    it, N_eff = N_total/tau) before it goes into a RegimeRow, even when
+    tsu.ess's own estimator reports a raw tau below 1. tau_A = 1 +
+    2*sum_k rho_k is exactly 1.0 for i.i.d. draws (every rho_k is 0 beyond
+    lag 0), so a windowed ESTIMATE below 1 is an artifact of Sokal's
+    finite-window truncation on a fast-mixing chain -- no physical process
+    mixes better than white noise. Flooring is CONSERVATIVE: it can only
+    shrink an over-large N_eff back toward N_total (never inflate it
+    further) and can only widen `abs_m_err` (never understate it) --
+    checked here by asserting `stderr_from_ess` is called with the FLOORED
+    ess, not tsu.ess's raw (inflated) one.
+
+    `effective_sample_size` is monkeypatched (not tsu.ess itself, which
+    this task's brief says must stay untouched) to return a controlled
+    EssEstimate with tau=0.8 -- exactly the "tau dips below 1" shape the
+    branch review reproduced live (N_eff=35,153 from N_total=32,000 on a
+    16-node ring).
+
+    HOW IT FAILS: without a floor, `r.tau`/`r.n_eff` pass tsu.ess's raw
+    EssEstimate straight through, so `r.tau == 0.8` (fails `>= 1.0`) and
+    `r.n_eff == n_total/0.8 == 1.25*n_total` (exceeds n_total). And if the
+    floor were applied to `tau`/`n_eff` for display only but NOT threaded
+    into the `stderr_from_ess` call, the captured `ess` argument would be
+    the raw, inflated `n_total/0.8` instead of `n_total` -- an error bar
+    computed from a too-large ESS is a too-SMALL (falsely precise) stderr,
+    exactly the overstatement the review's own "conservative" framing
+    rules out.
+    PROVENANCE: tsu.ess's module docstring (Sokal 1989 sec. 3.3) for why
+    tau_A = 1 for i.i.d. draws; N_eff=35,153/N_total=32,000 is the branch
+    review's own live reproduction (F6)."""
+    import tsu.preflight.sweep as sweep_mod
+    from tsu.ess import EssEstimate
+
+    n_chains, n_samples = 8, 100
+    n_total = n_chains * n_samples
+
+    def fake_ess(chains, *a, **k):
+        # A raw tau below 1: the windowing artifact this floor exists to
+        # neutralise at the reporting boundary, not a real chain property.
+        return EssEstimate(ess=n_total / 0.8, iat=0.8, n_total=n_total,
+                           reliable=True, reason="")
+    monkeypatch.setattr(sweep_mod, "effective_sample_size", fake_ess)
+
+    captured = {}
+    real_stderr = sweep_mod.stderr_from_ess
+
+    def spying_stderr(x, ess):
+        captured["ess"] = ess
+        return real_stderr(x, ess)
+    monkeypatch.setattr(sweep_mod, "stderr_from_ess", spying_stderr)
+
+    rows = sweep_mod.sweep(_independent_spins_model, sizes=[4], couplings=[0.0],
+                           seed=0, n_chains=n_chains, n_samples=n_samples,
+                           n_warmup=10, steps=1, max_samples=n_samples)
+    r = rows[0]
+    assert r.tau == pytest.approx(1.0), \
+        "a raw tau below 1.0 must be floored to 1.0 when reported"
+    assert r.n_eff == pytest.approx(n_total), \
+        "N_eff must never be reported larger than the total draws taken"
+    assert captured["ess"] == pytest.approx(n_total), \
+        "abs_m_err must be computed from the FLOORED ess, not tsu.ess's raw, " \
+        "artificially-inflated one -- otherwise flooring tau/n_eff for " \
+        "display would leave the error bar just as falsely precise as before"
+
+
+def test_report_legend_states_the_tau_and_n_eff_convention(tmp_path):
+    """WHAT THIS PINS: report.md's legend states the tau/N_eff convention
+    this tool actually uses (tau_A = 1 + 2*sum_k rho_k, Sokal/emcee; N_eff =
+    N_total/tau_A) so a reader is not left to guess which of several
+    published conventions (the branch review notes the design spec itself
+    is ambiguous about this) the printed numbers follow.
+    HOW IT FAILS: a report.md whose legend never states the formula makes
+    every substring assertion below fail.
+    PROVENANCE: branch review F6 ("report.md prints a tau column and an
+    N_eff column and never states the convention... Add one line to the
+    legend")."""
+    from tsu.preflight.render import write_regime
+    rows = _rows(16, [0.3], [0.2])
+    write_regime(rows, None, None, tmp_path, onsager=None)
+    text = (tmp_path / "report.md").read_text(encoding="utf-8")
+    assert "tau_A" in text or "1 + 2" in text, \
+        "the legend must state the tau_A = 1 + 2*sum rho_k convention"
+    assert "N_eff" in text and "tau_A" in text, \
+        "the legend must state N_eff = N_total / tau_A"

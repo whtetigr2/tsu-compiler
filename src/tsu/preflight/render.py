@@ -274,6 +274,12 @@ def write_regime(rows, band, cross, out_dir, *, onsager,
             f"{r.binder:.3f} | {_fmt_opt(r.tau, r.ess_reason, '.2f')} | "
             f"{_fmt_opt(r.n_eff, r.ess_reason, '.0f')} | {r.r_hat:.3f} | "
             f"{r.n_samples_used:,} | {', '.join(flags)} |")
+    lines.append("\n`tau` here is tau_A = 1 + 2 * sum_k rho_k (Sokal/emcee "
+                 "automatic windowing) and `N_eff` = N_total / tau_A, "
+                 "floored at tau_A = 1.0 so N_eff never prints larger than "
+                 "the draws actually taken (tau_A = 1.0 exactly for i.i.d. "
+                 "draws; an estimate below that is a windowing artifact, "
+                 "not a real property -- see `tsu.preflight.sweep.sweep`).")
     lines.append("\nRows marked **provisional** have R-hat above "
                  f"{RHAT_THRESHOLD}: their chains disagree, so those numbers "
                  "are not trusted and are excluded from the band. Rows "

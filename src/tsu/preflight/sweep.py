@@ -175,13 +175,40 @@ def sweep(model_fn, sizes, couplings, *, seed: int = 0, n_chains: int = 16,
             reason = est.reason if est.reliable else (
                 f"{est.reason} (largest attempt: n_samples={cur_n_samples}, "
                 f"budget max_samples={max_samples})")
+
+            # F6 (branch review): FLOOR tau at 1.0 for REPORTING, and with it
+            # N_eff = N_total/tau. tau_A = 1 + 2*sum_k rho_k (tsu.ess's own
+            # convention, see its module docstring) is exactly 1.0 for i.i.d.
+            # draws -- every rho_k beyond lag 0 is 0 -- so a windowed ESTIMATE
+            # dipping below 1 is an artifact of Sokal's finite-window
+            # truncation on a fast-mixing chain, not a real property any
+            # physical process can have (nothing mixes better than white
+            # noise). Unflored, this prints N_eff > N_total (the review's own
+            # reproduction: 35,153 from 32,000 draws) -- "your effective
+            # sample size exceeds your sample size" is flagged there as the
+            # one line that ends a conversation with a reviewer, even though
+            # the review independently confirmed (exact Boltzmann enumeration)
+            # that the resulting error bars are still correctly calibrated.
+            # Flooring is CONSERVATIVE: N_eff can only shrink toward N_total
+            # (never grow past it), so abs_m_err (computed from the SAME
+            # floored ess below) can only widen, never overstate precision.
+            # Deliberately NOT done inside tsu.ess itself -- that module is
+            # independently validated against arviz/statsmodels with its own
+            # test suite, and its raw tau is exactly what
+            # RELIABILITY_MIN_N_OVER_TAU was calibrated against -- flooring
+            # belongs at the one call site that renders tau/N_eff to a reader.
+            reported_tau = max(est.iat, 1.0) if est.iat is not None else None
+            reported_ess = (est.n_total / reported_tau
+                            if reported_tau is not None else None)
+
             rows.append(RegimeRow(
                 beta_j=float(bj), size=int(size),
                 abs_m=float(np.mean(np.abs(m_all))),
-                abs_m_err=(stderr_from_ess(np.abs(m_all), est.ess)
-                           if est.ess is not None else None),
+                abs_m_err=(stderr_from_ess(np.abs(m_all), reported_ess)
+                           if reported_ess is not None else None),
                 chi=susceptibility(m_all, rep.n_nodes),
-                binder=binder(m_all), tau=est.iat, n_eff=est.ess, r_hat=rh,
+                binder=binder(m_all), tau=reported_tau, n_eff=reported_ess,
+                r_hat=rh,
                 ess_reason=reason,
                 ess_unavailable=not est.reliable,
                 provisional=bool(rh > RHAT_THRESHOLD),
