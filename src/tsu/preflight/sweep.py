@@ -39,6 +39,24 @@ edge of the usable band: past here the model is ordered and produces a single
 configuration, which is as useless as noise."""
 
 
+_PERMANENT_REFUSAL_PREFIX = "unavailable: series is constant"
+"""tsu.ess's own wording (see `effective_sample_size` in ess.py) for the
+ONE refusal reason no amount of escalation can cure: a numerically
+constant series has undefined autocorrelation regardless of how many more
+draws are taken, because there is no variance for the estimator to measure
+in the first place. Every OTHER refusal reason this module's escalation
+loop sees (too few samples per chain, N/tau below the reliability floor, a
+non-finite tau estimate) CAN in principle be cured by more draws, so only
+this one reason stops the loop early (F7, branch review: retrying a
+permanent refusal wastes compute and, worse, its reason string then claims
+a budget was exhausted -- implying raising --max-samples would help, which
+it would not)."""
+
+
+def _is_permanent_refusal(reason: str) -> bool:
+    return reason.startswith(_PERMANENT_REFUSAL_PREFIX)
+
+
 def onsager_betac(j_max: float) -> float:
     """Onsager's exact critical coupling for the UNIFORM 2-D square-lattice
     Ising model in zero field: sinh(2*Kc) = 1, so Kc = arcsinh(1)/2 =
@@ -289,6 +307,13 @@ def sweep(model_fn, sizes, couplings, *, seed: int = 0, n_chains: int = 16,
                 rh = r_hat(np.abs(per_chain))
                 if est.reliable:
                     break
+                if _is_permanent_refusal(est.reason):
+                    # F7 (branch review): a constant series stays constant
+                    # no matter how many more draws are taken -- doubling
+                    # n_samples cannot manufacture variance that was never
+                    # there. Stop here rather than burning the rest of the
+                    # budget on a retry that cannot succeed.
+                    break
                 next_n_samples = cur_n_samples * 2
                 if next_n_samples > max_samples:
                     # Budget exhausted: report the largest attempt actually
@@ -305,9 +330,20 @@ def sweep(model_fn, sizes, couplings, *, seed: int = 0, n_chains: int = 16,
             # docstring for why the two are kept separate. `provisional`
             # reflects R-hat ALONE: only chain disagreement makes the mean
             # itself untrustworthy.
-            reason = est.reason if est.reliable else (
-                f"{est.reason} (largest attempt: n_samples={cur_n_samples}, "
-                f"budget max_samples={max_samples})")
+            # F7 (branch review): the "(largest attempt: ..., budget
+            # max_samples=...)" suffix is only accurate -- and only
+            # honest -- for a CURABLE refusal that the escalation loop
+            # actually retried against a real compute budget. A PERMANENT
+            # refusal (constant series) was never retried at all (the
+            # loop above breaks on the first attempt), so appending that
+            # suffix would misreport a structural, unfixable refusal as a
+            # budget shortfall -- implying to a reader that raising
+            # --max-samples would help, which it would not. Its own
+            # reason from tsu.ess already says exactly why, unqualified.
+            reason = (est.reason if est.reliable
+                     or _is_permanent_refusal(est.reason) else
+                     f"{est.reason} (largest attempt: n_samples={cur_n_samples}, "
+                     f"budget max_samples={max_samples})")
 
             # F6 (branch review): FLOOR tau at 1.0 for REPORTING, and with it
             # N_eff = N_total/tau. tau_A = 1 + 2*sum_k rho_k (tsu.ess's own

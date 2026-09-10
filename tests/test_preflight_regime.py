@@ -418,6 +418,87 @@ def test_a_row_that_clears_on_the_first_attempt_does_not_escalate():
 
 
 # ---------------------------------------------------------------------------
+# F7 (branch review): escalation must not retry a PERMANENT refusal (one no
+# number of draws can cure) and must not report it as if a compute budget
+# were the limit. The review's live repro: a single spin, --beta-steps 3,
+# escalated 2000 -> 4000 -> ... -> 32,000 (16x the compute, three times
+# over) before reporting "series is constant (zero variance)...
+# (largest attempt: n_samples=32000, budget max_samples=32000)" -- text
+# that reads to any user as "we ran out of budget; raise --max-samples",
+# which would not help: a numerically constant series has no variance for
+# ANY number of draws to reveal.
+# ---------------------------------------------------------------------------
+
+def _frozen_spin_model(size, beta_j):
+    """A single spin with a bias large enough that beta_j*b clears ~18.4 --
+    the point past which `p_plus = 1/(1+exp(-2*beta*b))` rounds to EXACTLY
+    1.0 in float64 (verified directly: `np.random.default_rng(0).random()`
+    draws are always < 1.0, so `draws < p_plus` is unconditionally True) --
+    reproducing tsu.ess's 'series is constant (zero variance)' refusal
+    deterministically, the same shape as the branch review's own
+    single-spin live repro, without depending on a specific --beta-steps
+    value or a near-miss numeric coincidence."""
+    return IsingModel(nodes=("only",), edges=(),
+                      weights=np.array([], dtype=float),
+                      biases=np.array([1000.0]), beta=beta_j, offset=0.0)
+
+
+def test_a_permanent_refusal_is_not_retried_and_does_not_blame_the_budget():
+    """WHAT THIS PINS: a refusal that MORE DRAWS CANNOT CURE (a numerically
+    constant series) is not escalated past the STARTING n_samples, and its
+    reason does not claim a budget was exhausted.
+    HOW IT FAILS: an escalation loop that doubles on EVERY refusal
+    (structural or not) makes `r.n_samples_used` equal `max_samples`
+    (32,000) instead of the starting 2,000 -- it always escalates all the
+    way to the budget on a series that can never clear the reliability
+    floor at any draw count. And an unconditional
+    `f"{reason} (largest attempt: ..., budget max_samples=...)"` suffix
+    makes `r.ess_reason` contain 'budget'/'largest attempt' even for this
+    permanent, unfixable refusal, implying to a reader that raising
+    --max-samples would help.
+    PROVENANCE: tsu.ess.effective_sample_size's own reason string for a
+    constant series ('unavailable: series is constant (zero variance);
+    autocorrelation is undefined'); branch review F7's single-spin live
+    reproduction (beta_j=0.05, beta-steps=3)."""
+    rows = sweep(_frozen_spin_model, sizes=[1], couplings=[0.05], seed=0,
+                n_chains=8, n_samples=2000, n_warmup=10, steps=1,
+                max_samples=32_000)
+    r = rows[0]
+    assert r.ess_unavailable is True
+    assert "series is constant" in r.ess_reason
+    assert r.n_samples_used == 2000, \
+        "a permanent (uncurable) refusal must not be escalated past the " \
+        "starting n_samples"
+    assert "budget" not in r.ess_reason, \
+        "a permanent refusal's reason must not imply a budget shortfall"
+    assert "largest attempt" not in r.ess_reason, \
+        "a permanent refusal's reason must not name an escalation attempt " \
+        "that was never actually needed"
+
+
+def test_a_curable_refusal_still_escalates_and_still_names_its_budget():
+    """Complementary case: N/tau-below-floor (curable in principle by more
+    draws) must still escalate and still carry the 'largest attempt'
+    budget wording -- F7's fix must distinguish the two refusal REASONS,
+    not stop escalating altogether. `max_samples=150` (vs. n_samples=50)
+    is chosen so ONE doubling (50 -> 100) fits inside the budget before
+    the next (100 -> 200) would exceed it -- confirming an actual
+    escalation happens, not merely that the loop exits immediately (which
+    `test_escalation_stops_at_the_max_samples_budget`'s own tighter budget
+    already covers)."""
+    rows = sweep(_independent_spins_model, sizes=[4], couplings=[0.0], seed=0,
+                n_chains=4, n_samples=50, n_warmup=10, steps=1,
+                max_samples=150)
+    r = rows[0]
+    assert r.ess_unavailable is True
+    assert r.n_samples_used == 100, \
+        "a curable refusal (N/tau below the floor) must still escalate " \
+        "(one doubling fits inside this fixture's budget)"
+    assert "n_samples=" in r.ess_reason
+    assert "budget max_samples=" in r.ess_reason
+
+
+# ---------------------------------------------------------------------------
 # F6 (branch review): N_eff must never exceed the number of draws actually
 # taken. tsu.ess's windowed tau estimate can dip below 1.0 on a fast-mixing
 # chain (routine, not a bug in tsu.ess -- see ess.py's own module docstring),
