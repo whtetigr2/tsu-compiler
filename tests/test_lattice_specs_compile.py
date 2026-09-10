@@ -18,7 +18,9 @@ against z1 (a bipartite target) -- cheap, no geometric search. Task 6 makes
 (verified separately, `tests/test_mediator_insertion.py`), so the failure
 that used to be `parity_conflict` is now `placement_effort_exhausted` --
 mediation fixes PARITY, but the subsequent GEOMETRIC embedding search onto
-Z1's lattice (place.py's own `_anneal`, budget 6 restarts x 40,000 iters) is
+Z1's lattice (place.py's own `_greedy_descent` -- renamed from `_anneal` by
+external review C-4, 2026-09-10; it was never simulated annealing -- budget 6
+restarts x 40,000 iters) is
 a SEPARATE, much harder problem that this task does not attempt to solve,
 and does not finish within that budget for either spec at this scale. This
 is measured, not assumed -- both real `-m tsu compile` invocations below

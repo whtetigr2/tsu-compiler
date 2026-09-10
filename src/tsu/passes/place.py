@@ -4,7 +4,19 @@ EXP-WL1 rated a 3D cubic lattice GREEN with zero mediators on parity; EXP-WL2 th
 found geometry, not parity, was binding. Parity is NECESSARY, never SUFFICIENT, so
 this pass runs an actual embedding and names which failure class it hit.
 
-`_anneal` is a seeded, budgeted heuristic search, not a decision procedure. When it
+`_greedy_descent` (external review C-4, 2026-09-10: renamed from `_anneal` -- its
+acceptance rule (`new <= cur`, below) takes no worsening move and runs no
+temperature schedule, so it is greedy local-search descent, not annealing; the old
+name claimed a mechanism -- a temperature-driven escape from local minima -- this
+function does not have) is a seeded, budgeted heuristic search, not a decision
+procedure. Restarts (fresh random seeds, `_embed_on_lattice`'s own `for seed in
+range(restarts)` loop) are the ONLY escape this search has from a local minimum --
+`iters` beyond the point a given restart has already converged just walks the same
+plateau, since no move that increases `bad()` is ever accepted. That is also the
+explanation for this project's own "6-32 minutes to fail" placement regime seen
+elsewhere (`tests/test_lattice_specs_compile.py`'s own measured wall times): every
+restart runs its FULL iteration budget even after converging to a local optimum,
+because this function has no other stopping signal short of `cur == 0`. When it
 does not find a legal embedding within its budget, that is a fact about the search,
 not about the substrate -- see `placement_effort_exhausted` below. C1 of the final
 review found this pass reporting three provably-embeddable grids (an identity map
@@ -125,7 +137,15 @@ class Placement:
     mediated_report: GraphReport | None = None
 
 
-def _anneal(G, offsets, side, iters, seed):
+def _greedy_descent(G, offsets, side, iters, seed):
+    """Single-flip greedy local search: accepts a proposed move whenever it does
+    not make `bad()` worse (`new <= cur`, sideways moves included), never a
+    worsening one, and runs no temperature schedule at all. That makes this
+    greedy descent (with plateau walking on ties), not simulated annealing,
+    despite the name this function had before external review C-4
+    (2026-09-10) -- see the module docstring above for the full rationale and
+    what that means for this pass's actual escape mechanism (restarts, not
+    `iters`)."""
     rng = random.Random(seed)
     nodes = list(G.nodes())
     coords = {n: (rng.randrange(side), rng.randrange(side)) for n in nodes}
@@ -192,7 +212,7 @@ def _embed_on_lattice(ising: IsingModel, target: TargetProfile,
     side = max(4, int(n ** 0.5) + 3)
     best, best_bad = None, None
     for seed in range(restarts):
-        coords, nbad = _anneal(G, target.offsets.value, side, iters, seed)
+        coords, nbad = _greedy_descent(G, target.offsets.value, side, iters, seed)
         if best_bad is None or nbad < best_bad:
             best, best_bad = coords, nbad
         if nbad == 0:
