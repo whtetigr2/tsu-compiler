@@ -96,6 +96,56 @@ def test_regime_subcommand_sweeps_a_single_model_and_exits_zero(tmp_path):
         "the sweep must run at this model's own size (4 nodes), not a default"
 
 
+def _write_grid_edges(tmp_path, n=3, j=1.0, beta=0.2):
+    """An n x n open (non-periodic) 4-neighbour square lattice edge-list,
+    uniform |J|, zero bias -- the exact graph class Onsager solved, and
+    (F1, branch review) the exact shape of the live case the branch review
+    used to catch `regime.json["onsager_note"]` falsely reading "not
+    applicable to this graph" on the one graph Onsager's Kc actually
+    applies to."""
+    idx = {(x, y): y * n + x for y in range(n) for x in range(n)}
+    edges = []
+    for (x, y), i in idx.items():
+        for dx, dy in ((1, 0), (0, 1)):
+            if (x + dx, y + dy) in idx:
+                edges.append([i, idx[(x + dx, y + dy)], j])
+    d = dict(nodes=n * n, edges=edges, biases=[0.0] * (n * n), beta=beta)
+    p = tmp_path / "grid_model.json"
+    p.write_text(json.dumps(d), encoding="utf-8")
+    return p
+
+
+def test_regime_json_onsager_note_applies_on_a_real_uniform_square_lattice(tmp_path):
+    """WHAT THIS PINS (F1, branch review): a real `tsu regime` CLI run on a
+    3x3 uniform, zero-field, open square lattice -- via the same
+    `--edges`/`load_model` -> `sweep_single_model` path every `tsu regime`
+    invocation uses -- writes `regime.json["onsager_kc"]` as Onsager's
+    exact constant and `onsager_note` stating it applies, NOT the false
+    "not applicable to this graph" every `tsu regime` run printed before
+    this fix (the branch review's own grep found no test anywhere reading
+    this exact field; this is a full CLI-level version of that check,
+    complementing test_preflight_regime.py's direct
+    `detect_uniform_square_lattice` unit tests).
+    HOW IT FAILS: `sweep_single_model` still hardcoding `onsager=None`
+    (this branch's shipped behaviour) makes `onsager_kc` None and
+    `onsager_note` either the old "not applicable to this graph" or the
+    new default "not determined: ..." fallback -- either way, not the
+    "applies"/uniform-square-lattice claim asserted below.
+    PROVENANCE: Onsager (1944); Kc = ln(1+sqrt(2))/2 ~= 0.4407, the same
+    constant `test_onsager_betac_matches_the_textbook_constant` pins in
+    tests/test_preflight_regime.py."""
+    edges = _write_grid_edges(tmp_path, n=3, j=1.0)
+    out = tmp_path / "rg"
+    rc = main(["regime", "--edges", str(edges), "--out", str(out),
+               "--beta-min", "0.3", "--beta-max", "0.5", "--beta-steps", "2"])
+    assert rc == 0
+    data = json.loads((out / "regime.json").read_text(encoding="utf-8"))
+    assert data["onsager_kc"] == pytest.approx(0.4407, abs=1e-4)
+    assert "applies" in data["onsager_note"].lower() \
+        or "square lattice" in data["onsager_note"].lower()
+    assert data["onsager_note"] != "not applicable to this graph"
+
+
 def test_regime_refuses_a_mediated_model_without_sampling(tmp_path, monkeypatch):
     """WHAT THIS PINS: a model carrying mediator spins (built through the
     real `route.insert_mediators`, not a hand-set `mediator_nodes` tuple)

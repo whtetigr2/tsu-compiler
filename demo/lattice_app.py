@@ -82,6 +82,12 @@ from tsu.passes.encode import encode  # noqa: E402
 from tsu.simulate import reconstruct_program, _selected_encoding  # noqa: E402
 from tsu.backends.thrml_backend import sample as thrml_sample  # noqa: E402
 from tsu.passes.route import assert_beta_consistent, BetaMismatchError  # noqa: E402 -- Task 7
+# F1 (branch review, preflight-tool): onsager_betac's closed form now lives
+# in tsu.preflight.sweep (reused there too, for the same physics, rather
+# than kept as two driftable copies) -- imported here, not redefined, so
+# this module and `tsu regime`'s Onsager cross-check can never disagree
+# about the formula.
+from tsu.preflight.sweep import onsager_betac  # noqa: E402
 from worldfile import save_world  # noqa: E402 -- A2: save/load provenance-carrying worlds
 import frontier as frontier_mod  # noqa: E402 -- B1: capacity frontier panel
 # Task 5: World Studio tab -- world.studio/run_log/export imported as modules,
@@ -1079,26 +1085,20 @@ def fmt_duration(seconds: float) -> str:
     return f"{seconds * 1e6:.1f} us"
 
 
-def onsager_betac(j_max: float) -> float:
-    """Onsager's critical coupling for the UNIFORM 2-D square-lattice Ising
-    model: sinh(2*Kc) = 1, so Kc = arcsinh(1) = ln(1+sqrt(2)) and
-    betac = Kc / j_max. Computed from the formula every call, never a
-    hardcoded decimal -- a copy-pasted constant is exactly the kind of
-    unverified figure this project's whole ethos exists to refuse.
-
-    THIS IS AN ORIENTING ESTIMATE, NOT A DERIVED CRITICAL POINT FOR THIS
-    GRAPH (see `beta_regime` below, which is what the app actually
-    displays and where this caveat is shown on screen, not just in a
-    comment) -- Onsager's result is exact for uniform coupling on an
-    infinite 2-D square lattice with no field; this model has non-uniform
-    couplings (workload weights differ per rule), hidden mediator spins,
-    and a different graph entirely."""
-    if j_max <= 0:
-        raise ValueError(
-            f"onsager_betac requires a positive |J|max, got {j_max!r}; a "
-            f"model with no couplings at all has no coupling scale to site "
-            f"a critical beta against")
-    return math.log(1.0 + math.sqrt(2.0)) / 2.0 / j_max
+# onsager_betac (Onsager's critical coupling for the uniform 2-D
+# square-lattice Ising model) now lives in tsu.preflight.sweep and is
+# imported at the top of this file (F1, branch review: keeping this
+# formula in exactly one place, reused by both this app and `tsu regime`'s
+# Onsager cross-check, rather than two copies that could silently drift
+# apart). See that module for the formula and its docstring.
+#
+# THIS IS AN ORIENTING ESTIMATE, NOT A DERIVED CRITICAL POINT FOR THIS
+# GRAPH, when called below (see `beta_regime`, which is what the app
+# actually displays and where this caveat is shown on screen, not just in
+# a comment) -- Onsager's result is exact for uniform coupling on an
+# infinite 2-D square lattice with no field; this app's own model has
+# non-uniform couplings (workload weights differ per rule), hidden
+# mediator spins, and a different graph entirely.
 
 
 ONSAGER_ASSUMPTION_NOTE = (

@@ -17,7 +17,7 @@ from .passes.search import compile_spec
 from .preflight.check import preflight as run_preflight
 from .preflight.model import load_model
 from .preflight.render import write_preflight, write_regime
-from .preflight.sweep import sweep, usable_band
+from .preflight.sweep import detect_uniform_square_lattice, sweep, usable_band
 from .receipt import replay, write_receipt
 from .report import render_explain, render_report
 from .simulate import simulate
@@ -132,14 +132,22 @@ def sweep_single_model(model, *, beta_min, beta_max, beta_steps, out_dir):
     # the appended report text below says so rather than leaving the two
     # facts looking unrelated.
     band = usable_band(rows, None)
-    # Onsager's Kc applies ONLY to a uniform square lattice in zero field.
-    # `load_model`'s output (spec or edge-list) carries no lattice-topology
-    # metadata -- just nodes/edges/weights/biases -- so that fact cannot be
-    # determined here. Printing it where it might not apply is the exact
-    # months-long mistake this project already made once (see sweep.py's
-    # module docstring); None is the honest answer given what this function
-    # actually has to work with.
-    paths = write_regime(rows, band, None, out_dir, onsager=None)
+    # F1 (branch review): actually CHECK whether Onsager's Kc applies to
+    # this model instead of hardcoding None. The old comment here claimed
+    # the fact "cannot be determined" -- that was itself wrong: nothing
+    # about `load_model`'s output prevents checking uniform |J|, zero
+    # field, and grid structure directly from nodes/edges/weights/biases,
+    # only the absence of a check did. `detect_uniform_square_lattice` is
+    # deliberately conservative (three states: applies / checked and does
+    # not apply / not determined -- see its own docstring), so a false
+    # positive here remains as unlikely as under the old hardcoded-None
+    # behaviour, while a genuine uniform square lattice -- the one graph
+    # Onsager solved, and the graph on which the old hardcoded None
+    # produced a flatly false "not applicable to this graph" claim -- now
+    # gets its Kc printed and cross-checked against the measured crossing.
+    onsager_kc, onsager_note = detect_uniform_square_lattice(model)
+    paths = write_regime(rows, band, None, out_dir, onsager=onsager_kc,
+                         onsager_note=onsager_note)
 
     # write_regime's own crossing=None message ("the range may not bracket
     # the transition") is correct for a genuine two-size sweep that simply

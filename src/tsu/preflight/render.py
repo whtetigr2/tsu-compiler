@@ -151,8 +151,24 @@ def write_preflight(report, out_dir) -> list[Path]:
 
 
 def write_regime(rows, band, cross, out_dir, *, onsager,
+                 onsager_note: str | None = None,
                  sweep_config: dict | None = None) -> list[Path]:
     """Render a regime sweep's rows, usable band and Binder crossing.
+
+    `onsager_note` (F1, branch review) makes explicit a caller's THREE
+    distinct possible claims about Onsager's Kc, never collapsed to a
+    binary applies/does-not: "applies" (`onsager` is numeric), "checked
+    and does not apply" (a caller POSITIVELY VERIFIED a precondition
+    fails), or "not determined" (never checked, or the check could not
+    decide either way). Keyword-only and defaulted to None, matching the
+    `sweep_config` precedent immediately below, so every call in this
+    task's own brief keeps working unchanged. When a caller does not
+    supply one, the fallback below is honest about NOT knowing rather
+    than F1's shipped "not applicable to this graph" for every run that
+    never checked at all -- `tsu.preflight.sweep.detect_uniform_square_
+    lattice` is what a caller should use to get a real three-state answer;
+    `tsu.cli.sweep_single_model` is the one caller in this codebase that
+    does.
 
     `sweep_config` is NOT part of this task's stated interface
     (`write_regime(rows, band, cross, out_dir, *, onsager)`) -- it is added
@@ -180,15 +196,27 @@ def write_regime(rows, band, cross, out_dir, *, onsager,
     prov_path = out / "provenance.json"
     prov_path.write_text(json.dumps(prov, indent=2), encoding="utf-8")
 
+    if onsager_note is not None:
+        note = onsager_note
+    elif onsager is not None:
+        note = ("printed only because the graph is a uniform square "
+               "lattice in zero field")
+    else:
+        # F1 (branch review): NOT "not applicable to this graph" -- this
+        # branch is reached only when a caller passed onsager=None without
+        # ever saying WHY, so the honest claim is that applicability was
+        # never determined here, not that it was checked and failed.
+        note = ("not determined: this call did not report whether "
+               "Onsager's solution applies to this graph (no onsager_note "
+               "was supplied)")
+
     j = out / "regime.json"
     j.write_text(json.dumps(dict(
         rows=[asdict(r) for r in rows],
         usable_band=list(band) if band else None,
         binder_crossing=cross,
         onsager_kc=onsager,
-        onsager_note=("printed only because the graph is a uniform square "
-                      "lattice in zero field" if onsager is not None else
-                      "not applicable to this graph"),
+        onsager_note=note,
     ), indent=2), encoding="utf-8")
 
     sizes = sorted({r.size for r in rows})

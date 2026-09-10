@@ -517,3 +517,205 @@ def test_report_legend_states_the_tau_and_n_eff_convention(tmp_path):
         "the legend must state the tau_A = 1 + 2*sum rho_k convention"
     assert "N_eff" in text and "tau_A" in text, \
         "the legend must state N_eff = N_total / tau_A"
+
+
+# ---------------------------------------------------------------------------
+# F1 (branch review): `regime.json["onsager_note"]` was hardcoded to "not
+# applicable to this graph" whenever `onsager` was None -- collapsing "I did
+# not check" into "it does not apply" is a false claim about the exact
+# constant this project's spec opens with (an 8x8 uniform square lattice --
+# the one graph Onsager solved -- printed that false note on every run,
+# because the code never checked). `detect_uniform_square_lattice` replaces
+# the hardcoded `onsager=None` in `tsu.cli.sweep_single_model` with an actual,
+# deliberately conservative check: three distinct claims (applies / checked
+# and does not apply / not determined), never a binary. No test anywhere in
+# the suite previously read `regime.json["onsager_note"]` at all (the review's
+# own grep confirmed this) -- every test below does.
+# ---------------------------------------------------------------------------
+
+def _open_grid(n: int, j: float = 0.4, b: float = 0.0) -> IsingModel:
+    """An n x n open (non-periodic) 4-neighbour square lattice, uniform |J|,
+    zero bias by default -- the exact graph class Onsager solved. Duplicated
+    from test_preflight_check.py's/test_preflight_render.py's own `grid()`
+    fixture rather than imported, per this project's stated convention (no
+    tests/__init__.py, no cross-test-file imports elsewhere in the suite)."""
+    idx = {(x, y): y * n + x for y in range(n) for x in range(n)}
+    e = []
+    for (x, y), i in idx.items():
+        for dx, dy in ((1, 0), (0, 1)):
+            if (x + dx, y + dy) in idx:
+                e.append((i, idx[(x + dx, y + dy)]))
+    return IsingModel(nodes=tuple(f"n{i}" for i in range(n * n)),
+                      edges=tuple(e), weights=np.full(len(e), j),
+                      biases=np.full(n * n, b), beta=1.0, offset=0.0)
+
+
+def test_onsager_betac_matches_the_textbook_constant():
+    """betac = ln(1+sqrt(2)) / (2*|J|max) -- Onsager's exact result (Onsager
+    1944), computed from its closed form here, not asserted against
+    `demo.lattice_app`'s copy (which now imports THIS function -- see
+    test_frontier.py's existing `test_onsager_betac_matches_the_textbook_constant`
+    for the demo-side re-export check)."""
+    import math
+    from tsu.preflight.sweep import onsager_betac
+    j_max = 1.7
+    expected = math.log(1.0 + math.sqrt(2.0)) / 2.0 / j_max
+    assert onsager_betac(j_max) == pytest.approx(expected, rel=1e-12)
+
+
+def test_detect_uniform_square_lattice_applies_on_an_open_grid():
+    """WHAT THIS PINS: an 8x8 open uniform square lattice in zero field --
+    the one graph Onsager solved -- is DETECTED, and the returned Kc matches
+    the closed form in THIS model's own beta*J units (j=1, so kc ==
+    onsager_betac(1.0) numerically). This is the exact live case the branch
+    review reproduced: chi peaked at beta*J=0.4778 against Kc=0.4407 while
+    `regime.json["onsager_note"]` read "not applicable to this graph".
+    HOW IT FAILS: a detection that still hardcodes None (or one that is
+    too timid and reports "not determined" even on this textbook case)
+    makes `kc` None here, failing the `is not None` assertion below.
+    PROVENANCE: branch review F1's own reproduction (8x8 lattice, Kc =
+    0.4407 = ln(1+sqrt(2))/2)."""
+    from tsu.preflight.sweep import detect_uniform_square_lattice, onsager_betac
+    model = _open_grid(8, j=1.0, b=0.0)
+    kc, note = detect_uniform_square_lattice(model)
+    assert kc is not None, f"must detect the 8x8 open grid as a square lattice, got note={note!r}"
+    assert kc == pytest.approx(onsager_betac(1.0))
+    assert kc == pytest.approx(0.4407, abs=1e-4)
+    assert "applies" in note.lower() or "square lattice" in note.lower()
+    assert "not applicable" not in note.lower()
+
+
+def test_detect_uniform_square_lattice_scales_kc_with_j():
+    """kc must be reported in the SWEPT model's own beta*J units, i.e.
+    onsager_betac(j_uniform) -- not the unit-coupling constant regardless of
+    the model's actual |J|."""
+    from tsu.preflight.sweep import detect_uniform_square_lattice, onsager_betac
+    model = _open_grid(6, j=2.5, b=0.0)
+    kc, note = detect_uniform_square_lattice(model)
+    assert kc is not None
+    assert kc == pytest.approx(onsager_betac(2.5))
+
+
+def test_detect_uniform_square_lattice_does_not_apply_on_nonzero_field():
+    """A nonzero bias breaks Onsager's zero-field precondition -- this must
+    be a POSITIVELY VERIFIED 'does not apply', never 'not determined' (the
+    reason is known, not merely unchecked)."""
+    from tsu.preflight.sweep import detect_uniform_square_lattice
+    model = _open_grid(4, j=0.4, b=0.1)
+    kc, note = detect_uniform_square_lattice(model)
+    assert kc is None
+    assert "does not apply" in note.lower()
+    assert "field" in note.lower() or "bias" in note.lower()
+
+
+def test_detect_uniform_square_lattice_does_not_apply_on_nonuniform_coupling():
+    """Non-uniform |J| breaks Onsager's uniform-coupling precondition."""
+    from tsu.preflight.sweep import detect_uniform_square_lattice
+    model = _open_grid(4, j=0.4, b=0.0)
+    weights = np.array(model.weights, dtype=float)
+    weights[0] *= 3.0
+    model = IsingModel(nodes=model.nodes, edges=model.edges, weights=weights,
+                       biases=model.biases, beta=model.beta, offset=model.offset)
+    kc, note = detect_uniform_square_lattice(model)
+    assert kc is None
+    assert "does not apply" in note.lower()
+    assert "uniform" in note.lower()
+
+
+def test_detect_uniform_square_lattice_does_not_apply_on_a_1d_ring():
+    """A 1-D ring is bipartite-adjacent-ish but is not a 2-D square lattice
+    at all -- it must not be misdetected as one. This is the same fixture
+    `usable_band`'s own tests use to pin the "no transition exists" case
+    (Ising 1925): if this were ever misdetected as a square lattice, its
+    report would print a fabricated Kc next to a model that provably has
+    no finite-temperature transition at any coupling."""
+    from tsu.preflight.sweep import detect_uniform_square_lattice
+    n = 16
+    edges = tuple((i, (i + 1) % n) for i in range(n))
+    model = IsingModel(nodes=tuple(f"x{i}" for i in range(n)), edges=edges,
+                       weights=np.full(n, 1.0), biases=np.zeros(n),
+                       beta=1.0, offset=0.0)
+    kc, note = detect_uniform_square_lattice(model)
+    assert kc is None
+    assert "does not apply" in note.lower() or "not determined" in note.lower()
+
+
+def test_detect_uniform_square_lattice_does_not_apply_on_two_components():
+    """Two disjoint grids are not "a single connected uniform square
+    lattice" -- Onsager's result is for one connected lattice."""
+    from tsu.preflight.sweep import detect_uniform_square_lattice
+    a = _open_grid(3, j=0.4, b=0.0)
+    b = _open_grid(3, j=0.4, b=0.0)
+    offset = len(a.nodes)
+    nodes = a.nodes + tuple(f"m{i}" for i in range(len(b.nodes)))
+    edges = a.edges + tuple((u + offset, v + offset) for u, v in b.edges)
+    weights = np.concatenate([a.weights, b.weights])
+    biases = np.concatenate([a.biases, b.biases])
+    model = IsingModel(nodes=nodes, edges=edges, weights=weights,
+                       biases=biases, beta=1.0, offset=0.0)
+    kc, note = detect_uniform_square_lattice(model)
+    assert kc is None
+    assert "does not apply" in note.lower()
+    assert "component" in note.lower() or "connected" in note.lower()
+
+
+def test_detect_uniform_square_lattice_reports_not_determined_when_the_embed_search_is_inconclusive(monkeypatch):
+    """WHAT THIS PINS: when the bounded grid-embedding search cannot find
+    an embedding within its step budget, that is NOT proof the graph is
+    not a square lattice (`_try_grid_embed`'s own docstring: it "never
+    claims the graph is NOT grid-embeddable"). Reporting "does not apply"
+    here would be exactly F1's mistake one level down -- turning "I could
+    not confirm it" into "it is false". Must report "not determined".
+    HOW IT FAILS: treating a None from `_try_grid_embed` as a confirmed
+    negative (instead of an inconclusive search) makes `note` say "does
+    not apply" instead of "not determined"."""
+    import tsu.preflight.sweep as sweep_mod
+    monkeypatch.setattr(sweep_mod, "_try_grid_embed", lambda g, **k: None)
+    model = _open_grid(4, j=0.4, b=0.0)
+    kc, note = sweep_mod.detect_uniform_square_lattice(model)
+    assert kc is None
+    assert "not determined" in note.lower()
+
+
+def test_write_regime_honours_an_explicit_onsager_note(tmp_path):
+    """WHAT THIS PINS: `write_regime`'s `onsager_note` keyword, when
+    supplied, is written into `regime.json["onsager_note"]` VERBATIM --
+    the caller's three-state judgement (from `detect_uniform_square_lattice`)
+    must not be collapsed back down by `write_regime`'s own fallback
+    binary logic. The branch review's own grep (`grep -rn "onsager"
+    tests/`) found NO test anywhere reading `regime.json["onsager_note"]`
+    at all -- this is that test (see test_cli.py for the full end-to-end
+    check through a real `tsu regime` run).
+    HOW IT FAILS: `write_regime` ignoring `onsager_note` and falling back
+    to its own onsager-is-None binary guess makes the JSON field read
+    "not determined: this call did not report..." (the new default)
+    instead of the exact string passed in below."""
+    import json
+    from tsu.preflight.render import write_regime
+    rows = _rows(16, [0.3], [0.2])
+    custom_note = "checked and does not apply: test stub reason"
+    paths = write_regime(rows, None, None, tmp_path, onsager=None,
+                         onsager_note=custom_note)
+    data = json.loads(paths[0].read_text(encoding="utf-8"))
+    assert data["onsager_note"] == custom_note
+
+
+def test_write_regime_defaults_to_not_determined_rather_than_not_applicable(tmp_path):
+    """WHAT THIS PINS: F1's exact regression -- when a caller supplies
+    `onsager=None` WITHOUT an explicit `onsager_note` (i.e. never checked
+    applicability at all), `write_regime` must NOT claim "not applicable to
+    this graph" (a false claim about a fact it never checked). It must say
+    it does not know.
+    HOW IT FAILS: reverting to the old two-branch literal keyed only on
+    `onsager is not None` makes `data["onsager_note"] ==
+    "not applicable to this graph"` -- exactly F1's shipped defect.
+    PROVENANCE: branch review F1, live reproduction on an 8x8 uniform
+    square lattice (`onsager_kc`: None, `onsager_note`: "not applicable to
+    this graph", while chi peaked at beta*J=0.4778 against Kc=0.4407)."""
+    import json
+    from tsu.preflight.render import write_regime
+    rows = _rows(16, [0.3], [0.2])
+    paths = write_regime(rows, None, None, tmp_path, onsager=None)
+    data = json.loads(paths[0].read_text(encoding="utf-8"))
+    assert data["onsager_note"] != "not applicable to this graph"
+    assert "not determined" in data["onsager_note"].lower()

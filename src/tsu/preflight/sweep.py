@@ -19,13 +19,17 @@ and so cannot locate the transition on its own.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
+import networkx as nx
 import numpy as np
 
 from tsu.ess import effective_sample_size
 from tsu.preflight.diagnostics import RHAT_THRESHOLD, r_hat, stderr_from_ess
 from tsu.passes.analyse import analyse
+from tsu.passes.lower import IsingModel
+from tsu.passes.place import _try_grid_embed
 from tsu.passes.program import build_program
 from tsu.backends.thrml_backend import sample_chains
 
@@ -33,6 +37,135 @@ SATURATION = 0.9
 """|m| above which one state has effectively swallowed the system. The upper
 edge of the usable band: past here the model is ordered and produces a single
 configuration, which is as useless as noise."""
+
+
+def onsager_betac(j_max: float) -> float:
+    """Onsager's exact critical coupling for the UNIFORM 2-D square-lattice
+    Ising model in zero field: sinh(2*Kc) = 1, so Kc = arcsinh(1)/2 =
+    ln(1+sqrt(2))/2, and betac = Kc / j_max. Computed from the closed form
+    every call, never a hardcoded decimal -- a copy-pasted constant is
+    exactly the kind of unverified figure this project's whole ethos exists
+    to refuse.
+
+    THE SOLE DEFINITION OF THIS FORMULA IN THIS CODEBASE. It used to be
+    defined independently in `demo/lattice_app.py`, which now imports it
+    from here instead (see that module's own import comment) rather than
+    keeping a second, driftable copy -- `demo` already depends on `tsu`
+    (never the reverse: `demo/lattice_app.py` imports tkinter/PIL/scipy
+    that `tsu`'s own declared dependencies, pyproject.toml, do not carry,
+    so `tsu` importing FROM `demo` would invert that dependency direction
+    and drag a GUI's dependencies into the compiler's own preflight/regime
+    CLI path).
+
+    THIS IS EXACT ONLY FOR A UNIFORM |J|, ZERO-FIELD, 2-D SQUARE LATTICE --
+    see `detect_uniform_square_lattice` below for the deliberately
+    conservative check this project runs on a model before ever printing
+    this value next to one of its own measured sweeps (F1, branch review:
+    printing -- or refusing to print -- this value on a guess rather than a
+    check is exactly the defect that check exists to close)."""
+    if j_max <= 0:
+        raise ValueError(
+            f"onsager_betac requires a positive |J|max, got {j_max!r}; a "
+            f"model with no couplings at all has no coupling scale to site "
+            f"a critical beta against")
+    return math.log(1.0 + math.sqrt(2.0)) / 2.0 / j_max
+
+
+def detect_uniform_square_lattice(ising: IsingModel) -> tuple[float | None, str]:
+    """Conservatively decide whether `ising` IS a uniform, zero-field, open
+    2-D square lattice -- the ONE graph class `onsager_betac` is exact for
+    -- and return `(kc, note)`.
+
+    F1 (branch review): the shipped code hardcoded `onsager=None` for every
+    `tsu regime` run and then rendered that as "not applicable to this
+    graph" -- collapsing "I did not check" into "it does not apply" is a
+    FALSE CLAIM about the exact constant this project's spec opens with. An
+    8x8 uniform square lattice (the one graph Onsager solved) printed that
+    false note on every run, while the sweep's own chi peaked at beta*J =
+    0.4778 against Kc = 0.4407. This function exists so a caller never has
+    to choose between "hardcode None" and "guess yes".
+
+    THREE distinct return shapes, never a binary applies/does-not:
+      - `kc` is Onsager's Kc in THIS model's own beta*J units
+        (`onsager_betac(j_uniform)`) when every check below passes; `note`
+        says so ("applies").
+      - `kc is None` and `note` starts "checked and does not apply: ..." --
+        a POSITIVELY VERIFIED reason the graph fails one of Onsager's
+        preconditions (nonzero field, non-uniform |J|, more than one
+        connected component, or a confirmed non-rectangular/incomplete
+        embedding).
+      - `kc is None` and `note` starts "not determined: ..." -- this
+        function could not decide either way. WHEN IN DOUBT, THIS IS THE
+        ANSWER: a false positive here (claiming Onsager applies when it
+        does not) is far worse than a missing cross-check, so every branch
+        that cannot POSITIVELY confirm non-applicability falls through to
+        "not determined" rather than "does not apply". In particular, a
+        `None` from `_try_grid_embed` means its BOUNDED search did not
+        find an embedding within its own step budget -- its own docstring
+        says this "never claims the graph is NOT grid-embeddable" -- so
+        that case is "not determined", not "does not apply"; treating it
+        as a confirmed negative would be F1's exact mistake one level down.
+    """
+    if len(ising.biases) and float(np.max(np.abs(ising.biases))) > 0.0:
+        return None, ("checked and does not apply: at least one node has a "
+                      "nonzero bias (the field is not zero); Onsager's "
+                      "solution is exact for zero field only")
+    if len(ising.weights) == 0:
+        return None, ("not determined: this graph has no couplings, so "
+                      "there is no coupling scale to site a critical "
+                      "coupling against")
+
+    j_abs = np.abs(np.asarray(ising.weights, dtype=float))
+    if not np.allclose(j_abs, j_abs[0], rtol=0.0, atol=1e-9):
+        return None, ("checked and does not apply: couplings are not "
+                      "uniform (|J| varies across edges); Onsager's "
+                      "solution is exact for a single uniform |J| only")
+    j_uniform = float(j_abs[0])
+
+    g = nx.Graph()
+    g.add_nodes_from(range(len(ising.nodes)))
+    g.add_edges_from(ising.edges)
+    if g.number_of_nodes() == 0:
+        return None, "not determined: this graph has no nodes"
+    if nx.number_connected_components(g) != 1:
+        return None, ("checked and does not apply: this graph has more "
+                      "than one connected component; Onsager's solution "
+                      "is for a single connected lattice")
+
+    coords = _try_grid_embed(g)
+    if coords is None:
+        # A None here means the BOUNDED search did not find an embedding
+        # within its step budget -- not that no embedding exists (see this
+        # function's own docstring). "not determined", never "does not
+        # apply".
+        return None, ("not determined: this tool's bounded grid-embedding "
+                      "search did not confirm (or rule out) a square-"
+                      "lattice structure for this graph")
+
+    xs = [c[0] for c in coords.values()]
+    ys = [c[1] for c in coords.values()]
+    x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)
+    rows, cols = y1 - y0 + 1, x1 - x0 + 1
+    occupied = set(coords.values())
+    filled_rectangle = occupied == {(x, y) for x in range(x0, x1 + 1)
+                                    for y in range(y0, y1 + 1)}
+    expected_edges = rows * (cols - 1) + cols * (rows - 1)
+    if not filled_rectangle or g.number_of_edges() != expected_edges:
+        # The graph DOES embed into the grid (_try_grid_embed already
+        # verified every edge is an axis-unit step), but it is not a
+        # complete, hole-free open rectangle -- e.g. a path, a ring laid
+        # flat, or a lattice with missing/extra internal edges. This is a
+        # POSITIVE construction (occupied cells and edge count are both
+        # counted, not merely un-searched), so it is "does not apply", not
+        # "not determined".
+        return None, ("checked and does not apply: this graph embeds into "
+                      "the 2-D grid but is not a complete, hole-free open "
+                      "rectangular lattice (missing/extra internal edges "
+                      "or a non-rectangular boundary)")
+
+    kc = onsager_betac(j_uniform)
+    return kc, ("printed only because the graph is a uniform square "
+               "lattice in zero field")
 
 
 @dataclass(frozen=True)
