@@ -63,7 +63,13 @@ def sweep_single_model(model, *, beta_min, beta_max, beta_steps, out_dir):
         return dataclasses.replace(model, beta=beta_j)
 
     rows = sweep(model_fn, sizes=[n_spins], couplings=couplings)
-    band = usable_band(rows)
+    # crossing is always None here (no size family -- see below), and
+    # usable_band's lower edge IS the crossing (tsu.preflight.sweep's own
+    # docstring), so band is always None too. That is not a second,
+    # independent limitation; it is a direct consequence of the first, and
+    # the appended report text below says so rather than leaving the two
+    # facts looking unrelated.
+    band = usable_band(rows, None)
     # Onsager's Kc applies ONLY to a uniform square lattice in zero field.
     # `load_model`'s output (spec or edge-list) carries no lattice-topology
     # metadata -- just nodes/edges/weights/biases -- so that fact cannot be
@@ -77,19 +83,42 @@ def sweep_single_model(model, *, beta_min, beta_max, beta_steps, out_dir):
     # the transition") is correct for a genuine two-size sweep that simply
     # never crossed, but MISLEADING here: this sweep has no size family at
     # all, so the crossing is not unobserved, it is structurally
-    # unavailable from a single model. Append the real reason rather than
-    # let the generic one stand uncorrected -- report.md must say WHY.
+    # unavailable from a single model -- and since the band's lower edge IS
+    # the crossing, the same is true of "No usable band was found" a few
+    # lines later in write_regime's own output. Append the real reason for
+    # both, tied together, rather than let them stand as two apparently
+    # independent, contradictory-looking limitations.
+    good_rows = [r for r in rows if not r.provisional]
+    if good_rows:
+        peak = max(good_rows, key=lambda r: r.chi)
+        peak_text = (
+            f"The susceptibility peaks at beta*J = {peak.beta_j:g} (chi = "
+            f"{peak.chi:.3g}) within this sweep's own range. That is "
+            "reported here as an INDICATIVE signal only, not a located "
+            "transition: the susceptibility peak drifts with system size "
+            "(see `tsu.preflight.sweep`'s module docstring), and this "
+            "sweep has only one size to measure it at, so there is no way "
+            "to tell how much it would move on a different-size graph. It "
+            "plays no part in the (absent) band above.")
+    else:
+        peak_text = (
+            "Every row in this sweep was provisional (R-hat above "
+            "threshold, chains disagree), so even the susceptibility "
+            "peak's location cannot be reported here.")
     report_path = Path(out_dir) / "report.md"
     report_path.write_text(
         report_path.read_text(encoding="utf-8") +
-        "\n## Why no Binder crossing\n\n"
+        "\n## Why no Binder crossing (and no usable band)\n\n"
         f"This sweep covers a single size ({n_spins} spins) because "
         "`--spec`/`--edges` load exactly one fixed-size model -- there is "
         "no size family to sweep. Locating the transition by finite-size "
         "scaling requires two or more sizes' Binder curves to cross; a "
         "single `--spec`/`--edges` model cannot provide that, so no "
-        "crossing is computed or inferred here. Everything else above "
-        "(<|m|>, chi, U, tau, N_eff, R-hat, and the susceptibility peak) is "
+        "crossing is computed or inferred here.\n\n"
+        "The usable band's lower edge IS the Binder crossing, so with no "
+        "crossing there is no usable band either -- this is the same "
+        "limitation stated twice, not two independent ones. " + peak_text +
+        "\n\nEverything else above (<|m|>, chi, U, tau, N_eff, R-hat) is "
         "measured directly from this model's own sweep and is unaffected "
         "by the missing size family.\n",
         encoding="utf-8")

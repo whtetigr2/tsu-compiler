@@ -134,7 +134,17 @@ def test_regime_refuses_a_mediated_model_without_sampling(tmp_path, monkeypatch)
 def test_regime_report_explains_why_no_binder_crossing_was_computed(tmp_path):
     """WHAT THIS PINS: report.md states WHY the Binder crossing is missing
     -- it requires a size family, which a single `--spec`/`--edges` model
-    cannot provide -- not just that `binder_crossing` is null.
+    cannot provide -- not just that `binder_crossing` is null. It also ties
+    the ABSENT usable band to that same fact (the band's lower edge IS the
+    crossing -- see `tsu.preflight.sweep.usable_band`), rather than
+    reporting "no crossing" and "no usable band" as two apparently
+    independent, contradictory-looking limitations a few lines apart. This
+    is what a real coordinator review caught: running `regime` on a
+    16-node 1D Ising ring (a model with NO finite-temperature transition,
+    Ising 1925) reported "No Binder crossing was observed" and then, three
+    lines later, "Usable band: (0.433, 0.6)" -- both from `usable_band`'s
+    now-deleted `binder > 0.1` literal firing on ordinary disordered-phase
+    fluctuation while the crossing line correctly said nothing was found.
     `write_regime`'s own built-in crossing=None message ("the range may not
     bracket the transition") is true for a genuine multi-size sweep that
     simply never crossed, but MISLEADING here: this sweep never had a size
@@ -146,11 +156,16 @@ def test_regime_report_explains_why_no_binder_crossing_was_computed(tmp_path):
     returning without appending the size-family-specific explanation would
     leave report.md carrying only the generic message, which never mentions
     a size family at all -- the substring assertions below would then fail.
+    Also fails if `sweep_single_model` ever called `usable_band(rows)`
+    without an explicit `crossing` argument again (a `TypeError` from the
+    now-required parameter) or passed anything other than `None` for a
+    single-model sweep (which has no second size to cross with).
     PROVENANCE: the task brief's own required statement ("locating the
     transition by finite-size scaling requires a size family, which a
     single --spec/--edges model cannot provide") and
     `tsu.preflight.sweep.crossing`'s own docstring, which needs two sizes'
-    Binder curves to find where they cross."""
+    Binder curves to find where they cross; `usable_band`'s own docstring
+    for the lower-edge-is-the-crossing design and the 1D ring finding."""
     edges = _write_regime_edges(tmp_path)
     out = tmp_path / "rg"
     rc = main(["regime", "--edges", str(edges), "--out", str(out),
@@ -159,11 +174,19 @@ def test_regime_report_explains_why_no_binder_crossing_was_computed(tmp_path):
 
     data = json.loads((out / "regime.json").read_text(encoding="utf-8"))
     assert data["binder_crossing"] is None
+    assert data["usable_band"] is None
 
     text = (out / "report.md").read_text(encoding="utf-8")
+    assert "No usable band was found in this sweep." in text
     assert "finite-size scaling" in text
     assert "size family" in text.lower()
     assert "single" in text.lower()
+    assert "lower edge" in text.lower() and "crossing" in text.lower(), \
+        "the report must tie the missing band to the missing crossing, " \
+        "not state them as two unrelated facts"
+    assert "susceptibility peak" in text.lower(), \
+        "the susceptibility peak must be reported in the band's place, " \
+        "labeled as indicative rather than a located transition"
 
 
 def test_compile_then_visualize_produces_all_four_layers(tmp_path, capsys):

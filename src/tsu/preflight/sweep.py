@@ -210,29 +210,66 @@ def crossing(rows_a, rows_b):
     return None
 
 
-def usable_band(rows, saturate: float = SATURATION):
-    """(low, high) coupling where the model orders but has not saturated.
+def usable_band(rows, crossing, saturate: float = SATURATION):
+    """(low, high) coupling where the model orders but has not saturated, or
+    None when no such band can be measured.
 
-    Filters on `provisional` ONLY -- R-hat above threshold, meaning the chains
-    disagree and the mean itself is suspect -- never on `ess_unavailable`. The
-    band is defined purely from `binder` (has ordering started) and `abs_m`
-    (has it saturated), neither of which depends on tau at all: an
-    ESS-unavailable row's mean is still the best estimate the draws support,
-    only its error bar is unquantified. Excluding it anyway would be actively
-    wrong here, not just overcautious -- tau genuinely diverges near an
-    ordering transition (critical slowing down), so ESS-unavailable rows
-    cluster exactly where the band's edge is, and dropping them would make
-    this function refuse to locate the transition precisely where it exists.
+    THE LOWER EDGE IS THE MEASURED BINDER CROSSING -- nothing else. This
+    function used to derive its own lower edge from a hardcoded
+    `binder > 0.1` literal, invented while writing this module's plan and
+    never justified against the design (which already says the lower edge
+    IS the crossing). That literal was a real, shipped defect: run against a
+    16-node 1D Ising ring (uniform ferromagnetic J, zero bias) -- which has
+    NO finite-temperature phase transition at any coupling (exact result,
+    Ising 1925) -- it fired on correlated-but-disordered fluctuation (binder
+    reached ~0.13, comfortably past the 0.1 literal, with no genuine
+    ordering anywhere in range) and reported a confident-looking band on a
+    model with a known-correct answer of "no band exists". `crossing` is
+    accepted as a required parameter specifically so this function cannot
+    reconstruct that mistake: when `crossing` is None (no size family was
+    swept, or the sweep never bracketed one -- see `crossing()` above),
+    there is no principled lower edge, and this returns None outright
+    rather than inventing one from `binder` alone.
+
+    THE UPPER EDGE MUST BE A REAL SATURATION OBSERVATION, never "the last
+    coupling the sweep happened to try": if no row at or above the crossing
+    actually reaches `saturate`, the band is open above (`high = None`) --
+    "the sweep didn't reach saturation within its own range" is a fact
+    about the swept range, not a measurement of where the model itself
+    would saturate, and printing the sweep's own upper bound as if it were
+    that measurement is the same category of mistake as the deleted lower
+    edge. `SATURATION` itself stays a named, stated operational definition
+    (spec: |m| above which one state has effectively swallowed the system)
+    -- unlike the deleted 0.1, it was never presented as a measurement, so
+    it is not the same defect.
+
+    Filters on `provisional` ONLY -- R-hat above threshold, meaning the
+    chains disagree and the mean itself is suspect -- never on
+    `ess_unavailable`. An ESS-unavailable row's mean (abs_m) is still the
+    best estimate the draws support, only its error bar is unquantified;
+    tau genuinely diverges near an ordering transition (critical slowing
+    down), so ESS-unavailable rows cluster exactly where the band's edge
+    is, and dropping them would make this function refuse to locate the
+    band precisely where it exists.
     """
+    if crossing is None:
+        return None
     good = sorted((r for r in rows if not r.provisional),
                   key=lambda r: r.beta_j)
     if not good:
         return None
-    started = [r for r in good if r.binder > 0.1]
-    if not started:
+    lo = float(crossing)
+    above = [r for r in good if r.beta_j >= lo]
+    if not above:
         return None
-    lo = started[0].beta_j
-    below = [r for r in good if r.beta_j >= lo and r.abs_m < saturate]
+    saturated = [r for r in above if r.abs_m >= saturate]
+    if not saturated:
+        # Open above: nothing at or above the crossing saturated within
+        # this sweep's own range. `above[-1].beta_j` (the largest coupling
+        # actually tried) is exactly the fake edge this function used to
+        # report -- reporting None here instead is the fix.
+        return (lo, None)
+    below = [r for r in above if r.abs_m < saturate]
     if not below:
         return None
-    return (float(lo), float(below[-1].beta_j))
+    return (lo, float(below[-1].beta_j))

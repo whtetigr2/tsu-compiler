@@ -87,9 +87,27 @@ def test_crossing_returns_none_when_the_curves_never_meet():
                     _rows(16, [0.05, 0.15, 0.25], cs)) is None
 
 
-def test_usable_band_starts_at_ordering_and_ends_at_saturation():
-    """Below the band the model is disordered; above it one state swallows the
-    system, which is as useless as noise."""
+def test_usable_bands_lower_edge_is_the_crossing_value():
+    """WHAT THIS PINS: `usable_band`'s lower edge IS the `crossing` value
+    passed in -- not a value `usable_band` derives on its own from
+    `binder`. This test replaces
+    `test_usable_band_starts_at_ordering_and_ends_at_saturation`, which
+    encoded the exact defect a real coordinator review caught: this
+    function used to derive its own lower edge from a hardcoded
+    `binder > 0.1` literal, invented while writing the sweep plan and never
+    checked against the design doc, which already says the lower edge IS
+    the crossing. That literal fired on a 16-node 1D Ising ring -- a model
+    with NO finite-temperature transition at any coupling (Ising 1925) --
+    reporting a confident-looking band where none exists (see
+    `test_usable_band_is_none_without_a_crossing_on_a_real_1d_ising_ring`
+    below for the live reproduction). The old test asserted only `lo < hi`
+    and `hi <= 0.5`, which the vacuous 0.1-derived band ALSO satisfied --
+    exactly the "trivially true" shape this project's review process
+    exists to catch, so this replacement pins an exact tuple instead.
+    HOW IT FAILS: `usable_band` internally deriving its own lower edge
+    (from `binder` or anything else) instead of using the `crossing`
+    argument verbatim makes `band[0] != 0.2` here.
+    PROVENANCE: hand-traced arithmetic below."""
     cs = [0.1, 0.2, 0.3, 0.4, 0.5]
     rows = [RegimeRow(beta_j=b, size=16, abs_m=m, abs_m_err=0.01, chi=1.0,
                       binder=u, tau=1.0, n_eff=100.0, r_hat=1.0,
@@ -97,65 +115,152 @@ def test_usable_band_starts_at_ordering_and_ends_at_saturation():
                       n_samples_used=2000)
             for b, m, u in zip(cs, [0.05, 0.12, 0.40, 0.80, 0.97],
                                [0.02, 0.10, 0.35, 0.58, 0.66])]
-    lo, hi = usable_band(rows)
-    assert lo < hi
-    assert hi <= 0.5
-    assert all(r.abs_m < SATURATION for r in rows if lo <= r.beta_j <= hi)
+    # lo = crossing = 0.2 (given, not derived). Rows at/above 0.2:
+    # (0.2, 0.12), (0.3, 0.40), (0.4, 0.80), (0.5, 0.97) -- only 0.5
+    # reaches SATURATION (0.9), so hi = the largest sub-saturation beta_j
+    # at/above lo among the rest, 0.4.
+    band = usable_band(rows, crossing=0.2)
+    assert band == (0.2, 0.4)
+
+
+def test_usable_band_is_open_above_when_no_row_saturates():
+    """WHAT THIS PINS: the upper edge is a REAL saturation observation, not
+    "the last coupling the sweep happened to try". This is the other half
+    of the defect the coordinator's review caught: on the 1D ring, the
+    reported upper edge (0.6) was exactly the sweep's own `--beta-max`, not
+    a measured saturation -- none of that sweep's rows ever reached
+    SATURATION. Here, no row at or above the crossing reaches SATURATION
+    (0.9) either, so the band must be open above (`(crossing, None)`), not
+    `(crossing, 0.4)` (the largest beta_j actually swept).
+    HOW IT FAILS: reverting to `below[-1].beta_j` as the upper edge
+    whenever `below` is non-empty (the old code's shape), without first
+    checking whether anything actually SATURATED, makes this return
+    `(0.2, 0.4)` instead of `(0.2, None)`.
+    PROVENANCE: hand-traced arithmetic below (max abs_m in this fixture is
+    0.30, well under SATURATION=0.9)."""
+    cs = [0.1, 0.2, 0.3, 0.4]
+    rows = [RegimeRow(beta_j=b, size=16, abs_m=m, abs_m_err=0.01, chi=1.0,
+                      binder=0.1, tau=1.0, n_eff=100.0, r_hat=1.0,
+                      ess_reason="ok", ess_unavailable=False, provisional=False,
+                      n_samples_used=2000)
+            for b, m in zip(cs, [0.05, 0.12, 0.20, 0.30])]
+    assert all(r.abs_m < SATURATION for r in rows)
+    band = usable_band(rows, crossing=0.2)
+    assert band == (0.2, None)
 
 
 def test_a_provisional_row_is_excluded_from_the_band():
     """A row whose chains disagree (R-hat above threshold) must not silently
-    set the band's edge -- even though its ESS estimate happens to be fine
-    here, `provisional` alone (never `ess_unavailable`) is what disqualifies
-    a row; see `test_ess_unavailable_row_still_counts_toward_the_band` for
-    the complementary case."""
-    cs = [0.1, 0.2, 0.3]
+    set the band's upper edge -- even though its own abs_m would (if
+    wrongly included) look like the right answer. `provisional` alone
+    (never `ess_unavailable`) is what disqualifies a row; see
+    `test_ess_unavailable_row_still_counts_toward_the_band` for the
+    complementary case.
+
+    Reworked for the `crossing` parameter `usable_band` now requires (see
+    `test_usable_bands_lower_edge_is_the_crossing_value`): `crossing=0.1`
+    puts the lower edge at the first row. Without the provisional row
+    (beta_j=0.35, deliberately given a LOW abs_m=0.10 so it would extend
+    the band's upper edge if wrongly counted), the upper edge is the last
+    sub-saturation row among {0.1, 0.3, 0.4}, which is 0.3 (0.4 saturates
+    at abs_m=0.95). If the provisional filter were broken, 0.35's abs_m
+    (0.10, well under SATURATION) would push the upper edge to 0.35
+    instead -- this test pins the exact tuple so that regression is
+    visible, not just "a band exists"."""
+    cs = [0.1, 0.3, 0.35, 0.4]
     rows = [RegimeRow(beta_j=b, size=16, abs_m=m, abs_m_err=0.01, chi=1.0,
-                      binder=u, tau=1.0, n_eff=100.0, r_hat=rh,
+                      binder=0.5, tau=1.0, n_eff=100.0, r_hat=rh,
                       ess_reason="ok", ess_unavailable=False,
                       provisional=rh > RHAT_THRESHOLD, n_samples_used=2000)
-            for b, m, u, rh in zip(cs, [0.05, 0.40, 0.80],
-                                   [0.02, 0.35, 0.58], [1.0, 1.9, 1.0])]
-    band = usable_band(rows)
-    # Asserting this only `if band is not None` would let a usable_band that
-    # always returns None pass unconditionally -- the exact vacuous shape this
-    # project has now caught 18 times. The band must exist AND exclude the
-    # provisional row.
-    assert band is not None, "a provisional row must be skipped, not abort the band"
-    assert 0.2 not in band
+            for b, m, rh in zip(cs, [0.05, 0.60, 0.10, 0.95],
+                                [1.0, 1.0, 1.9, 1.0])]
+    band = usable_band(rows, crossing=0.1)
+    assert band == (0.1, 0.3), \
+        "the provisional row at beta_j=0.35 must not set the upper edge"
 
 
 def test_ess_unavailable_row_still_counts_toward_the_band():
     """An R-hat-clean row whose ESS estimate is unavailable must still count
-    toward the band -- refusing an ERROR BAR does not mean the MEAN (abs_m,
-    binder) is wrong, and tau genuinely diverges near a transition (critical
+    toward the band -- refusing an ERROR BAR does not mean the MEAN (abs_m)
+    is wrong, and tau genuinely diverges near a transition (critical
     slowing down), which is exactly the region this function exists to
     locate. Conflating the two (the shape this task's brief originally
     shipped: `provisional = r_hat>threshold or not reliable`) would make
     usable_band refuse to find the band precisely where it is.
 
-    Same beta_j/abs_m/binder fixture as
-    test_usable_band_starts_at_ordering_and_ends_at_saturation (expected band
-    (0.3, 0.4)), but every row here has tau/n_eff/abs_m_err=None and
-    ess_unavailable=True, provisional=False throughout -- so a usable_band
-    that (incorrectly) filtered on ess_unavailable too would collapse `good`
-    to the empty list and return None instead of (0.3, 0.4). Verified this
-    fails under that reversion (`good = [r for r in rows if not (r.provisional
-    or r.ess_unavailable)]`) before confirming it passes against the actual
-    (provisional-only) filter."""
+    Same beta_j/abs_m fixture as
+    test_usable_bands_lower_edge_is_the_crossing_value (crossing=0.3 here
+    reproduces that test's own derived lower edge, giving the same
+    expected band (0.3, 0.4)), but every row here has tau/n_eff/abs_m_err
+    =None and ess_unavailable=True, provisional=False throughout -- so a
+    usable_band that (incorrectly) filtered on ess_unavailable too would
+    collapse `good` to the empty list and return None instead of
+    (0.3, 0.4). Verified this fails under that reversion (`good = [r for r
+    in rows if not (r.provisional or r.ess_unavailable)]`) before
+    confirming it passes against the actual (provisional-only) filter."""
     cs = [0.1, 0.2, 0.3, 0.4, 0.5]
     rows = [RegimeRow(beta_j=b, size=16, abs_m=m, abs_m_err=None, chi=1.0,
-                      binder=u, tau=None, n_eff=None, r_hat=1.0,
+                      binder=0.3, tau=None, n_eff=None, r_hat=1.0,
                       ess_reason="unavailable: N/tau below the reliability "
                                  "threshold (largest attempt: n_samples=32000, "
                                  "budget max_samples=32000)",
                       ess_unavailable=True, provisional=False, n_samples_used=32_000)
-            for b, m, u in zip(cs, [0.05, 0.12, 0.40, 0.80, 0.97],
-                               [0.02, 0.10, 0.35, 0.58, 0.66])]
-    band = usable_band(rows)
+            for b, m in zip(cs, [0.05, 0.12, 0.40, 0.80, 0.97])]
+    band = usable_band(rows, crossing=0.3)
     assert band is not None, \
         "an ESS-unavailable (but R-hat-clean) row must still count toward the band"
     assert band == (0.3, 0.4)
+
+
+@pytest.mark.slow
+def test_usable_band_is_none_without_a_crossing_on_a_real_1d_ising_ring():
+    """WHAT THIS PINS: a real sweep of a 16-node 1D Ising ring (uniform
+    ferromagnetic J, zero bias) -- which has NO finite-temperature phase
+    transition at any coupling strength (exact result, Ising 1925) -- must
+    report no usable band when `crossing` is None, even though the ring's
+    own MEASURED Binder cumulant rises past the deleted `0.1` literal well
+    within this sweep's range. A band reported here would be a false
+    positive with a KNOWN-CORRECT answer (no band exists, because no
+    transition exists).
+
+    This is the exact live finding from a coordinator review: `tsu regime
+    --edges` on a 16-node ring reported "No Binder crossing was observed"
+    immediately followed by "Usable band: (0.433, 0.6)" three lines later
+    -- self-contradictory, both symptoms of the same deleted literal.
+
+    HOW IT FAILS: reverting `usable_band` to derive its lower edge from
+    `binder > 0.1` (ignoring the `crossing` argument) makes this fail --
+    the fixture-sanity assertion below confirms the ring's own binder
+    really does cross 0.1 within this sweep, so the reverted code would
+    report a spurious band instead of None. Verified directly: temporarily
+    restored the old `started = [r for r in good if r.binder > 0.1]` /
+    `lo = started[0].beta_j` logic (ignoring `crossing`) and re-ran this
+    test -- it failed with a non-None band, before confirming it passes
+    against the actual crossing-gated implementation.
+    PROVENANCE: Ising, E. (1925), "Beitrag zur Theorie des
+    Ferromagnetismus" -- the 1D Ising chain/ring has no finite-temperature
+    ordering transition at any nonzero temperature, for any coupling
+    strength."""
+    n = 16
+    edges = tuple((i, (i + 1) % n) for i in range(n))
+
+    def model_fn(size, beta_j):
+        return IsingModel(nodes=tuple(f"x{i}" for i in range(n)), edges=edges,
+                          weights=np.full(n, 1.0), biases=np.zeros(n),
+                          beta=beta_j, offset=0.0)
+
+    rows = sweep(model_fn, sizes=[n], couplings=[0.05, 0.2, 0.4, 0.6], seed=0,
+                n_chains=8, n_samples=1000, n_warmup=1000, steps=4,
+                max_samples=8000)
+
+    crossed_the_deleted_literal = [r for r in rows if r.binder > 0.1]
+    assert crossed_the_deleted_literal, (
+        "fixture sanity: this test needs the ring's REAL measured binder "
+        "to cross the deleted 0.1 literal somewhere in the sweep, or it "
+        "would not actually catch a reversion to that logic -- got binder "
+        f"values {[r.binder for r in rows]}")
+
+    assert usable_band(rows, None) is None
 
 
 def test_sweep_defaults_clear_the_ess_reliability_floor():
