@@ -12,7 +12,15 @@ RULES = ((1, 0), (2, 1), (2, 3), (4, 1))
 
 
 def _z1_offsets() -> tuple[tuple[int, int], ...]:
-    """Rotations only. Including reflections gives degree 28 and breaks bipartiteness."""
+    """Rotations only. Including reflections gives degree 28, which exceeds the
+    documented degree-16 connectivity (F-14) -- that is why they are excluded,
+    not a bipartiteness concern: every dihedral image of a rule (a, b) --
+    rotation or reflection -- preserves the parity of dx+dy (reflecting (a, b)
+    to (a, -b) gives a-b = (a+b) - 2*b, the same parity as a+b), so all 28
+    offsets under the full dihedral group have odd dx+dy, exactly like the 16
+    rotation-only ones do; the chessboard 2-colouring (F-18) is unaffected
+    either way. Confirmed computationally over all 28 (external review C-1,
+    2026-09-10)."""
     off = set()
     for a, b in RULES:
         off |= {(a, b), (-b, a), (-a, -b), (b, -a)}
