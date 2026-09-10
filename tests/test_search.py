@@ -239,3 +239,118 @@ def test_compile_spec_reports_hardware_not_compiled_when_mediation_exceeds_the_c
     for cand in c.repset.candidates:
         assert cand.state == CandidateState.HARDWARE_INFEASIBLE
         assert cand.failure.gate == "coupling_cap"
+
+
+# ---------------------------------------------------------------------------
+# C-5 (external review, 2026-09-10): `_try`'s try/except around the
+# place()/route() block only catches `CompileError` -- the encode/lower steps
+# just above it already catch broad `Exception` and turn a failure into a
+# rejected candidate (see the `except Exception as e:` clauses under
+# "encode failed"/"lower failed"), but place()/route() did not, so a genuine
+# bug or any other unexpected exception out of either one propagated as a raw
+# traceback all the way out of `compile_spec`, past the CLI's own clean-
+# refusal standard (preflight/regime already refuse cleanly on a bad input --
+# see test_cli.py). Fixed by adding a matching `except Exception` clause that
+# reports a HARDWARE_INFEASIBLE candidate naming the pass ("place"/"route")
+# and the exception's own type -- never swallowed, and a genuine CompileError
+# still goes through the SAME `except CompileError` branch as before,
+# unchanged.
+# ---------------------------------------------------------------------------
+
+def test_try_surfaces_an_unexpected_place_exception_as_a_candidate_not_a_traceback(
+        monkeypatch):
+    """WHAT THIS PINS: an exception from `place()` that is NOT a `CompileError`
+    (a genuine bug, not a documented hardware-infeasibility cause) must come
+    back from `_try` as a normal `HARDWARE_INFEASIBLE` candidate whose
+    `reason` names both the pass that raised ("place") and the exception's
+    own type and message -- enough to debug from the printed reason alone,
+    never silently swallowed and never a raw traceback.
+    HOW IT FAILS: before this fix, `_try`'s try/except around the
+    place()/route() block has only an `except CompileError` clause, which
+    does not match a plain `RuntimeError` -- `search_mod._try(...)` below
+    raises that `RuntimeError` straight out of this test instead of
+    returning, so every assertion after the call is never reached (the test
+    errors out, not fails cleanly, on the unfixed code).
+    PROVENANCE: reviewer's own C-5 finding; reproduced by monkeypatching
+    `place` (the same technique `_over_cap_mediated_placement`'s own callers
+    already use above) to raise a plain `RuntimeError` instead of returning a
+    `Placement` or raising `CompileError`."""
+    def fake_place(ising, report, target, **kwargs):
+        raise RuntimeError("boom: unexpected placement bug")
+
+    monkeypatch.setattr(search_mod, "place", fake_place)
+
+    spec = load_spec("specs/toy.yaml")
+    cand, art = search_mod._try(spec, Z1, "domain_wall", False)
+
+    assert cand.state == CandidateState.HARDWARE_INFEASIBLE
+    assert "RuntimeError" in cand.reason
+    assert "place" in cand.reason
+    assert "boom: unexpected placement bug" in cand.reason
+    assert art is not None and "gate_checks" in art
+
+
+def test_try_surfaces_an_unexpected_route_exception_as_a_candidate_not_a_traceback(
+        monkeypatch):
+    """WHAT THIS PINS: the SAME fix, for `route()` instead of `place()` --
+    both are named together in the review finding ("an unexpected exception
+    out of place/route propagates as a raw traceback"), and the fix must
+    cover both, distinguishing which one actually raised in `reason`.
+    HOW IT FAILS: same as the `place()` test above -- before this fix a
+    plain `KeyError` from `route()` is not caught by the `except CompileError`
+    clause and propagates straight out of `search_mod._try(...)` below,
+    erroring the test out before its assertions run.
+    PROVENANCE: reviewer's own C-5 finding, same reproduction technique as
+    the `place()` test above, applied to `route` instead."""
+    def fake_route(ising, report, target):
+        raise KeyError("boom: unexpected route bug")
+
+    monkeypatch.setattr(search_mod, "route", fake_route)
+
+    spec = load_spec("specs/toy.yaml")
+    cand, art = search_mod._try(spec, Z1, "domain_wall", False)
+
+    assert cand.state == CandidateState.HARDWARE_INFEASIBLE
+    assert "KeyError" in cand.reason
+    assert "route" in cand.reason
+    assert "boom: unexpected route bug" in cand.reason
+
+
+def test_compile_spec_reports_hardware_not_a_traceback_on_an_unexpected_place_bug(
+        monkeypatch):
+    """WHAT THIS PINS: the SAME defect, one layer up (matching the existing
+    style of `test_compile_spec_reports_hardware_not_compiled_when_mediation_
+    exceeds_the_cap` above) -- `compile_spec` itself must return a normal
+    `Compilation` with verdict HARDWARE, not raise, when every candidate's
+    `place()` call hits an unexpected exception. This is what lets the CLI's
+    existing `if comp.verdict != "COMPILED": ... print(cand.reason)` path
+    (cli.py) report it cleanly, with no try/except needed at the CLI layer
+    at all.
+    HOW IT FAILS: before this fix, `compile_spec(...)` below raises
+    `RuntimeError` instead of returning -- the call itself fails, before
+    `c.verdict` can even be read.
+    PROVENANCE: reviewer's own C-5 finding, same fixture pattern as the
+    mediation-cap test above."""
+    def fake_place(ising, report, target, **kwargs):
+        # The mandatory ideal control (spec 5.1) also calls `place()` --
+        # real `place()` short-circuits it trivially (IDEAL.offsets.value is
+        # `()`, so it never reaches the geometric search a placement bug
+        # would actually live in); call through to the REAL `place()` for it
+        # so this test exercises "z1's place() call hits an unexpected bug",
+        # not "the ideal control itself is broken" (a different, already-
+        # covered scenario -- see test_broken_spec_fails_ideal_and_reports_
+        # LOGICAL_not_hardware above).
+        if target.name == "ideal":
+            return real_place(ising, report, target, **kwargs)
+        raise RuntimeError("boom: unexpected placement bug")
+
+    monkeypatch.setattr(search_mod, "place", fake_place)
+
+    c = compile_spec(load_spec("specs/toy.yaml"), Z1)
+
+    assert c.verdict == "HARDWARE"
+    assert c.ideal_passed is True
+    assert c.repset.selected is None
+    for cand in c.repset.candidates:
+        assert cand.state == CandidateState.HARDWARE_INFEASIBLE
+        assert "RuntimeError" in cand.reason

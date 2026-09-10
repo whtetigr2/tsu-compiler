@@ -170,6 +170,11 @@ def _try(spec, target, encoding, allow_assumed, clamp=None, coefficient_scale=1.
                          reason=gate_failures[0].cause, failure=gate_failures[0],
                          report=report), {"report": report, "gate_checks": checks,
                                           "durations": durations}
+    # C-5 (external review, 2026-09-10): which of place()/route() is running,
+    # so an unexpected (non-CompileError) exception caught below can name it
+    # -- there is no other way to tell the two apart once caught, since
+    # Exception itself carries no notion of which call raised it.
+    current_pass = "place"
     try:
         # `placement_effort` tunes ONLY the annealer fallback's budget
         # (restarts, iters). It changes how hard the geometric SEARCH tries,
@@ -232,6 +237,7 @@ def _try(spec, target, encoding, allow_assumed, clamp=None, coefficient_scale=1.
                 raise CompileError(
                     f"post-mediation gate failure: {mediated_failures[0].cause}",
                     mediated_failures)
+        current_pass = "route"
         ising = _timed("route", route, ising, report, target)
     except CompileError as e:
         failure = e.failures[0]
@@ -262,6 +268,33 @@ def _try(spec, target, encoding, allow_assumed, clamp=None, coefficient_scale=1.
             report = analyse(ising)
         return Candidate(encoding, CandidateState.HARDWARE_INFEASIBLE,
                          reason=str(e), failure=failure, report=report), \
+            {"report": report, "gate_checks": checks, "durations": durations}
+    except Exception as e:
+        # C-5 (external review, 2026-09-10): an exception that is NOT a
+        # structured `CompileError` -- a genuine bug, not a documented
+        # hardware-infeasibility cause `place`/`route` chose to raise -- used
+        # to propagate straight out of `_try`/`compile_spec` as a raw
+        # traceback, the one place left in this pipeline that broke the
+        # clean-refusal standard the preflight/regime CLI paths hold to (and
+        # that the encode/lower `except Exception` clauses above this try
+        # block already hold to for THOSE two passes). Reported the same
+        # shape those two already use -- a rejected Candidate, never a raised
+        # exception -- so `compile_spec`'s search can still try the other
+        # candidate encodings, and the CLI's existing `if comp.verdict !=
+        # "COMPILED": print(cand.reason)` (cli.py) surfaces it without any
+        # new try/except needed there. NOT swallowed: `current_pass` (set
+        # just above each of the two calls this try block makes) and
+        # `type(e).__name__` are folded into `reason` together with `e`
+        # itself, specifically so a reader gets "which pass, which exception
+        # type, what it said" from the printed reason alone -- enough to
+        # debug from, not just "something went wrong". A genuine
+        # `CompileError` never reaches this clause at all: the `except
+        # CompileError` above it always matches first and keeps its own
+        # existing, structured handling completely unchanged.
+        return Candidate(encoding, CandidateState.HARDWARE_INFEASIBLE,
+                         reason=f"unexpected {type(e).__name__} in "
+                                f"{current_pass}: {e}",
+                         report=report), \
             {"report": report, "gate_checks": checks, "durations": durations}
 
     prog = _timed("build_program", build_program, ising, report,
@@ -544,6 +577,24 @@ def _measure_mixing(ising, chains: np.ndarray) -> EssEstimate:
 # C4: the fixed sampling parameters `_verify` draws with, named once so the
 # receipt's own record of them (cost.json's `sampler.params`) can never drift
 # from what was actually run.
+#
+# C-6 (external review, 2026-09-10): this budget sits near, not comfortably
+# above, `tsu.ess.RELIABILITY_MIN_N_OVER_TAU`'s reliability floor -- recorded
+# here so a future reader does not mistake a refused `ess` at this default for
+# a defect. The arithmetic: n_chains=32 * n_samples=200 = 6,400 total draws;
+# `effective_sample_size` (ess.py) only calls its own estimate reliable when
+# N/tau >= RELIABILITY_MIN_N_OVER_TAU = 5000, i.e. when tau <= 6400/5000 =
+# 1.28 -- a chain that mixes only slightly slower than i.i.d. (tau ~ 1) still
+# clears it, but there is little margin: any real autocorrelation pushes tau
+# past 1.28 and `ess_result.reliable` goes False. Unlike `sweep()`
+# (preflight/sweep.py), which escalates `n_samples` (doubling, up to
+# `max_samples`) when a candidate beta's ESS comes back unreliable, `_verify`
+# has no such escalation loop -- this is its one, fixed, non-adaptive draw.
+# A slow-mixing model refusing `ess` here at the default budget is therefore
+# EXPECTED behaviour (the budget genuinely was not enough to certify mixing),
+# not a bug in this function or in `tsu.ess`. Deliberately NOT changed here:
+# raising the default is a performance decision (it costs every compile, not
+# just a slow-mixing one) and out of scope for this fix.
 _VERIFY_SAMPLE_PARAMS = dict(n_chains=32, n_samples=200, n_warmup=400,
                              steps_per_sample=2, seed=0)
 
