@@ -139,7 +139,21 @@ def _verdict_qualifier(report) -> str:
     This is what stops the qualifier being pasted onto every failure
     regardless of cause (see
     test_verdict_is_not_qualified_when_a_sourced_fact_gate_fails and its
-    mixed-set sibling in tests/test_preflight_render.py)."""
+    mixed-set sibling in tests/test_preflight_render.py).
+
+    Residue 3 (coordinator review): "pass --allow-assumed to downgrade
+    it" is only offered for gates that are STILL failing -- i.e. NOT
+    already `downgraded`. A gate whose own status IS "downgraded" means
+    --allow-assumed was already passed and already worked (verdict WARN,
+    exit code 0); re-offering the same flag tells the reader to run
+    something they just ran, which either loops them or reads as if the
+    flag did nothing. For an already-downgraded gate this instead states
+    what actually happened -- the assumed-limit failure was overridden to
+    a warning AT THE USER'S REQUEST -- so a later reader of the artifact
+    knows this WARN exists only because someone overrode an assumption,
+    not because the model cleanly passed. `--allow-assumed` is still
+    NAMED in that case, but as provenance for what happened, never as an
+    imperative to run it again."""
     if report.verdict == "fail":
         driving = [g for g in report.gates if g.status == "fail"]
     elif report.verdict == "warn":
@@ -148,10 +162,25 @@ def _verdict_qualifier(report) -> str:
         return ""
     if not driving or not all(g.assumed for g in driving):
         return ""
-    names = ", ".join(g.name for g in driving)
-    return (f" — rests entirely on ASSUMED limit(s) ({names}), not a "
-           f"sourced hardware fact; pass --allow-assumed to downgrade "
-           f"{'it' if len(driving) == 1 else 'them'}")
+
+    still_failing = [g for g in driving if not g.downgraded]
+    already_downgraded = [g for g in driving if g.downgraded]
+
+    clauses = []
+    if still_failing:
+        names = ", ".join(g.name for g in still_failing)
+        clauses.append(
+            f"rests entirely on ASSUMED limit(s) ({names}), not a sourced "
+            f"hardware fact; pass --allow-assumed to downgrade "
+            f"{'it' if len(still_failing) == 1 else 'them'}")
+    if already_downgraded:
+        names = ", ".join(g.name for g in already_downgraded)
+        clauses.append(
+            f"ASSUMED limit(s) ({names}) "
+            f"{'was' if len(already_downgraded) == 1 else 'were'} "
+            f"downgraded to a warning via --allow-assumed at your request, "
+            f"not a clean pass")
+    return " — " + "; ".join(clauses)
 
 
 def _fmt_opt(value, reason: str, fmt: str) -> str:

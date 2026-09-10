@@ -264,8 +264,54 @@ def test_verdict_is_qualified_when_the_only_failing_gate_is_assumed(tmp_path):
         f"{verdict_line!r}"
     assert "max_abs_bias" in verdict_line, \
         "the verdict line must NAME which gate(s) the qualifier applies to"
+    assert "pass --allow-assumed" in verdict_line, \
+        "without the flag, the qualifier must OFFER --allow-assumed as " \
+        "the remedy (contrast test_verdict_qualifier_states_the_override_" \
+        "instead_of_reoffering_the_flag_when_already_applied below, where " \
+        "the flag was already passed and must not be re-offered)"
+
+
+def test_verdict_qualifier_states_the_override_instead_of_reoffering_the_flag_when_already_applied(tmp_path):
+    """WHAT THIS PINS (residue 3, coordinator review): with
+    --allow-assumed already applied (the gate's own status is
+    "downgraded", verdict is WARN, exit code 0), the verdict-line
+    qualifier must NOT tell the reader to "pass --allow-assumed" -- they
+    already did, and it worked. `--allow-assumed` on a FAILING gate
+    offers the flag (previous test); the SAME wording on a gate that was
+    ALREADY downgraded by that flag tells the user to run something they
+    just ran, which either loops them or reads as if the flag did
+    nothing, when it in fact worked. Instead the qualifier must say the
+    assumed-limit failure was downgraded to a warning AT THE USER'S
+    REQUEST -- the provenance value here is exactly that: a later reader
+    of the artifact needs to know this WARN exists only because someone
+    overrode an assumption, not because the model cleanly passed.
+    HOW IT FAILS: a qualifier whose "pass --allow-assumed to downgrade
+    it" clause is unconditional (fires whenever the driving gates are all
+    assumed, regardless of whether they are already downgraded) makes
+    this verdict line say "pass --allow-assumed" even though `rep.gates`
+    already shows the gate downgraded -- mutation-verified directly (see
+    branch-fixes-report.md's transcript): reverting the fix to the
+    unconditional wording made this exact test fail.
+    PROVENANCE: coordinator's own residue review, reading
+    `tsu preflight --edges bigbias.json --allow-assumed`'s real output."""
+    rep = preflight(_bigbias_model(), allow_assumed=True)
+    assert rep.verdict == "warn"
+    bias_gate = next(g for g in rep.gates if g.name == "max_abs_bias")
+    assert bias_gate.status == "downgraded" and bias_gate.downgraded is True
+    write_preflight(rep, tmp_path)
+    txt = (tmp_path / "report.md").read_text(encoding="utf-8")
+    verdict_line = next(ln for ln in txt.splitlines()
+                        if ln.startswith("**Verdict:"))
+    assert "pass --allow-assumed" not in verdict_line, \
+        f"must not tell the reader to pass a flag they already passed: " \
+        f"{verdict_line!r}"
+    assert "max_abs_bias" in verdict_line
+    assert "downgraded" in verdict_line.lower(), \
+        "must say what actually happened -- the failure was downgraded"
     assert "--allow-assumed" in verdict_line, \
-        "the verdict line must mention --allow-assumed as the remedy"
+        "must still NAME --allow-assumed as what caused the override, " \
+        "for a later reader's provenance -- just not as an imperative " \
+        "to run it again"
 
 
 def test_verdict_is_not_qualified_when_a_sourced_fact_gate_fails(tmp_path):
