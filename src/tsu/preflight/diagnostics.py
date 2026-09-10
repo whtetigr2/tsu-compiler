@@ -1,15 +1,32 @@
-"""The estimators every reported number depends on.
+"""R-hat and the ESS-based standard error -- the two estimators tsu.ess does
+not provide.
 
-WHY THIS MODULE DECIDES WHETHER THE TOOL IS BELIEVABLE. Consecutive Gibbs
-samples are correlated, so `std / sqrt(N)` overstates precision by a factor that
-depends on the chain and the coupling -- and it is worst exactly at a phase
-transition, where autocorrelation grows and where the interesting numbers are.
-Every error bar this tool prints is therefore computed from N_eff = N / (2*tau),
-not from N.
+Integrated autocorrelation time and effective sample size for a set of MCMC
+chains live in `tsu.ess`, NOT here. `tsu.ess` implements the same Sokal
+automatic-windowing estimator this module used to duplicate, but does it
+better: it averages per-chain autocovariance with each chain first centred on
+its OWN mean (so a between-chain mean difference, e.g. incomplete burn-in,
+cannot masquerade as within-chain autocorrelation -- a plain mean of per-chain
+taus, which is what this module used to compute, has no such protection), it
+refuses to report `ess` at all (returning `None` with a `reason`) below a
+reliability floor derived from its own AR(1) sweep, and it is validated by an
+AR(1) known-answer check, cross-implementation agreement with `arviz` and
+`statsmodels`, and a must-fail potency check (`tests/test_ess.py`). Rebuilding
+a cruder version of that machinery here was a planning error -- this module no
+longer does so. Anything needing tau or ESS should import
+`tsu.ess.integrated_autocorrelation_time` / `tsu.ess.effective_sample_size`
+directly.
 
-Pure statistics over arrays: no sampling, no I/O, no compiler. That is what lets
-each estimator be checked against a value known in closed form rather than
-against our own output.
+This module keeps only:
+  - `r_hat` / `RHAT_THRESHOLD`: Gelman-Rubin potential scale reduction;
+    `tsu.ess` has no analogue.
+  - `stderr_from_ess`: the standard-error correction, taking ESS directly
+    (not tau) so no tau-convention ambiguity can leak into a call site.
+    `tsu.ess`'s tau is tau_A = 1 + 2*sum_k rho_k (matching Sokal/emcee), NOT
+    the tau_A/2 convention this module used before this rework -- the two
+    give the same ESS, but a tau read off directly would be wrong by 2x. See
+    `tests/test_preflight_diagnostics.py` for the test pinning that
+    convention.
 """
 from __future__ import annotations
 
@@ -21,58 +38,15 @@ provisional. The conventional threshold; stated as a constant so a reader can
 see which value was used rather than infer it."""
 
 
-def autocorr_time(x: np.ndarray, c: float = 5.0) -> float:
-    """Integrated autocorrelation time, tau = 1/2 + sum_k rho_k.
+def stderr_from_ess(x: np.ndarray, ess: float) -> float:
+    """Standard error using the effective sample size, not the raw count.
 
-    Uses Sokal's automatic windowing: truncate the sum at the smallest M with
-    M >= c * tau(M). Summing every lag instead would add pure noise from the
-    long-lag tail, where rho is estimated from almost no independent data.
-
-    Returns 1/2 for independent draws, and (1+phi)/(2(1-phi)) for an AR(1)
-    series -- both checked against their closed forms in the tests.
+    Takes ESS directly (from `tsu.ess.effective_sample_size`), not tau, so a
+    caller can never accidentally apply the wrong tau convention: this is
+    exactly `std(x, ddof=1) / sqrt(ess)`.
     """
     x = np.asarray(x, dtype=float).ravel()
-    n = x.size
-    if n < 2:
-        return 0.5
-    x = x - x.mean()
-    var = float(np.dot(x, x) / n)
-    if var <= 0.0:
-        return 0.5  # a constant series has no correlation structure to measure
-
-    # autocovariance by FFT, which is O(n log n) rather than O(n^2)
-    size = 1 << (2 * n - 1).bit_length()
-    f = np.fft.rfft(x, size)
-    acf = np.fft.irfft(f * np.conjugate(f), size)[:n].real
-    rho = acf / acf[0]
-
-    # `taus` here is Sokal/emcee's convention tau_A(M) = 1 + 2*sum_{k=1}^{M} rho_k;
-    # the windowing criterion M >= c*tau_A(M) is evaluated in that convention.
-    # This module's convention is tau_B = 1/2 + sum_{k=1}^{M} rho_k = tau_A/2
-    # (chosen so that n_eff = n/(2*tau) matches the classic N/(1+2*sum) ESS
-    # formula and the AR(1) closed form (1+phi)/(2(1-phi))) -- hence the final
-    # halving, with no additive offset.
-    taus = 2.0 * np.cumsum(rho) - 1.0
-    window = np.arange(n)
-    ok = window >= c * taus
-    m = int(np.argmax(ok)) if ok.any() else n - 1
-    return float(max(0.5, 0.5 * taus[m]))
-
-
-def n_eff(n_samples: int, tau: float) -> float:
-    """Effective independent sample count, floored at 1.
-
-    A tau exceeding the run length means the chain never decorrelated. The floor
-    keeps downstream error bars finite; the caller is expected to FLAG such a row
-    rather than treat its number as measured.
-    """
-    return float(max(1.0, n_samples / (2.0 * max(tau, 0.5))))
-
-
-def stderr_corrected(x: np.ndarray, tau: float) -> float:
-    """Standard error using N_eff rather than N."""
-    x = np.asarray(x, dtype=float).ravel()
-    return float(np.std(x, ddof=1) / np.sqrt(n_eff(x.size, tau)))
+    return float(np.std(x, ddof=1) / np.sqrt(ess))
 
 
 def r_hat(chains: np.ndarray) -> float:

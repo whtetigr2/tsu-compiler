@@ -1,22 +1,24 @@
-"""Task 3: the estimators every reported number depends on.
-
-Each is checked against a value known ANALYTICALLY rather than against our own
-output. An estimator tested against itself proves only self-consistency, which is
-exactly what a reviewer discounts."""
-import sys
-
+"""Task 3 rework: this module now keeps only R-hat and the ESS-based standard
+error. Integrated autocorrelation time and effective sample size come from
+tsu.ess (see src/tsu/preflight/diagnostics.py's module docstring for why --
+that module has a stronger, cross-validated estimator with a reliability
+floor this one never had). Each remaining estimator here is still checked
+against a value known ANALYTICALLY rather than against our own output, plus
+one test that pins the tau convention tsu.ess publishes, since a silent
+switch there would corrupt every error bar this module computes without ever
+looking wrong.
+"""
 import numpy as np
 import pytest
 
-sys.path.insert(0, "src")
-
-from tsu.preflight.diagnostics import (autocorr_time, n_eff, r_hat,
-                                       stderr_corrected, RHAT_THRESHOLD)
+from tsu.ess import effective_sample_size, integrated_autocorrelation_time
+from tsu.preflight.diagnostics import RHAT_THRESHOLD, r_hat, stderr_from_ess
 
 
 def ar1(phi: float, n: int, seed: int = 0) -> np.ndarray:
-    """A first-order autoregressive series, whose integrated autocorrelation
-    time is known in closed form: tau = (1 + phi) / (2 * (1 - phi))."""
+    """A first-order autoregressive series. Under tsu.ess's tau_A convention
+    (tau_A = 1 + 2*sum_k rho_k), its integrated autocorrelation time is known
+    in closed form: tau_A = (1 + phi) / (1 - phi)."""
     rng = np.random.default_rng(seed)
     e = rng.standard_normal(n)
     x = np.empty(n)
@@ -26,49 +28,70 @@ def ar1(phi: float, n: int, seed: int = 0) -> np.ndarray:
     return x
 
 
-def test_tau_of_white_noise_is_one_half():
-    """For independent draws the autocorrelation sum vanishes and tau -> 1/2 by
-    the standard convention tau = 1/2 + sum_k rho_k."""
-    x = np.random.default_rng(1).standard_normal(200_000)
-    assert autocorr_time(x) == pytest.approx(0.5, abs=0.08)
+# ---------------------------------------------------------------------------
+# The convention this module's stderr_from_ess relies on tsu.ess to publish.
+# tsu.ess and this module's old, now-deleted tau disagreed by exactly 2x, so
+# this is pinned rather than assumed.
+# ---------------------------------------------------------------------------
+
+def test_the_ess_module_uses_the_tau_A_convention_this_module_relies_on():
+    """tsu.ess reports tau_A = 1 + 2*sum(rho), NOT tau_A/2. An AR(1) series has
+    tau_A = (1+phi)/(1-phi) in closed form. If this ever silently switched to the
+    half convention, every error bar derived from ESS would be wrong by a factor
+    of two while still looking entirely plausible."""
+    phi, n = 0.8, 200_000
+    rng = np.random.default_rng(11)
+    e = rng.standard_normal(n)
+    x = np.empty(n)
+    x[0] = e[0]
+    for i in range(1, n):
+        x[i] = phi * x[i - 1] + e[i]
+    tau = integrated_autocorrelation_time(x[None, :]).tau
+    assert tau == pytest.approx((1 + phi) / (1 - phi), rel=0.15)
+    assert tau > 5.0   # the half convention would give 4.5 and fail here
 
 
-@pytest.mark.parametrize("phi", [0.5, 0.8, 0.9])
-def test_tau_of_an_ar1_series_matches_its_closed_form(phi):
-    """tau = (1 + phi) / (2(1 - phi)): 1.5 at phi=0.5, 4.5 at 0.8, 9.5 at 0.9.
-    This is the test that says the estimator is right rather than merely
-    plausible."""
-    expected = (1 + phi) / (2 * (1 - phi))
-    got = autocorr_time(ar1(phi, 400_000))
-    assert got == pytest.approx(expected, rel=0.15)
+# ---------------------------------------------------------------------------
+# stderr_from_ess: this module's one remaining tau/ESS-adjacent estimator,
+# now taking ESS directly so no convention can be misread at a call site.
+# ---------------------------------------------------------------------------
+
+def test_stderr_from_ess_matches_the_closed_form():
+    x = np.random.default_rng(2).standard_normal(1000)
+    ess = 250.0
+    expected = np.std(x, ddof=1) / np.sqrt(ess)
+    assert stderr_from_ess(x, ess) == pytest.approx(expected)
 
 
-def test_tau_grows_with_correlation():
-    assert autocorr_time(ar1(0.9, 200_000)) > autocorr_time(ar1(0.5, 200_000))
+def test_stderr_from_ess_shrinks_as_ess_grows():
+    """Less autocorrelation -> higher ESS -> a tighter (not wider) error bar
+    for the same underlying spread of x."""
+    x = np.random.default_rng(3).standard_normal(2000)
+    wide = stderr_from_ess(x, 50.0)
+    narrow = stderr_from_ess(x, 2000.0)
+    assert narrow < wide
 
 
-def test_n_eff_halves_the_count_for_independent_draws():
-    """With tau = 1/2, N_eff = N / (2 * 1/2) = N."""
-    assert n_eff(1000, 0.5) == pytest.approx(1000.0)
-    assert n_eff(1000, 5.0) == pytest.approx(100.0)
+# ---------------------------------------------------------------------------
+# The refusal this whole design depends on: effective_sample_size must never
+# hand a plausible-looking number to stderr_from_ess for a chain too short to
+# support one. That refusal is a spec requirement; pin it here since this
+# module's caller-facing contract depends on it even though it never calls
+# effective_sample_size itself.
+# ---------------------------------------------------------------------------
+
+def test_effective_sample_size_refuses_a_chain_too_short_to_support_an_estimate():
+    phi = 0.9   # tau_analytic = 19 under the tau_A convention
+    x = ar1(phi, 500, seed=5)[None, :]     # N/tau ~ 26, far below the floor
+    r = effective_sample_size(x)
+    assert r.ess is None
+    assert r.reason  # non-empty: a caller must have something to report
+                      # instead of a number before ever reaching stderr_from_ess
 
 
-def test_n_eff_never_drops_below_one():
-    """A tau larger than the run length means the chain never decorrelated. The
-    floor keeps downstream error bars finite, and the caller is expected to flag
-    the row rather than trust it."""
-    assert n_eff(10, 10_000.0) == pytest.approx(1.0)
-
-
-def test_corrected_stderr_is_wider_than_the_naive_one():
-    """THE POINT OF THE WHOLE MODULE. Correlated samples carry less information
-    than their count suggests, so the naive standard error is too small -- which
-    is how every spread this project reported before now was too narrow."""
-    x = ar1(0.9, 50_000)
-    naive = float(np.std(x, ddof=1) / np.sqrt(x.size))
-    corrected = stderr_corrected(x, autocorr_time(x))
-    assert corrected > naive * 3.0
-
+# ---------------------------------------------------------------------------
+# r_hat -- unchanged by this rework; tsu.ess has no Gelman-Rubin analogue.
+# ---------------------------------------------------------------------------
 
 def test_r_hat_of_identical_chains_is_the_bda3_closed_form():
     """Gelman-Rubin uses var_plus = ((n-1)/n)W + B/n, so chains with zero
