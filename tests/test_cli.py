@@ -2,6 +2,56 @@ from pathlib import Path
 from tsu.cli import main
 
 
+def test_preflight_subcommand_writes_its_three_files_and_exits_zero(tmp_path):
+    """WHAT THIS PINS: `tsu preflight --spec ... --out ...` runs end to end
+    through the real CLI dispatch (not just write_preflight() called
+    directly) and exits 0 on a model that compiles clean.
+    HOW IT FAILS: task-5-brief.md's own worked CLI example runs
+    `-m tsu.preflight.cli preflight ...` -- a module this task is explicitly
+    told NOT to create (`tsu/preflight/cli.py` would be the second entry
+    point + second renderer the brief calls out as the exact defect this
+    plan already made once). That module does not exist and `python -m
+    tsu.preflight.cli` raises `No module named tsu.preflight.cli`; the real,
+    only entry point is `tsu.cli:main` (see pyproject.toml's console_scripts
+    entry, `tsu = "tsu.cli:main"`), exercised here the same way
+    test_compile_then_visualize_produces_all_four_layers already exercises
+    `compile`/`visualize` above.
+    PROVENANCE: pyproject.toml's own `tsu = "tsu.cli:main"` entry point."""
+    out = tmp_path / "pf"
+    rc = main(["preflight", "--spec", "specs/lattice_small_8x8_k3.yaml",
+               "--out", str(out)])
+    assert rc in (0, 1)  # 0 == verdict ok/warn, 1 == verdict fail; both are
+                        # a completed run, not a crash
+    for name in ("preflight.json", "report.md", "provenance.json"):
+        assert (out / name).exists(), f"missing {name}"
+
+
+def test_regime_subcommand_reports_it_cannot_sweep_a_single_fixed_model(tmp_path, capsys):
+    """WHAT THIS PINS: `tsu regime --spec ...` exits nonzero with a clear
+    stderr message rather than crashing or silently doing nothing --
+    load_model() (tasks 1-4) returns exactly one fixed-size IsingModel, and
+    sweep() (task 4) needs model_fn(size, beta_j) to generate a FAMILY of
+    models across --sizes, a gap this CLI wiring cannot bridge on its own.
+    HOW IT FAILS: a dispatch that calls load_model() unconditionally before
+    branching on a.cmd (as task-5-brief.md's own pseudocode does -- 'model =
+    load_model(...)' appears before the `if a.cmd == "preflight"` check)
+    would raise ValueError on a `regime` invocation that gave neither
+    --spec nor --edges, or would blame a perfectly valid spec file for a gap
+    that is actually in the regime wiring -- either way surfacing the wrong
+    failure to the user. This test passes a VALID spec and checks the
+    process still exits 2 with the documented guidance rather than a
+    traceback, which only holds if load_model() is never called on this path.
+    PROVENANCE: sweep()'s own signature (tsu/preflight/sweep.py),
+    `sweep(model_fn, sizes, couplings, ...)`, vs. load_model()'s
+    (tsu/preflight/model.py), `load_model(spec=None, edges=None) ->
+    IsingModel` -- one model, not a generator."""
+    rc = main(["regime", "--spec", "specs/lattice_small_8x8_k3.yaml",
+               "--out", str(tmp_path / "rg")])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "sweep" in err.lower()
+
+
 def test_compile_then_visualize_produces_all_four_layers(tmp_path, capsys):
     out = tmp_path / "r"
     assert main(["compile", "specs/toy.yaml", "--target", "z1",

@@ -9,6 +9,9 @@ from .passes.analyse import analyse
 from .passes.encode import encode
 from .passes.lower import lower
 from .passes.search import compile_spec
+from .preflight.check import preflight as run_preflight
+from .preflight.model import load_model
+from .preflight.render import write_preflight
 from .receipt import replay, write_receipt
 from .report import render_explain, render_report
 from .simulate import simulate
@@ -64,6 +67,22 @@ def main(argv=None) -> int:
     sm.add_argument("--seed", type=int, default=0)
     sm.add_argument("--clamp", action="append", default=None,
                     help="VAR=VAL; may be given multiple times")
+
+    # preflight/regime: two questions about an Ising model -- will it fit
+    # (preflight) and at what coupling should it be sampled (regime). Both
+    # parsers accept the same --spec/--edges/--out shape as load_model().
+    for name in ("preflight", "regime"):
+        q = sub.add_parser(name)
+        q.add_argument("--spec"); q.add_argument("--edges")
+        q.add_argument("--out", default=f"{name}_out")
+    rg = sub.choices["regime"]
+    rg.add_argument("--beta-min", type=float, default=0.05)
+    rg.add_argument("--beta-max", type=float, default=0.60)
+    rg.add_argument("--beta-steps", type=int, default=10)
+    rg.add_argument("--sizes", type=int, nargs="+", default=[8, 16])
+    # "--beta-steps", NOT "--steps": sweep()'s own `steps` parameter means
+    # Gibbs steps per sample, a different axis entirely -- one flag meaning
+    # two things in this CLI is how a user ends up sweeping the wrong one.
 
     a = p.parse_args(argv)
 
@@ -126,6 +145,30 @@ def main(argv=None) -> int:
             n_warmup=a.warmup, beta=a.beta, seed=a.seed, clamp=clamp)
         print(f"simulation: {path}")
         return 0
+
+    if a.cmd == "preflight":
+        model = load_model(spec=a.spec, edges=a.edges)
+        rep = run_preflight(model)
+        for out_path in write_preflight(rep, a.out):
+            print(f"  -> {out_path}")
+        print(f"  verdict: {rep.verdict.upper()}  "
+              f"(bipartite={rep.bipartite}, path={rep.embedding})")
+        return 0 if rep.verdict != "fail" else 1
+
+    if a.cmd == "regime":
+        # --spec/--edges (via load_model) give exactly ONE fixed-size
+        # IsingModel; sweep() needs model_fn(size, beta_j) -> IsingModel, a
+        # GENERATOR across the --sizes this parser accepts. Nothing in this
+        # branch's inputs bridges that gap (task 1-4's load_model has no
+        # size parameter), so this command reports that honestly rather than
+        # silently sweeping only the one size --spec/--edges happened to
+        # describe. It does not call load_model at all: failing that first,
+        # on a user's otherwise-valid spec, would blame the wrong thing.
+        print("  regime: --spec/--edges give one model; a sweep needs a "
+              "family of sizes.\n  Provide a spec whose generator takes a "
+              "size, or import tsu.preflight.sweep.sweep directly with your "
+              "own model_fn.", file=sys.stderr)
+        return 2
 
     return 1
 
