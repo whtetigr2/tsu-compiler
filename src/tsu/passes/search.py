@@ -198,6 +198,40 @@ def _try(spec, target, encoding, allow_assumed, clamp=None, coefficient_scale=1.
         # `place` to mediate; it does not re-run the hardware gates).
         if placement.mediation is not None:
             ising, report = placement.mediated_ising, placement.mediated_report
+            # A-1 (external review, 2026-09-09): mediation's own gadget
+            # coupling A = arccosh(exp(2*beta*|J|))/(2*beta) is STRICTLY
+            # GREATER than |J| for every J != 0 (route.py's own docstring/
+            # derivation: A > |J| for all J != 0), so a model that
+            # legitimately cleared `coupling_cap`/`field_cap` PRE-mediation
+            # (the only gate evaluation that has run so far, above) can
+            # still carry a coupling the hardware cannot represent once
+            # mediated -- solving A(|J|) <= 6.0 at beta=1 gives |J| <=
+            # ln(cosh(12))/2 = 5.653426..., so any mediated edge with
+            # 5.653426 < |J| <= 6.0 passes the pre-mediation cap and then
+            # needs an unprogrammable coupling. Spec 5.3.6 only asks
+            # `place` to mediate; it never asks anything to re-check the
+            # hardware gates against the result, and nothing downstream
+            # did either. Re-run the SAME evaluation against the model
+            # that is now ACTUALLY going to be deployed (`ising`/`report`,
+            # just swapped above) -- replacing `checks` so a receipt's own
+            # gate_checks describe THIS model, not the stale pre-mediation
+            # one, exactly the same rationale the comment above already
+            # applies to `report`/`ising` themselves -- and raise through
+            # the EXACT SAME `CompileError` path the placement-failure
+            # `except` clause immediately below already handles, rather
+            # than inventing a second, parallel failure-reporting shape.
+            # `GateFailure` carries no `mediation` attribute, so that
+            # except clause's own `getattr(failure, "mediation", None)`
+            # correctly no-ops for this failure kind (it already IS the
+            # mediated model; nothing needs recomputing).
+            t_regate = time.perf_counter()
+            checks = gate_checks(ising, report, target, allow_assumed)
+            mediated_failures = check_gates(ising, report, target, allow_assumed)
+            durations["post_mediation_gate_checks"] = time.perf_counter() - t_regate
+            if mediated_failures:
+                raise CompileError(
+                    f"post-mediation gate failure: {mediated_failures[0].cause}",
+                    mediated_failures)
         ising = _timed("route", route, ising, report, target)
     except CompileError as e:
         failure = e.failures[0]
