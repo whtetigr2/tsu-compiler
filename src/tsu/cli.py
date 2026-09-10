@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import inspect
 import json
 import sys
 from pathlib import Path
@@ -125,6 +126,25 @@ def sweep_single_model(model, *, beta_min, beta_max, beta_steps, out_dir):
         return dataclasses.replace(model, beta=beta_j)
 
     rows = sweep(model_fn, sizes=[n_spins], couplings=couplings)
+    # F4 (branch review): record the sweep configuration this call
+    # actually used, for provenance.json (spec section 7: "the compiler
+    # commit, seeds, and the full sweep configuration"). `sweep()` is
+    # called above with none of its own keyword arguments overridden, so
+    # every one of these IS the literal default sweep() would use anyway
+    # -- read via inspect.signature (not restated as literals here) so
+    # this can never silently drift from sweep()'s own defaults the way a
+    # copy-pasted literal could.
+    sweep_defaults = inspect.signature(sweep).parameters
+    sweep_config = {
+        "seed": sweep_defaults["seed"].default,
+        "n_chains": sweep_defaults["n_chains"].default,
+        "n_samples": sweep_defaults["n_samples"].default,
+        "n_warmup": sweep_defaults["n_warmup"].default,
+        "steps": sweep_defaults["steps"].default,
+        "max_samples": sweep_defaults["max_samples"].default,
+        "beta_min": beta_min, "beta_max": beta_max, "beta_steps": beta_steps,
+        "n_spins": n_spins, "couplings": couplings,
+    }
     # crossing is always None here (no size family -- see below), and
     # usable_band's lower edge IS the crossing (tsu.preflight.sweep's own
     # docstring), so band is always None too. That is not a second,
@@ -147,7 +167,7 @@ def sweep_single_model(model, *, beta_min, beta_max, beta_steps, out_dir):
     # gets its Kc printed and cross-checked against the measured crossing.
     onsager_kc, onsager_note = detect_uniform_square_lattice(model)
     paths = write_regime(rows, band, None, out_dir, onsager=onsager_kc,
-                         onsager_note=onsager_note)
+                         onsager_note=onsager_note, sweep_config=sweep_config)
 
     # write_regime's own crossing=None message ("the range may not bracket
     # the transition") is correct for a genuine two-size sweep that simply

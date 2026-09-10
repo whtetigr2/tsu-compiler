@@ -146,6 +146,52 @@ def test_regime_subcommand_sweeps_a_single_model_and_exits_zero(tmp_path):
         "the sweep must run at this model's own size (4 nodes), not a default"
 
 
+def test_regime_subcommand_records_its_own_sweep_configuration(tmp_path):
+    """WHAT THIS PINS (F4, branch review): a real `tsu regime` CLI run
+    writes its actual sweep configuration (seed, n_chains, n_samples,
+    n_warmup, steps, max_samples, plus beta_min/beta_max/beta_steps) into
+    provenance.json -- spec section 7 requires provenance.json to record
+    "the compiler commit, seeds, and the full sweep configuration", and
+    `write_regime` already accepts a `sweep_config=` keyword for exactly
+    this (see test_preflight_render.py's own unit test of that plumbing),
+    but `sweep_single_model` (this file's own real caller) never passed
+    it -- so `sweep_config` read "unavailable: not supplied to
+    write_regime..." on every CLI run ever made, even though the caller
+    knows every one of these values (they are sweep()'s own literal
+    defaults, used unmodified by this call).
+    HOW IT FAILS: `sweep_single_model` calling `write_regime(...)` without
+    a `sweep_config=` keyword (this branch's shipped behaviour) leaves
+    `data["sweep_config"]` a string starting with "unavailable", failing
+    every value assertion below.
+    PROVENANCE: spec section 7's own wording; sweep()'s own signature
+    defaults (seed=0, n_chains=16, n_samples=2000, n_warmup=4000, steps=8,
+    max_samples=32_000), read via inspect.signature rather than restated
+    as literals here, matching this project's own
+    test_sweep_defaults_clear_the_ess_reliability_floor convention."""
+    import inspect
+    from tsu.preflight.sweep import sweep as sweep_fn
+    edges = _write_regime_edges(tmp_path)
+    out = tmp_path / "rg"
+    rc = main(["regime", "--edges", str(edges), "--out", str(out),
+               "--beta-min", "0.1", "--beta-max", "0.3", "--beta-steps", "2"])
+    assert rc == 0
+    data = json.loads((out / "provenance.json").read_text(encoding="utf-8"))
+    cfg = data["sweep_config"]
+    assert isinstance(cfg, dict), \
+        f"sweep_config must be a real recorded configuration, not " \
+        f"{cfg!r}"
+    defaults = inspect.signature(sweep_fn).parameters
+    for field in ("seed", "n_chains", "n_samples", "n_warmup", "steps",
+                 "max_samples"):
+        assert cfg[field] == defaults[field].default, \
+            f"{field} must record sweep()'s actual default, not drift " \
+            f"from it"
+    assert cfg["beta_min"] == 0.1
+    assert cfg["beta_max"] == 0.3
+    assert cfg["beta_steps"] == 2
+    assert cfg["n_spins"] == 4
+
+
 def _write_grid_edges(tmp_path, n=3, j=1.0, beta=0.2):
     """An n x n open (non-periodic) 4-neighbour square lattice edge-list,
     uniform |J|, zero bias -- the exact graph class Onsager solved, and

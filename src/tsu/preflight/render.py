@@ -57,10 +57,25 @@ def provenance() -> dict:
     return out
 
 
-_HEADER = ("# Pre-flight report\n\n"
-           "Produced by the `tsu` compiler passes. **No hardware was involved**"
-           " — where sampling appears below, thrml *simulates* on the "
-           "`{backend}` backend the block Gibbs a TSU would perform.\n\n")
+# F8 (branch review): write_preflight and write_regime used to SHARE one
+# hardcoded `_HEADER` literal -- "# Pre-flight report" as the title of
+# EVERY regime run too, and "where sampling appears below, thrml
+# simulates..." on the preflight report, where (by design --
+# test_preflight_imports_no_sampler_at_all) sampling never appears at
+# all. Two distinct headers now, built by one shared helper so the common
+# "no hardware was involved" disclaimer (task-5-brief.md's own required
+# sentence) cannot drift between them independently.
+def _header(title: str, backend: str, *, sampling_appears_below: bool) -> str:
+    text = (f"# {title}\n\n"
+           f"Produced by the `tsu` compiler passes. **No hardware was "
+           f"involved**")
+    if sampling_appears_below:
+        text += (f" — where sampling appears below, thrml *simulates* on "
+                f"the `{backend}` backend the block Gibbs a TSU would "
+                f"perform.")
+    else:
+        text += " — this pass runs compiler passes only; no sampling occurs."
+    return text + "\n\n"
 
 
 def _as_unavailable(text: str) -> str:
@@ -117,7 +132,8 @@ def write_preflight(report, out_dir) -> list[Path]:
     p = out / "provenance.json"
     p.write_text(json.dumps(prov, indent=2), encoding="utf-8")
 
-    lines = [_HEADER.format(backend=prov["jax_backend"]),
+    lines = [_header("Pre-flight report", prov["jax_backend"],
+                     sampling_appears_below=False),
              f"**Verdict: {report.verdict.upper()}**\n",
              f"- {report.n_spins:,} spins, {report.n_couplings:,} couplings, "
              f"max degree {report.max_degree}",
@@ -282,7 +298,8 @@ def write_regime(rows, band, cross, out_dir, *, onsager,
     p2 = out / "diagnostics.png"
     fig.savefig(p2, dpi=120); plt.close(fig)
 
-    lines = [_HEADER.format(backend=prov["jax_backend"]),
+    lines = [_header("Regime report", prov["jax_backend"],
+                     sampling_appears_below=True),
              "## Regime\n"]
     if cross is not None:
         lines.append(f"Binder crossing at **beta*J = {cross:.4f}**")

@@ -159,6 +159,21 @@ def test_report_marks_an_assumed_gate_limit_visibly(tmp_path):
     assert "the hardware's" not in lines[0].lower()
 
 
+def test_preflight_report_does_not_claim_sampling_appears_below(tmp_path):
+    """WHAT THIS PINS (F8, branch review): preflight's report.md must not
+    say "where sampling appears below, thrml simulates..." -- sampling
+    never appears in a preflight report by design
+    (test_preflight_imports_no_sampler_at_all in test_preflight_check.py:
+    check.py never even imports a sampler), so that sentence describes
+    the OTHER report (regime), not this one.
+    HOW IT FAILS: write_preflight and write_regime sharing one hardcoded
+    `_HEADER` literal (this branch's shipped behaviour) makes this
+    sentence appear on both, unconditionally."""
+    write_preflight(preflight(grid(6)), tmp_path)
+    txt = (tmp_path / "report.md").read_text(encoding="utf-8").lower()
+    assert "where sampling appears below" not in txt
+
+
 def test_a_placement_failure_shows_its_remediations_in_the_report(tmp_path):
     """WHAT THIS PINS: when placement fails, the compiler's own remediation
     text (not just a bare 'fail' verdict) reaches report.md.
@@ -569,6 +584,32 @@ def test_the_regime_report_also_states_no_hardware_was_involved(tmp_path):
     write_regime(_rows(), (0.4, 0.6), 0.45, tmp_path, onsager=None)
     txt = (tmp_path / "report.md").read_text(encoding="utf-8").lower()
     assert "no hardware" in txt or "simulat" in txt
+
+
+def test_regime_report_is_titled_regime_not_pre_flight(tmp_path):
+    """WHAT THIS PINS (F8, branch review): write_regime's report.md is
+    titled distinctly from write_preflight's -- both shared one hardcoded
+    "# Pre-flight report" `_HEADER` literal before this fix, so every
+    `tsu regime` run's own report.md opened with a title describing the
+    WRONG report (the front page of an artifact whose stated job is that
+    a reader can check the work from it).
+    HOW IT FAILS: an unfixed shared `_HEADER` makes report.md's first
+    line read "# Pre-flight report" for a REGIME run too."""
+    write_regime(_rows(), (0.4, 0.6), 0.45, tmp_path, onsager=None)
+    txt = (tmp_path / "report.md").read_text(encoding="utf-8")
+    first_line = txt.splitlines()[0]
+    assert first_line.startswith("# ")
+    assert first_line != "# Pre-flight report"
+    assert "regime" in first_line.lower()
+
+
+def test_preflight_report_is_titled_pre_flight(tmp_path):
+    """Complementary case: write_preflight's own title must still say
+    "Pre-flight report" -- this fix must not accidentally swap the two,
+    or give preflight the regime title instead."""
+    write_preflight(preflight(grid(6)), tmp_path)
+    txt = (tmp_path / "report.md").read_text(encoding="utf-8")
+    assert txt.splitlines()[0] == "# Pre-flight report"
 
 
 def test_sweep_config_is_recorded_when_supplied_and_unavailable_when_not(tmp_path):
