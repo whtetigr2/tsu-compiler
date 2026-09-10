@@ -477,3 +477,61 @@ def test_inspect_never_prints_the_uncomputed_mediators_sentinel(tmp_path, capsys
     out = capsys.readouterr().out
     assert '"mediators": -1' not in out
     assert "not computed" in out
+
+
+# ---------------------------------------------------------------------------
+# F10 (branch review): a missing --spec/--edges (or a malformed --edges
+# file) must refuse cleanly, not hand the user a raw traceback. load_model's
+# own error text is already good ("provide exactly one of --spec or
+# --edges..."); check.py's own docstring sets the standard this violated:
+# "A tool meant to run on every edit must report that as a failed gate, not
+# hand the user a traceback."
+# ---------------------------------------------------------------------------
+
+def test_preflight_with_neither_spec_nor_edges_exits_cleanly(tmp_path, capsys):
+    """WHAT THIS PINS: `tsu preflight --out ...` with NEITHER --spec NOR
+    --edges exits with a clean, non-zero return code and an informative
+    stderr message -- not an unhandled Python traceback.
+    HOW IT FAILS: `cli.py`'s preflight dispatch calling
+    `load_model(spec=a.spec, edges=a.edges)` unguarded (this branch's
+    shipped behaviour) lets `load_model`'s ValueError propagate out of
+    main() -- pytest then reports an unhandled exception raised from this
+    call, not a returned rc, so `main(...)` itself never returns and the
+    assertions below never run."""
+    out = tmp_path / "pf"
+    rc = main(["preflight", "--out", str(out)])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "spec" in err.lower() and "edges" in err.lower()
+
+
+def test_regime_with_neither_spec_nor_edges_exits_cleanly(tmp_path, capsys):
+    """Complementary case for `tsu regime`."""
+    out = tmp_path / "rg"
+    rc = main(["regime", "--out", str(out)])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "spec" in err.lower() and "edges" in err.lower()
+
+
+def test_preflight_with_both_spec_and_edges_exits_cleanly(tmp_path, capsys):
+    """The OTHER half of load_model's refusal (both given, not neither)
+    must be just as clean."""
+    out = tmp_path / "pf"
+    rc = main(["preflight", "--spec", "specs/toy.yaml", "--edges",
+               str(tmp_path / "irrelevant.json"), "--out", str(out)])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "spec" in err.lower() and "edges" in err.lower()
+
+
+def test_preflight_with_a_malformed_edges_file_exits_cleanly(tmp_path, capsys):
+    """A malformed --edges file (missing required keys) must also refuse
+    cleanly rather than traceback -- load_model's `_from_edges` raises a
+    ValueError for this case too, via the same unguarded call site."""
+    bad = tmp_path / "bad.json"
+    bad.write_text(json.dumps({"nodes": 3}), encoding="utf-8")
+    out = tmp_path / "pf"
+    rc = main(["preflight", "--edges", str(bad), "--out", str(out)])
+    assert rc == 2
+    assert capsys.readouterr().err.strip()

@@ -341,7 +341,18 @@ def main(argv=None) -> int:
         return 0
 
     if a.cmd == "preflight":
-        model = load_model(spec=a.spec, edges=a.edges)
+        # F10 (branch review): a missing/conflicting --spec/--edges, or a
+        # malformed --edges file, must refuse cleanly -- not hand the user
+        # a raw traceback (check.py's own docstring sets this standard: "A
+        # tool meant to run on every edit must report that as a failed
+        # gate, not hand the user a traceback"). load_model's own
+        # ValueError text is already good; it just needs to reach the
+        # user without a stack trace wrapped around it.
+        try:
+            model = load_model(spec=a.spec, edges=a.edges)
+        except ValueError as exc:
+            print(f"  preflight: refused -- {exc}", file=sys.stderr)
+            return 2
         rep = run_preflight(model, allow_assumed=a.allow_assumed)
         for out_path in write_preflight(rep, a.out):
             print(f"  -> {out_path}")
@@ -354,7 +365,12 @@ def main(argv=None) -> int:
         # IsingModel -- sweep_single_model sweeps beta at that one size
         # (see its own docstring for why that is well posed, and what it
         # cannot give: the Binder crossing, which needs a size family).
-        model = load_model(spec=a.spec, edges=a.edges)
+        # F10: same clean-refusal treatment as preflight above.
+        try:
+            model = load_model(spec=a.spec, edges=a.edges)
+        except ValueError as exc:
+            print(f"  regime: refused -- {exc}", file=sys.stderr)
+            return 2
         try:
             rows, band, paths = sweep_single_model(
                 model, beta_min=a.beta_min, beta_max=a.beta_max,
