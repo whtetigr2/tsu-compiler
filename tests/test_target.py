@@ -67,3 +67,68 @@ def test_profiles_are_frozen():
     import pytest
     with pytest.raises(Exception):
         Z1.name = "not-z1"
+
+
+def test_node_budget_is_the_exact_taped_out_269568_pbit_figure_not_the_approximate_250k():
+    """WHAT THIS PINS (A-2, external review 2026-09-09): `node_budget` is
+    269,568 -- the taped-out Z1 die's own exact pbit count, cited to
+    `billion` ("From One to One Billion: Torx, Thermalizers, and Z1" -
+    Extropic.pdf) p.7, Fig. 05, where BOTH the callout panel ("PBITS
+    269,568 IN 8 CORES") and the figure caption ("The Z1 die: eight cores,
+    269,568 pbits, ...") independently agree on the same number -- an
+    unambiguous, citable figure (audit/provenance.md Part 1 row 9). This
+    SUPERSEDES the older `thermalizers` p.5 figure ("~250,000 nodes"), a
+    rounded estimate from a different document, used there only to size a
+    per-iteration energy-cost calculation, never presented as a hardware
+    spec (Finding P-1). The quote must still name the superseded figure
+    explicitly, so a reader who encounters "~250,000"/"F-15" elsewhere in
+    this project's history (e.g. an old committed receipt) is told which
+    number is current and why it changed, rather than seeing the old
+    number quietly vanish with no trace.
+
+    HOW IT FAILS: a silent revert of the numeric literal back to 250_000
+    (restoring the earlier conservative-but-superseded figure) fails the
+    `== 269_568` assertion directly. Losing the citation to the newer
+    document, or dropping the explicit mention of the superseded ~250,000
+    figure from the quote (e.g. reverting to `Sourced(269_568, "F-15",
+    "the entire chip has ~250,000 nodes")` -- an internally inconsistent
+    value/quote pairing that would still pass a bare `value == 269_568`
+    check), fails the citation/quote assertions below. This distinction
+    matters operationally, not just editorially: 269,568 is LARGER than
+    250,000, so reverting it lowers the node_budget gate's threshold and
+    would newly start REJECTING (false FAIL) models between 250,000 and
+    269,568 nodes that actually fit the real, taped-out die -- the failure
+    mode a silent revert must be caught before it ships.
+    PROVENANCE: audit/provenance.md Part 1 row 9 and "Finding P-1"; the
+    primary source itself is `billion` p.7, Fig. 05 (not independently
+    re-verified from this test, which trusts the ledger's own citation
+    check -- see that document's own "Method" section for how it was
+    verified against the extracted PDF text)."""
+    nb = Z1.node_budget
+    assert nb.value == 269_568
+    assert nb.source != "F-15"
+    assert "269,568" in nb.source or "Fig. 05" in nb.source
+    assert "billion" in nb.source.lower()
+    assert "269,568" in nb.quote
+    assert "250,000" in nb.quote, \
+        "the quote must still name the superseded approximate figure"
+    assert "supersede" in nb.quote.lower()
+    assert Z1.is_assumed("node_budget") is False
+
+
+def test_node_budget_coupling_counts_are_untouched_by_the_a2_fix():
+    """WHAT THIS PINS: A-2 changes `node_budget` (a pbit COUNT) only.
+    TargetProfile carries no field for the die's coupling/coupler COUNT at
+    all (`max_abs_coupling` is a |J| MAGNITUDE cap, a different quantity
+    entirely) -- the same Fig. 05 that gives 269,568 pbits also gives two
+    unreconciled coupling-count figures (2,135,904 couplers vs 215,904
+    coupling parameters, audit/findings/R2.md, UNRESOLVED) that this task
+    is explicitly out of scope for.
+    HOW IT FAILS: this would fail if a future change added a coupling-COUNT
+    field to TargetProfile seeded from either of those two unreconciled
+    Fig. 05 numbers without first resolving R2.md -- there is no such field
+    today, which this test pins by enumerating exactly what IS present."""
+    from dataclasses import fields
+    names = {f.name for f in fields(Z1)}
+    assert "max_abs_coupling" in names          # |J| magnitude cap -- untouched
+    assert not any("coupler" in n or "n_coupling" in n for n in names)

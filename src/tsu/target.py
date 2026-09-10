@@ -89,7 +89,57 @@ Z1 = TargetProfile(
                          "project working value; NOT a sourced Extropic figure"),
     coupling_bits=Sourced(6, "assumed",
                           "project working value; NOT a sourced Extropic figure"),
-    node_budget=Sourced(250_000, "F-15", "the entire chip has ~250,000 nodes"),
+    # A-2 (external review, 2026-09-09): reclassified from the Thermalizers
+    # paper's approximate ~250,000-node estimate to the taped-out Z1 die's
+    # own exact spec. `thermalizers` p.5 says, verbatim, "the entire chip
+    # has ~250,000 nodes" -- a rounded figure used ONLY to size a per-
+    # iteration Gibbs-sampling energy-cost calculation in that paragraph,
+    # never presented as an architectural spec. `billion` ("From One to One
+    # Billion: Torx, Thermalizers, and Z1" - Extropic.pdf) p.7, Fig. 05's
+    # callout panel AND caption both independently state the die's exact
+    # pbit count as a hardware spec -- caption: "The Z1 die: eight cores,
+    # 269,568 pbits, 215,904 coupling parameters, >50 MHz sampling rate,
+    # <1 W"; callout panel: "PBITS 269,568 IN 8 CORES". Both the panel and
+    # the caption agree on 269,568, unambiguously, so this supersedes the
+    # older approximate figure for the SAME quantity (audit/provenance.md
+    # Part 1 row 9, and Finding P-1's now-resolved cross-document
+    # discrepancy). A reader who encounters the retired "~250,000"/"F-15"
+    # figure elsewhere in this project's history (e.g. committed receipts
+    # predating this change) should treat 269,568 as current.
+    #
+    # This is also the SAFE direction to be wrong in only if the number is
+    # right: a LARGER budget can produce a false PASS (a model that does
+    # not actually fit reads as fitting), unlike the smaller, conservative
+    # 250,000 which could only ever produce a false FAIL. The citation
+    # above is unambiguous (the same exact figure in two places in the same
+    # primary source, independently corroborated by this project's own
+    # provenance audit), which is what makes accepting that direction of
+    # risk appropriate here.
+    #
+    # Deliberately UNCHANGED by this fix: the SAME Fig. 05 gives two
+    # DIFFERENT, unreconciled coupling-count figures for the die (a callout
+    # panel's "2,135,904 COUPLERS" vs the caption's "215,904 coupling
+    # parameters", roughly a 9.9:1 ratio) -- audit/findings/R2.md parks that
+    # question explicitly as UNRESOLVED, since if the physical die really
+    # shares couplers ~10:1 this project's one-independent-J-per-edge
+    # modelling assumption would be wrong for physical Z1. That question is
+    # untouched here; this field is about node/pbit COUNT only.
+    node_budget=Sourced(
+        269_568,
+        "From One to One Billion: Torx, Thermalizers, and Z1 - Extropic.pdf "
+        "(billion) p.7, Fig. 05 caption and callout panel",
+        "caption: 'The Z1 die: eight cores, 269,568 pbits, 215,904 coupling "
+        "parameters, >50 MHz sampling rate, <1 W'; callout panel: 'PBITS "
+        "269,568 IN 8 CORES' -- Extropic's own exact architectural spec for "
+        "the taped-out Z1 die. SUPERSEDES the earlier approximate figure "
+        "sourced to a different Extropic document (thermalizers p.5, "
+        "verbatim: 'the entire chip has ~250,000 nodes', a rounded estimate "
+        "used only to size a per-iteration energy-cost calculation, never "
+        "presented as a hardware spec). See audit/provenance.md Part 1 row "
+        "9 and Finding P-1 for the full cross-document reconciliation. "
+        "Coupling COUNTS (couplers vs coupling parameters) from this same "
+        "figure remain unreconciled -- see audit/findings/R2.md -- and are "
+        "unaffected by this change."),
 )
 
 IDEAL = TargetProfile(
