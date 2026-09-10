@@ -11,9 +11,11 @@ that is the difference between an afternoon and a coffee.
 """
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import dataclass
 
+import numpy as np
 import networkx as nx
 
 from tsu.failures import CompileError
@@ -21,6 +23,7 @@ from tsu.gates import GateCheck, gate_checks
 from tsu.passes.analyse import analyse
 from tsu.passes.place import place, _try_grid_embed
 from tsu.passes.lower import IsingModel
+from tsu.passes.route import mediator_coupling
 from tsu.target import PROFILES, TargetProfile
 
 WARN_FRACTION = 0.8
@@ -173,6 +176,54 @@ def preflight(ising: IsingModel, target: TargetProfile = PROFILES["z1"],
     gates += (_gate("node_budget", rep.n_nodes + est_mediators,
                     target.node_budget.value, node_budget_note,
                     assumed=node_budget_assumed),)
+
+    # A-1 task 3 (external review, 2026-09-09): a non-bipartite model's
+    # POST-mediation coupling is predictable in closed form -- A =
+    # arccosh(exp(2*beta*|J|))/(2*beta) (route.py's own derivation) -- from
+    # this model's own |J|max and beta ALONE, with no placement (and no
+    # annealer run) required at all. Computed here, BEFORE the (possibly
+    # slow) `place()` call below, precisely because preflight's whole
+    # reason to exist is answering "will it fit" before paying that cost
+    # (this module's own docstring). Mediation ALWAYS raises the coupling
+    # it replaces (A > |J| for every J != 0), which is exactly why a model
+    # can clear `max_abs_coupling`/`coupling_cap` pre-mediation and still
+    # not fit once `place()` mediates it -- the gap A-1's compile-time fix
+    # (tsu.passes.search._try) closes at compile time; this closes the same
+    # gap here, at preflight time, before a user ever reaches a compile.
+    #
+    # Omitted entirely (not merely marked "ok") for an already-bipartite
+    # model: `insert_mediators` never runs on one at all (route.py's own
+    # early-out), so there is nothing to predict -- reporting a gate here
+    # would imply a prediction that was never actually computed for
+    # anything. Also omitted (rather than fabricating a comparison) if this
+    # model's own beta or |J|max is non-finite -- `mediator_coupling` gives
+    # no guarantee of a sane result off that domain, and this project never
+    # reports a number it does not trust (see this module's own docstring).
+    #
+    # DELEGATES to `tsu.passes.route.mediator_coupling` -- the SAME
+    # function `insert_mediators` itself calls -- rather than re-deriving
+    # the formula a second time (this project has been bitten before by
+    # exactly that kind of drift; see route.py's own docstring).
+    if not rep.bipartite:
+        peak_J = float(np.abs(ising.weights).max()) if len(ising.weights) else 0.0
+        beta = float(ising.beta)
+        if math.isfinite(peak_J) and math.isfinite(beta):
+            predicted_A = mediator_coupling(peak_J, beta)
+            cap_J = target.max_abs_coupling.value
+            cap_J_assumed = target.is_assumed("max_abs_coupling")
+            note = (
+                "the |J| a mediator coupling would need at this model's own "
+                "beta and |J|max (A = arccosh(exp(2*beta*|J|))/(2*beta), "
+                "computed WITHOUT placing anything) -- mediation ALWAYS "
+                "RAISES every coupling it touches (A > |J| for every J != 0), "
+                "which is why a model can pass max_abs_coupling (the "
+                "coupling_cap gate above) before placement and still not fit "
+                "once `place()` actually mediates it, gated against the SAME "
+                "hardware cap coupling_cap uses")
+            if cap_J_assumed:
+                note += " (ASSUMED -- not a sourced hardware figure)"
+            gates += (_gate("mediated_coupling_cap", predicted_A, cap_J, note,
+                            assumed=cap_J_assumed),)
 
     # ASK which path placement took; do not infer it. Bipartiteness is
     # NECESSARY and not SUFFICIENT for a direct grid embed -- a bipartite graph

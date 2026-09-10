@@ -355,3 +355,170 @@ def test_node_budget_note_distinguishes_its_estimate_from_placements_actual_coun
     assert "actual" in note, \
         "the note must point a reader at placement's ACTUAL count, not " \
         "just name this gate's own estimate"
+
+
+# ---------------------------------------------------------------------------
+# A-1 task 3 (external review, 2026-09-09): preflight exists to answer "will
+# it fit" BEFORE an expensive placement search. Mediation's own gadget
+# coupling A = arccosh(exp(2*beta*|J|))/(2*beta) is a closed form -- a
+# non-bipartite model's post-mediation coupling is therefore predictable
+# from the model's own beta and |J|max alone, with no placement (and no
+# annealer run) required at all. `mediator_coupling` (route.py) is the ONE
+# implementation of that formula (see test_mediator_insertion.py's own
+# reuse test); preflight calls it directly rather than re-deriving it.
+# ---------------------------------------------------------------------------
+
+def _near_cap_triangle(j: float = 6.0, beta: float = 1.0) -> IsingModel:
+    """A triangle whose pre-mediation |J| clears `max_abs_coupling` (j <=
+    6.0) but whose predicted MEDIATED coupling does not -- the reviewer's
+    own reproduction (A-1): |J|=6.0 at beta=1.0 clears the pre-mediation
+    cap gate (6.0 is not > 6.0) but real hidden-spin mediation needs
+    A(6.0, beta=1) = 6.346573590275254 > 6.0."""
+    return IsingModel(nodes=("a", "b", "c"), edges=((0, 1), (1, 2), (0, 2)),
+                      weights=np.full(3, j), biases=np.zeros(3),
+                      beta=beta, offset=0.0)
+
+
+def test_a_bipartite_model_carries_no_mediated_coupling_prediction():
+    """WHAT THIS PINS: mediation never runs on an already-bipartite model
+    (route.py: `insert_mediators` early-outs on `report.bipartite`), so
+    preflight must not report a predicted mediated coupling for one -- there
+    is nothing to predict.
+    HOW IT FAILS: an unconditional gate (added for every model regardless of
+    bipartiteness) makes `"mediated_coupling_cap" in names` true here, which
+    this test's `assert ... not in` catches."""
+    r = preflight(grid(8))
+    names = {x.name for x in r.gates}
+    assert "mediated_coupling_cap" not in names
+
+
+def test_a_non_bipartite_model_reports_its_predicted_mediated_coupling():
+    """WHAT THIS PINS: for a non-bipartite model, preflight reports a
+    `mediated_coupling_cap` gate BEFORE any placement runs -- the coupling
+    mediation would require, computed from this model's own |J|max and
+    beta via the closed form, gated against the same `max_abs_coupling`
+    cap `coupling_cap` uses.
+    HOW IT FAILS: if this gate is never added, `by_gate["mediated_coupling_
+    cap"]` raises KeyError. If preflight guessed instead of computing (e.g.
+    reused |J|max itself, or a hardcoded beta), the value would not match
+    0.7191781980478423 -- the real A(0.4, beta=1.0)."""
+    r = preflight(triangle())
+    by_gate = {x.name: x for x in r.gates}
+    g = by_gate["mediated_coupling_cap"]
+    assert g.value == pytest.approx(0.7191781980478423)
+    assert g.limit == PROFILES["z1"].max_abs_coupling.value
+    assert g.status == "ok"
+    assert g.assumed is False
+
+
+def test_the_predicted_mediated_coupling_gate_uses_the_models_own_beta():
+    """WHAT THIS PINS: the closed form must use the MODEL's own beta, never
+    beta=1.0 hardcoded -- A is temperature-dependent (route.py's own
+    BetaMismatchError/spec 5.3.5). Cross-checked against the SAME
+    (beta=4.0, |J|=1.25) pair test_mediator_insertion.py's own
+    `test_mediator_couplings_stay_within_the_target_cap` already pins to
+    1.3366 (abs=1e-3) -- reusing that trusted reference number, not a new
+    one invented for this test.
+    HOW IT FAILS: a hardcoded `beta=1.0` in the prediction would compute
+    A(1.25, 1.0) = 1.5668... instead, failing the `pytest.approx` check
+    below (a ~17% difference, not a rounding-tolerance miss)."""
+    r = preflight(_near_cap_triangle(j=1.25, beta=4.0))
+    g = {x.name: x for x in r.gates}["mediated_coupling_cap"]
+    assert g.value == pytest.approx(1.336643397505582)
+
+
+def test_the_predicted_mediated_coupling_gate_matches_route_mediator_coupling_exactly():
+    """WHAT THIS PINS: preflight DELEGATES to `tsu.passes.route.
+    mediator_coupling` -- the SAME function `insert_mediators` itself
+    calls (see test_mediator_insertion.py) -- rather than re-deriving the
+    formula a second time. Checked with bit-for-bit `==`, not
+    `pytest.approx`: two independently-written but mathematically
+    equivalent expressions would still pass an approx check, which is
+    exactly the kind of drift this project has been bitten by before.
+    HOW IT FAILS: any independently re-derived expression of the same
+    formula that is not EXACTLY `mediator_coupling`'s own floating-point
+    result (e.g. a different but equivalent grouping of the same ops, which
+    floating point does not guarantee agrees bit-for-bit) fails `==` even
+    though it would pass a tolerance-based check."""
+    from tsu.passes.route import mediator_coupling
+    model = _near_cap_triangle(j=6.0, beta=1.0)
+    r = preflight(model)
+    g = {x.name: x for x in r.gates}["mediated_coupling_cap"]
+    expected = mediator_coupling(6.0, 1.0)
+    assert g.value == expected
+
+
+def test_a_model_that_passes_coupling_cap_can_still_fail_the_mediated_prediction():
+    """WHAT THIS PINS: the exact scenario A-1 exists for -- a model whose
+    pre-mediation |J|max clears `coupling_cap` (6.0 is not > 6.0 -- it only
+    WARNS, at exactly WARN_FRACTION*limit, per
+    test_gate_statuses_use_the_stated_warn_fraction's own boundary rule; it
+    never FAILS) but whose PREDICTED post-mediation coupling exceeds the
+    same cap outright (6.346573590275254 > 6.0 -- a hard fail, not a
+    warn). Both gates must be visible SIMULTANEOUSLY with their OWN,
+    different statuses, so a reader sees the exact discrepancy this task's
+    fix closes -- a model that reads as merely "tight" on the existing
+    gate is actually INFEASIBLE once mediation is accounted for.
+    HOW IT FAILS: before this feature, `max_abs_coupling` (preflight's
+    display name for the `coupling_cap` gate) alone would read 'warn' --
+    never 'fail' -- and preflight would say nothing about mediation
+    raising the coupling past the cap; the overall verdict would be 'warn'
+    for a model that, per A-1's own compile-time fix, cannot actually
+    compile on Z1 at all. `g["mediated_coupling_cap"].status == 'fail'`
+    catches the missing prediction; `g["max_abs_coupling"].status ==
+    'warn'` (never 'fail') pins that the EXISTING gate genuinely does not
+    catch this failure on its own (i.e. this is not a redundant check) --
+    and `r.verdict == 'fail'` pins that the new gate's failure, not just
+    its presence, actually drives the overall verdict."""
+    model = _near_cap_triangle(j=6.0, beta=1.0)
+    r = preflight(model)
+    g = {x.name: x for x in r.gates}
+    assert g["max_abs_coupling"].status == "warn"
+    assert g["mediated_coupling_cap"].status == "fail"
+    assert g["mediated_coupling_cap"].value == pytest.approx(6.346573590275254)
+    assert r.verdict == "fail"
+
+
+def test_the_predicted_mediated_coupling_note_explains_the_discrepancy():
+    """WHAT THIS PINS: the gate's own note must plainly state that
+    mediation RAISES every coupling it touches, and that this is WHY a
+    model can pass `max_abs_coupling` before placement and still not fit
+    once mediated -- a reader must not have to already know this project's
+    internals to understand what the gate means.
+    HOW IT FAILS: a generic/reused note (e.g. `coupling_cap`'s own
+    "|J| against the hardware's coupling cap") that never mentions
+    mediation raising the coupling at all fails the substring checks
+    below."""
+    model = _near_cap_triangle(j=6.0, beta=1.0)
+    r = preflight(model)
+    note = {x.name: x for x in r.gates}["mediated_coupling_cap"].note.lower()
+    assert "mediat" in note
+    assert "raise" in note or "increase" in note or "greater" in note
+    assert "coupling_cap" in note or "max_abs_coupling" in note
+
+
+def test_predicted_mediated_coupling_gate_needs_no_placement_to_compute():
+    """WHAT THIS PINS: the prediction is available even when placement
+    itself FAILS (or would be prohibitively slow) -- it is a closed form
+    over the pre-placement model alone, per this feature's whole reason to
+    exist (report the risk before waiting on the slower placement search).
+    Forces a placement failure cheaply (a 20-node complete graph blows the
+    degree gate outright, `test_a_degree_violation_is_REPORTED_not_raised`'s
+    own fixture) on a model ALSO made non-bipartite, to prove the gate is
+    populated regardless.
+    HOW IT FAILS: if the prediction were computed FROM `placement`/
+    `placement.mediated_ising` (rather than independently, from `ising`
+    itself, before `place()` ever runs), it would be missing entirely here
+    (`r.placed is False`) -- `by_gate` would KeyError."""
+    from tsu.passes.analyse import analyse
+    from tsu.passes.route import mediator_coupling
+    n = 20
+    e = [(i, j) for i in range(n) for j in range(i + 1, n)]
+    im = IsingModel(nodes=tuple(f"n{i}" for i in range(n)), edges=tuple(e),
+                    weights=np.full(len(e), 0.1), biases=np.zeros(n),
+                    beta=1.0, offset=0.0)
+    assert not analyse(im).bipartite, "fixture assumption: a complete graph K20 is odd-cycled"
+    r = preflight(im)
+    assert r.placed is False
+    g = {x.name: x for x in r.gates}["mediated_coupling_cap"]
+    assert g.value == pytest.approx(mediator_coupling(0.1, 1.0))
