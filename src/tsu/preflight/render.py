@@ -107,6 +107,53 @@ def _format_band(band) -> str:
     return f"({lo:g}, {hi:g})"
 
 
+def _pct_cell(value: float, limit: float) -> str:
+    """Residue 1 (coordinator review, post-F1-F10): the colouring gate's
+    limit is 0 -- a violation COUNT, not a headroom threshold this project
+    scales a percentage toward -- so `100*value/limit` is literally 0/0.
+    Formatting that NaN with `.1f}%` prints the literal "nan%" on the
+    page, which no test caught (grep -rn "nan" tests/ found nothing) and
+    which reads as carelessness in a report whose whole pitch is rigor.
+    A zero limit is reported as "n/a" with the reason a reader needs
+    (this column measures headroom, and a count-against-zero gate has
+    none to measure) rather than a raw NaN."""
+    if not limit:
+        return "n/a (zero-limit gate: any violation fails)"
+    return f"{100.0 * value / limit:.1f}%"
+
+
+def _verdict_qualifier(report) -> str:
+    """Residue 2 (coordinator review, substantive): when EVERY gate
+    driving the current verdict (fail, or warn/downgraded for a warn
+    verdict) traces to an ASSUMED limit -- target.py's `Sourced(...,
+    "assumed", ...)`, not a sourced Extropic fact -- the verdict line
+    must say so. Marking the individual gate row (F2's `note` column) is
+    NECESSARY but not SUFFICIENT: a reader who reads only
+    "**Verdict: FAIL**" and stops has been told their model does not fit
+    real hardware, when what actually happened is that it exceeds a
+    project WORKING ASSUMPTION.
+
+    Returns "" (no qualifier) whenever at least one gate driving the
+    verdict is a SOURCED FACT -- a genuine hardware failure/warning must
+    never be softened by wording that only applies to a DIFFERENT gate.
+    This is what stops the qualifier being pasted onto every failure
+    regardless of cause (see
+    test_verdict_is_not_qualified_when_a_sourced_fact_gate_fails and its
+    mixed-set sibling in tests/test_preflight_render.py)."""
+    if report.verdict == "fail":
+        driving = [g for g in report.gates if g.status == "fail"]
+    elif report.verdict == "warn":
+        driving = [g for g in report.gates if g.status in ("warn", "downgraded")]
+    else:
+        return ""
+    if not driving or not all(g.assumed for g in driving):
+        return ""
+    names = ", ".join(g.name for g in driving)
+    return (f" — rests entirely on ASSUMED limit(s) ({names}), not a "
+           f"sourced hardware fact; pass --allow-assumed to downgrade "
+           f"{'it' if len(driving) == 1 else 'them'}")
+
+
 def _fmt_opt(value, reason: str, fmt: str) -> str:
     """Format `value` with `fmt`, or `unavailable: <reason>` when it is None.
 
@@ -134,7 +181,7 @@ def write_preflight(report, out_dir) -> list[Path]:
 
     lines = [_header("Pre-flight report", prov["jax_backend"],
                      sampling_appears_below=False),
-             f"**Verdict: {report.verdict.upper()}**\n",
+             f"**Verdict: {report.verdict.upper()}**{_verdict_qualifier(report)}\n",
              f"- {report.n_spins:,} spins, {report.n_couplings:,} couplings, "
              f"max degree {report.max_degree}",
              f"- bipartite: **{report.bipartite}** — embedding path "
@@ -147,7 +194,6 @@ def write_preflight(report, out_dir) -> list[Path]:
              "| gate | value | limit | % of limit | status | note |",
              "|---|---|---|---|---|---|"]
     for g in report.gates:
-        pct = 100.0 * g.value / g.limit if g.limit else float("nan")
         # F2/F9 (branch review): the note column -- previously written to
         # preflight.json only, never rendered here -- is what lets a
         # reader see an ASSUMED (not Extropic-sourced) limit marked
@@ -156,7 +202,8 @@ def write_preflight(report, out_dir) -> list[Path]:
         # `mediators` line above (placement's ACTUAL count), rather than
         # leaving two numbers that can disagree unexplained on the page.
         lines.append(f"| {g.name} | {g.value:g} | {g.limit:g} | "
-                     f"{pct:.1f}% | **{g.status}** | {g.note} |")
+                     f"{_pct_cell(g.value, g.limit)} | **{g.status}** | "
+                     f"{g.note} |")
     if not report.bipartite:
         lines.append(
             "\n> The interaction graph is **not bipartite**, so it cannot be "

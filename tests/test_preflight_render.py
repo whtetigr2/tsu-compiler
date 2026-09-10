@@ -174,6 +174,154 @@ def test_preflight_report_does_not_claim_sampling_appears_below(tmp_path):
     assert "where sampling appears below" not in txt
 
 
+# ---------------------------------------------------------------------------
+# Coordinator residue review, after all F1-F10 fixes landed -- found by
+# reading a real report.md as a reader, not by running tests.
+#
+# RESIDUE 1: the colouring gate's limit is 0 (a violation COUNT, not a
+# headroom threshold), so "% of limit" computes 0/0 -> the literal "nan%"
+# on the page.
+#
+# RESIDUE 2: a FAIL verdict driven entirely by an ASSUMED (not
+# Extropic-sourced) gate limit -- max_abs_bias -- carries no indication at
+# the verdict line itself that the failure rests on a working assumption,
+# not a hardware fact. Marking the individual gate row (F2) is necessary
+# but not sufficient: a reader who reads only "**Verdict: FAIL**" has been
+# told their model does not fit real hardware, when what happened is that
+# it exceeds a number this project made up. A genuine hardware failure
+# (a sourced-fact gate failing) must NOT be softened by the same wording.
+# ---------------------------------------------------------------------------
+
+def _bigbias_model() -> IsingModel:
+    """Fails ONLY max_abs_bias (assumed, target.py source="assumed") --
+    |J| stays comfortably under its own, separately-sourced (Extropic-
+    documented, NOT assumed) cap. Duplicated from test_preflight_check.py's
+    `_bigbias`, per this project's stated no-cross-test-import convention."""
+    n = 4
+    idx = {(x, y): y * n + x for y in range(n) for x in range(n)}
+    e = []
+    for (x, y), i in idx.items():
+        for dx, dy in ((1, 0), (0, 1)):
+            if (x + dx, y + dy) in idx:
+                e.append((i, idx[(x + dx, y + dy)]))
+    biases = np.zeros(n * n)
+    biases[0] = 9.0
+    return IsingModel(nodes=tuple(f"n{i}" for i in range(n * n)),
+                      edges=tuple(e), weights=np.full(len(e), 0.5),
+                      biases=biases, beta=1.0, offset=0.0)
+
+
+def test_a_zero_limit_gate_never_renders_nan_percent(tmp_path):
+    """WHAT THIS PINS: the colouring gate's limit is 0 (a violation COUNT,
+    not a headroom threshold this project scales toward), so "% of limit"
+    is 0/0 -- rendering that as the literal "nan%" (Python's `float('nan')`
+    formatted with `.1f}%`) reads as carelessness in a report whose whole
+    pitch is rigor, and no test pinned it before this one (confirmed:
+    `grep -rn "nan" tests/` found nothing referencing this).
+    HOW IT FAILS: reverting the percentage cell to
+    `100.0 * g.value / g.limit if g.limit else float('nan')` (this
+    branch's shipped code, formatted `f"{pct:.1f}%"`) makes the
+    colouring row's own percentage cell the literal string "nan%".
+    PROVENANCE: coordinator's own residue review, reading a real
+    report.md as a reader rather than running tests."""
+    rep = preflight(grid(6))
+    write_preflight(rep, tmp_path)
+    txt = (tmp_path / "report.md").read_text(encoding="utf-8")
+    assert "nan" not in txt.lower(), \
+        "no cell anywhere on the page may render the literal nan/NaN"
+    colouring_line = next(ln for ln in txt.splitlines()
+                          if ln.startswith("| colouring"))
+    assert "n/a" in colouring_line.lower(), \
+        f"a zero-limit gate's percentage cell must read as something a " \
+        f"reader can parse, not nan%: {colouring_line!r}"
+
+
+def test_verdict_is_qualified_when_the_only_failing_gate_is_assumed(tmp_path):
+    """WHAT THIS PINS (residue 2, substantive): a FAIL verdict driven
+    ENTIRELY by assumed-limit gates (max_abs_bias here) must say so at the
+    verdict line -- naming the gate and mentioning --allow-assumed -- not
+    just mark the individual gate row. `**Verdict: FAIL**` alone tells a
+    reader their model does not fit real hardware; what actually happened
+    is that it exceeds a project working assumption.
+    HOW IT FAILS: a verdict line that is always the bare
+    `**Verdict: FAIL**` regardless of which gates failed (this branch's
+    shipped behaviour, even after F2's per-gate `assumed` marker landed)
+    makes every assertion below fail -- the qualifier text does not exist
+    anywhere on the page.
+    PROVENANCE: target.py's Sourced(6.0, "assumed", ...) for max_abs_bias;
+    coordinator's own residue review."""
+    rep = preflight(_bigbias_model())
+    assert rep.verdict == "fail"
+    failing = [g for g in rep.gates if g.status == "fail"]
+    assert failing and all(g.assumed for g in failing), \
+        "fixture sanity: every failing gate must be assumed for this test"
+    write_preflight(rep, tmp_path)
+    txt = (tmp_path / "report.md").read_text(encoding="utf-8")
+    verdict_line = next(ln for ln in txt.splitlines()
+                        if ln.startswith("**Verdict:"))
+    assert "assumed" in verdict_line.lower(), \
+        f"the verdict line must say the failure rests on assumed limits: " \
+        f"{verdict_line!r}"
+    assert "max_abs_bias" in verdict_line, \
+        "the verdict line must NAME which gate(s) the qualifier applies to"
+    assert "--allow-assumed" in verdict_line, \
+        "the verdict line must mention --allow-assumed as the remedy"
+
+
+def test_verdict_is_not_qualified_when_a_sourced_fact_gate_fails(tmp_path):
+    """WHAT THIS PINS (residue 2's own required negative case): a FAIL
+    verdict driven by a SOURCED-FACT gate (max_abs_coupling, an
+    Extropic-documented Z1 hardware cap, NOT assumed) must NOT carry the
+    assumed-limits qualifier -- a genuine hardware failure must never be
+    softened by wording that applies only to a DIFFERENT gate. This is
+    what stops the qualifier from being pasted onto every failure
+    regardless of cause.
+    HOW IT FAILS: a qualifier that fires whenever ANY gate is assumed
+    (rather than only when EVERY gate driving the verdict is assumed), or
+    one that fires unconditionally on any FAIL verdict, makes this
+    fixture's verdict line say "assumed" too -- mutation-verified
+    directly (see branch-fixes-report.md's transcript): mutating the
+    qualifier to also fire here made this exact test fail.
+    PROVENANCE: target.py's Sourced(6.0, "2608.01615v1.pdf...", ...) for
+    max_abs_coupling -- an Extropic-documented fact, source != "assumed";
+    coordinator's own residue review."""
+    rep = preflight(grid(6, j=9.0))
+    assert rep.verdict == "fail"
+    failing = [g for g in rep.gates if g.status == "fail"]
+    assert failing and not any(g.assumed for g in failing), \
+        "fixture sanity: the failing gate must be a sourced fact, not assumed"
+    write_preflight(rep, tmp_path)
+    txt = (tmp_path / "report.md").read_text(encoding="utf-8")
+    verdict_line = next(ln for ln in txt.splitlines()
+                        if ln.startswith("**Verdict:"))
+    assert "assumed" not in verdict_line.lower(), \
+        f"a genuine (sourced-fact) hardware failure must not be softened " \
+        f"by the assumed-limits qualifier: {verdict_line!r}"
+
+
+def test_verdict_is_not_qualified_when_a_mixed_set_includes_a_sourced_failure(tmp_path):
+    """Edge case explicitly named in the residue ("do not soften a genuine
+    hardware failure"): when BOTH an assumed gate (max_abs_bias) and a
+    sourced-fact gate (max_abs_coupling) fail together, the verdict must
+    stay UNQUALIFIED -- at least one sourced-fact failure in the driving
+    set is enough to withhold the qualifier, even though another gate in
+    that same set is assumed."""
+    model = _bigbias_model()
+    weights = np.array(model.weights, dtype=float) * 20.0   # also blow max_abs_coupling
+    model = IsingModel(nodes=model.nodes, edges=model.edges, weights=weights,
+                       biases=model.biases, beta=model.beta, offset=model.offset)
+    rep = preflight(model)
+    assert rep.verdict == "fail"
+    failing = [g for g in rep.gates if g.status == "fail"]
+    assert {g.name for g in failing} >= {"max_abs_bias", "max_abs_coupling"}, \
+        "fixture sanity: both gates must fail together"
+    write_preflight(rep, tmp_path)
+    txt = (tmp_path / "report.md").read_text(encoding="utf-8")
+    verdict_line = next(ln for ln in txt.splitlines()
+                        if ln.startswith("**Verdict:"))
+    assert "assumed" not in verdict_line.lower()
+
+
 def test_a_placement_failure_shows_its_remediations_in_the_report(tmp_path):
     """WHAT THIS PINS: when placement fails, the compiler's own remediation
     text (not just a bare 'fail' verdict) reaches report.md.
