@@ -3,6 +3,28 @@ degree/space trade: spend NODES to buy DEGREE headroom, the trade
 `insert_mediators` (edge subdivision) cannot make -- subdividing an edge
 leaves both endpoints with exactly the degree they had.
 
+STATUS (external review C-2, 2026-09-10): implemented and tested
+(`tests/test_split.py`, including the marginal-preservation check against
+`audit/oracles/exact.py`), but NOT wired into the compile pipeline --
+`split_high_degree` is imported nowhere under `search.py`/`cli.py`/
+`receipt.py`. A `degree_exceeded` placement failure today gets reject-plus-
+remediation only (`place.py` raises `CompileError` naming "change encoding"
+or "relax target"; it never calls this module). Do not assume a degree-
+exceeded compile will attempt a split -- it will not, currently.
+
+Wiring it in is deliberately left undecided here: this is a candidate
+TRANSFORM for the search (`search.py`'s `SLICE_ENCODINGS` loop, or a new
+retry-on-`degree_exceeded` path in `_try`) to try and then gate/select among
+like any other candidate, not something that should run automatically the
+moment a degree gate fails. Before it is wired in, something needs to decide
+(at minimum): what `chain_strength` a caller should use by default and how
+that interacts with `assert_beta_consistent` (see the mediated-edge caveat
+below); whether a split candidate competes in `_selection_key`'s existing
+physical-pbit-count/colour-blocks/|J|max ordering or needs its own place in
+it, given it can only ever add nodes; and whether splitting should be tried
+before or after mediation, since both this pass and `insert_mediators` add
+spins for different reasons. None of that is decided by this module.
+
 A logical spin `v` of degree `d > max_degree` becomes `k =
 ceil(d / (max_degree - 2))` copies `v_1 .. v_k`, chained `v_1 -- v_2 -- ...
 -- v_k` by a coupling of magnitude `chain_strength` on every consecutive
@@ -24,6 +46,30 @@ wrong rather than approximately right. This module does not itself decide
 "strong enough"; `chain_strength` is the caller's own choice, verified
 externally (see `tests/test_split.py`'s marginal-preservation test against
 `audit/oracles/exact.py`) rather than asserted here.
+
+A FURTHER caveat, specific to MEDIATED edges (external review C-3,
+2026-09-10), distinct from the "chain breaks" risk above: `insert_mediators`
+(route.py) is exact before this pass ever touches it -- one hidden mediator
+spin, at its own closed-form coupling `A = arccosh(exp(2*beta*|J|))/(2*beta)`,
+reproduces the original edge's two-body marginal with NO approximation
+(route.py's own docstring: "...without changing the marginal distribution
+over its original spins"). Splitting a mediator spin that needs it (see the
+`mediator_nodes` handling below) breaks that equivalence even when the chain
+never fully "breaks" in the sense above: the mediator's two edges to the
+ORIGINAL edge's endpoints can land on different copies, so the two-hop path
+between those endpoints now runs through a FINITE-strength ferromagnetic
+chain rather than through one node whose value the model forces outright.
+The mediator bookkeeping survives the split correctly -- `new_mediator_nodes`
+below extends every copy of a split mediator, so `assert_beta_consistent`
+still fires on it exactly as it should -- but that bookkeeping surviving is
+not the same claim as the GADGET surviving. For an UNMEDIATED spin, this
+pass's split is an exact restructuring: once the copies agree, the split
+reproduces the original spin's exact behaviour. For a MEDIATED edge, the
+resulting two-hop marginal between the mediator's endpoints is an
+APPROXIMATION at any finite `chain_strength`, exact only in the
+chain_strength -> infinity limit. Named here, not fixed: this pass does not
+attempt to correct for it, and no caller should assume a split mediated
+edge is exact just because `assert_beta_consistent` raises nothing.
 
 Sign convention (matches `passes/lower.py`'s own, confirmed against
 `audit/oracles/exact.py`, which is written from the physics and does not
