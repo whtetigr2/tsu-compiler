@@ -56,6 +56,7 @@ class TargetProfile:
     max_abs_bias: Sourced
     coupling_bits: Sourced
     node_budget: Sourced
+    connected_fabric: Sourced
 
     def is_assumed(self, field_name: str) -> bool:
         got = getattr(self, field_name)
@@ -148,6 +149,26 @@ Z1 = TargetProfile(
         "Coupling COUNTS (couplers vs coupling parameters) from this same "
         "figure remain unreconciled -- see audit/findings/R2.md -- and are "
         "unaffected by this change."),
+    connected_fabric=Sourced(
+        True,
+        "assumed",
+        "DERIVED, NOT DOCUMENTED. The published material states four numbers -- "
+        "269,568 pbits, 8 cores, 16-neighbour connectivity, and 2,135,904 "
+        "couplers (billion p.7, Fig. 05) -- and never states whether the eight "
+        "cores form one connected fabric or eight independent processors. This "
+        "project has ALWAYS assumed connected: node_budget is the full die and "
+        "place.py's grid embedder places across all of it. The assumption is "
+        "recorded here so it prints ASSUMED rather than staying invisible. "
+        "Evidence: reconstructing the edge count from the documented offset "
+        "rule, every connected rectangular tiling of 269,568 reproduces the "
+        "published 2,135,904 couplers to within a few hundred edges (best "
+        "216x1248, +168), while every 8-isolated-core tiling undercounts by "
+        "~20,600-21,500 -- matching an independently predicted boundary deficit "
+        "of ~21,000 (7 internal boundaries in a 2x4 mesh at ~3,024 couplings "
+        "each; see audit/findings/R2.md). LICENCES treating node_budget as "
+        "PLACEABLE rather than merely countable. DOES NOT licence any claim "
+        "about inter-core bandwidth, nor that the array is a plain rectangle -- "
+        "nothing reproduces 2,135,904 exactly."),
 )
 
 IDEAL = TargetProfile(
@@ -160,6 +181,7 @@ IDEAL = TargetProfile(
     max_abs_bias=Sourced(float("inf"), "control"),
     coupling_bits=Sourced(float("inf"), "control"),
     node_budget=Sourced(float("inf"), "control"),
+    connected_fabric=Sourced(True, "control"),
 )
 
 PROFILES = {"z1": Z1, "ideal": IDEAL}

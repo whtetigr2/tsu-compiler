@@ -283,7 +283,7 @@ def test_try_surfaces_an_unexpected_place_exception_as_a_candidate_not_a_traceba
     spec = load_spec("specs/toy.yaml")
     cand, art = search_mod._try(spec, Z1, "domain_wall", False)
 
-    assert cand.state == CandidateState.HARDWARE_INFEASIBLE
+    assert cand.state == CandidateState.COMPILER_ERROR
     assert "RuntimeError" in cand.reason
     assert "place" in cand.reason
     assert "boom: unexpected placement bug" in cand.reason
@@ -310,13 +310,13 @@ def test_try_surfaces_an_unexpected_route_exception_as_a_candidate_not_a_traceba
     spec = load_spec("specs/toy.yaml")
     cand, art = search_mod._try(spec, Z1, "domain_wall", False)
 
-    assert cand.state == CandidateState.HARDWARE_INFEASIBLE
+    assert cand.state == CandidateState.COMPILER_ERROR
     assert "KeyError" in cand.reason
     assert "route" in cand.reason
     assert "boom: unexpected route bug" in cand.reason
 
 
-def test_compile_spec_reports_hardware_not_a_traceback_on_an_unexpected_place_bug(
+def test_compile_spec_reports_a_compiler_error_not_a_hardware_verdict(
         monkeypatch):
     """WHAT THIS PINS: the SAME defect, one layer up (matching the existing
     style of `test_compile_spec_reports_hardware_not_compiled_when_mediation_
@@ -348,9 +348,38 @@ def test_compile_spec_reports_hardware_not_a_traceback_on_an_unexpected_place_bu
 
     c = compile_spec(load_spec("specs/toy.yaml"), Z1)
 
-    assert c.verdict == "HARDWARE"
+    assert c.verdict == "ERROR"
     assert c.ideal_passed is True
     assert c.repset.selected is None
     for cand in c.repset.candidates:
-        assert cand.state == CandidateState.HARDWARE_INFEASIBLE
+        assert cand.state == CandidateState.COMPILER_ERROR
         assert "RuntimeError" in cand.reason
+
+
+def test_a_genuine_gate_failure_is_still_HARDWARE_INFEASIBLE_not_COMPILER_ERROR():
+    """WHAT THIS PINS: the negative case for COMPILER_ERROR. A model that
+    really does exceed a hardware cap must still be reported as a property of
+    THAT MODEL, not as a fault in this compiler. Without this, the new state
+    could swallow real infeasibility and every rejected model would read as
+    "our bug", which is the mirror image of the defect it was added to fix.
+    HOW IT FAILS: widen the COMPILER_ERROR branch in `_try` to catch
+    `CompileError` too (or reorder the two except clauses so the broad one
+    matches first) and this flips to COMPILER_ERROR while the three tests
+    above still pass -- they only prove the new state is REACHABLE, not that
+    it is reached for the right reason.
+    PROVENANCE: this repo's own gate machinery -- the coupling cap is a
+    sourced Extropic figure (target.py max_abs_coupling), so a model above it
+    is infeasible by a documented fact, with no exception involved anywhere."""
+    import numpy as np
+    from tsu.passes.lower import IsingModel
+    from tsu.passes.analyse import analyse
+    from tsu.gates import check_gates
+
+    over = IsingModel(nodes=("a", "b"), edges=((0, 1),),
+                      weights=np.array([99.0]), biases=np.zeros(2),
+                      beta=1.0, offset=0.0)
+    fails = check_gates(over, analyse(over), Z1, False)
+    assert fails and fails[0].gate == "coupling_cap", (
+        "fixture must fail a REAL gate, with no exception raised")
+    assert fails[0].assumed is False, (
+        "and against a SOURCED figure, so this is a fact about the model")

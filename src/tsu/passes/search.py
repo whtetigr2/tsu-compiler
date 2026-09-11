@@ -291,7 +291,7 @@ def _try(spec, target, encoding, allow_assumed, clamp=None, coefficient_scale=1.
         # `CompileError` never reaches this clause at all: the `except
         # CompileError` above it always matches first and keeps its own
         # existing, structured handling completely unchanged.
-        return Candidate(encoding, CandidateState.HARDWARE_INFEASIBLE,
+        return Candidate(encoding, CandidateState.COMPILER_ERROR,
                          reason=f"unexpected {type(e).__name__} in "
                                 f"{current_pass}: {e}",
                          report=report), \
@@ -480,6 +480,26 @@ def _compile_spec_impl(spec, target: TargetProfile, allow_assumed: bool = False,
             arts[enc_name] = (c, a)
 
     feasible = [c for c in cands if c.state == CandidateState.HARDWARE_FEASIBLE]
+    # If every candidate died of a fault in THIS compiler, the hardware
+    # question was never actually evaluated, so "HARDWARE" (which asserts
+    # the model does not fit) would be a claim we did not establish. Only
+    # when some candidate genuinely reached and failed a gate does that
+    # verdict describe what happened.
+    errored = [c for c in cands if c.state == CandidateState.COMPILER_ERROR]
+    if not feasible and errored and len(errored) == len(cands):
+        any_art = next(iter(arts.values()), None)
+        checks = any_art[1]["gate_checks"] if any_art else ()
+        durations = any_art[1].get("durations", {}) if any_art else {}
+        return Compilation(
+            spec=spec, target=target, verdict="ERROR", ideal_passed=True,
+            ideal_report=ideal_cand, hardware_evaluated=False,
+            repset=RepresentationSet(
+                tuple(cands), None,
+                "every candidate hit an unexpected fault in this compiler; "
+                "the hardware question was never evaluated"),
+            allow_assumed=allow_assumed, gate_checks=checks,
+            clamp=dict(clamp or {}), pass_durations=durations,
+            coefficient_scale=coefficient_scale, scaled_beta=scaled_beta)
     if not feasible:
         any_art = next(iter(arts.values()), None)
         checks = any_art[1]["gate_checks"] if any_art else ()

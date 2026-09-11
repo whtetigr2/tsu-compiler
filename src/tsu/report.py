@@ -171,7 +171,8 @@ def _rejected_candidate(passes: dict):
     """The first (declaration-order) candidate that was actually rejected --
     used to source the failure narrative when the compile did not COMPILE."""
     return next((c for c in passes.get("candidates", ())
-                if c["state"] in ("SEMANTICALLY_INVALID", "HARDWARE_INFEASIBLE")),
+                if c["state"] in ("SEMANTICALLY_INVALID", "HARDWARE_INFEASIBLE",
+                                  "COMPILER_ERROR")),
                None)
 
 

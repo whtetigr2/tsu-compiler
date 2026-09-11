@@ -62,7 +62,43 @@ class PreflightReport:
     remediations: tuple[str, ...]
     gates: tuple[Gate, ...]
     verdict: str
+    # None for any model that fits inside one core -- the common case, and
+    # the reason this carries a default: absence is normal, not an omission.
+    fabric_note: str | None = None
 
+
+
+def _core_nodes(target) -> int | None:
+    """One core's worth of pbits: the largest model whose placement cannot
+    depend on the connected-fabric assumption. Z1 is documented as 269,568
+    pbits in 8 cores."""
+    budget = target.node_budget.value
+    if budget in (None, float("inf")):
+        return None
+    return int(budget) // 8
+
+
+def _fabric_note(n_spins: int, target) -> str | None:
+    """Say that a placement verdict rests on an ASSUMED connected fabric --
+    but ONLY for a model large enough for it to matter.
+
+    Below one core's worth of pbits a model fits inside a single core however
+    the cores are wired, so the assumption cannot affect its placement and
+    saying so would be noise. Warning on every small model is how a disclosure
+    becomes decoration: a reader who sees it every time stops reading it, and
+    then it is not there when it counts.
+    """
+    if not target.is_assumed("connected_fabric"):
+        return None
+    core = _core_nodes(target)
+    if core is None or n_spins <= core:
+        return None
+    return (f"this model needs {n_spins:,} spins, more than one core's "
+            f"{core:,}, so its placement rests on the ASSUMED connected fabric "
+            f"(target.connected_fabric): the published material never states "
+            f"whether {target.name}'s cores form one connected lattice. See "
+            f"that field's citation for the derivation and what it does not "
+            f"licence.")
 
 def _remediations(exc: CompileError) -> tuple[str, ...]:
     """Flatten every `Remediation` the compiler already computed for this
@@ -269,4 +305,5 @@ def preflight(ising: IsingModel, target: TargetProfile = PROFILES["z1"],
         embedding=embedding, mediators=mediators,
         place_seconds=place_seconds, placed=placement is not None,
         place_error=place_error, remediations=remediations,
-        gates=gates, verdict=verdict)
+        gates=gates, verdict=verdict,
+        fabric_note=_fabric_note(rep.n_nodes + mediators, target))

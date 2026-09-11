@@ -522,3 +522,38 @@ def test_predicted_mediated_coupling_gate_needs_no_placement_to_compute():
     assert r.placed is False
     g = {x.name: x for x in r.gates}["mediated_coupling_cap"]
     assert g.value == pytest.approx(mediator_coupling(0.1, 1.0))
+
+
+def test_a_small_model_says_nothing_about_the_connected_fabric_assumption():
+    """WHAT THIS PINS: the NEGATIVE case, and it is the one that matters. A
+    model that fits inside one core places the same way however the cores are
+    wired, so the assumption cannot affect it and mentioning it would be noise.
+    A disclosure printed on every model is one a reader learns to skip, and
+    then it is absent exactly when it counts.
+    HOW IT FAILS: drop the `n_spins <= core` guard in `_fabric_note` and this
+    fires on every 4-spin fixture in the suite.
+    PROVENANCE: Z1 is documented as 269,568 pbits in 8 cores (billion, Fig.
+    05), so one core is 33,696 -- computed here from the profile, not pasted."""
+    from tsu.preflight.check import _core_nodes
+    r = preflight(grid(4))
+    assert r.n_spins < _core_nodes(PROFILES["z1"])
+    assert r.fabric_note is None
+
+
+def test_a_model_larger_than_one_core_says_its_placement_rests_on_an_assumption():
+    """WHAT THIS PINS: above one core's worth of spins, a placement verdict
+    depends on the cores being one connected lattice -- which the published
+    material never states. It must say so.
+    HOW IT FAILS: return None unconditionally from `_fabric_note`, or mark
+    `connected_fabric` as a sourced fact rather than "assumed" in target.py,
+    and this goes quiet while the tool keeps asserting placement.
+    PROVENANCE: the threshold is the profile's own node_budget // 8; the
+    assumption's status comes from `target.is_assumed`, not from a literal
+    here. Exercised through the helper rather than by compiling a 33,697-node
+    model, which would cost minutes for no extra coverage."""
+    from tsu.preflight.check import _core_nodes, _fabric_note
+    z1 = PROFILES["z1"]
+    core = _core_nodes(z1)
+    assert _fabric_note(core, z1) is None, "at exactly one core, still silent"
+    note = _fabric_note(core + 1, z1)
+    assert note and "ASSUMED" in note and "connected_fabric" in note
