@@ -69,3 +69,48 @@ At high constraint penalty, Extropic’s own schedule exceeds Z1’s sourced \|J
 1. Write-up using this report + `EXTROPIC-NOTE.md` + mediator math (TV ~1e-16).
 2. Public GitHub repo (`tsu` + `out/extropic-verify` summaries, not secrets).
 3. Branch / PR or discussion to Extropic linking codon_opt + this fit audit.
+
+---
+
+## B5 — post-mediation re-gate (added 2026-09-14)
+
+The method note above (step 4, "`insert_mediators` → re-gate") was right, and the
+**compiler was not doing it**. Gates ran on the pre-mediation model; `place()`
+then mediated; nothing re-checked. That is now fixed, and `preflight` predicts
+the result before placement runs.
+
+**Why it matters: mediation always raises the coupling it replaces.**
+
+    A = acosh(exp(2·β·|J|)) / (2·β)     and     A > |J|  for every J ≠ 0
+
+because `acosh(e^{2x}) > 2x` iff `e^{2x} > cosh(2x)`, which holds for all x > 0.
+
+**The exposed window.** Solving `A ≤ cap`:
+
+    |J| ≤ ln(cosh(2·β·cap)) / (2·β)
+
+At β = 1 against the sourced cap of 6, that is `ln(cosh(12))/2 = 5.6534`. **The
+12 is 2·β·cap, not a degree** — at cap 4 the bound is `ln(cosh(8))/2 = 3.6534`,
+and at β = 2 it is `ln(cosh(24))/4 = 5.8267`. The codon family also having degree
+12 is a numerical coincidence and nothing more.
+
+So any model with `5.6534 < |J| ≤ 6.0` **passes the coupling gate and then needs a
+coupling Z1 cannot hold.** Reproduced on a triangle at |J| = 6.0: zero gate
+failures, then `|J|max = 6.3466` after mediation, with 2 of 4 couplings
+unprogrammable. A COMPILED receipt certifying a model the hardware cannot
+represent.
+
+**This is against a sourced figure, not an assumption.** The post-mediation
+failure returns `assumed = False` — it is Extropic's documented Fig. 12 cap, not
+this project's working value.
+
+**Found independently by two external reviewers**, from different evidence: one
+from the P=10/P=40 behaviour in this very document, one from the gadget algebra.
+Five internal reviews, a whole-branch review and 800+ tests had missed it,
+because `search.py`'s own comment documented the gate ordering as a decision and
+every internal reader took it as one.
+
+**Bearing on the numbers above.** The spike's measured post-mediation
+`|J|max = 2.8466` sits far below 5.6534, so nothing in this document's results
+changes. The window matters for schedules at higher P: the P-ramp table's own
+P=20 row (`|J|max = 5.00`) is already inside one mediation step of the bound.
