@@ -10,6 +10,7 @@ build/
 out/*
 !out/extropic-verify/
 !out/connectivity-cost/
+!out/codon-sampleability/
 out_check/
 worlds/
 

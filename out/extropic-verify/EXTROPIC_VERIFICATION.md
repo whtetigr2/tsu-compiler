@@ -114,3 +114,41 @@ every internal reader took it as one.
 `|J|max = 2.8466` sits far below 5.6534, so nothing in this document's results
 changes. The window matters for schedules at higher P: the P-ramp table's own
 P=20 row (`|J|max = 5.00`) is already inside one mediation step of the bound.
+
+---
+
+## Sampleability vs placeability (measured 2026-09-14)
+
+The "Honest limits" note above says the full-spike **geometric placement** after
+mediation was not fully searched at 5,025 spins. That is accurate and it stands.
+It has since been read as *"the full spike is blocked"*, which is **wrong** —
+placement and sampling are different passes with different costs, and conflating
+them understates what this compiler can already do.
+
+Measured directly (`audit/codon_sampleability.py`, receipt in
+`out/codon-sampleability/`), CPU only, 16 chains:
+
+| workload | logical → physical | draws | tau | ESS | R-hat | seconds |
+|---|---|---:|---:|---:|---:|---:|
+| `codon_tiny_10aa` | 31 → 53 | 32,000 | 3.91 | 8,191 | 1.000 | 0.5 |
+| `codon_default_prefix` | 266 → 434 | 32,000 | 4.02 | 7,954 | 1.001 | 2.8 |
+| `codon_spike_200aa` | 481 → 764 | 32,000 | 4.21 | 7,606 | 1.001 | 2.4 |
+| **`codon_spike_full`** | **3,147 → 5,025** | 32,000 | 4.68 | **6,837** | 1.002 | **10.8** |
+
+**Every published codon model, including the full spike, samples on this machine
+with a trustworthy effective sample size in under eleven seconds.**
+
+The ESS figures are trustworthy in a specific sense: `tsu_compiler.ess` refuses
+to return a number below its AR(1)-validated floor of `N/tau >= 5000`. At 16,000
+draws the full spike gives `N/tau = 3,633` and the estimator correctly returns
+`unavailable`; the harness escalates to 32,000 draws, which clears it. The number
+reported is therefore one the estimator was willing to stand behind, not the
+first one it produced.
+
+`R-hat` sits at 1.000–1.002 across every workload, so the chains agree — these
+models mix well, and `tau` grows only from 3.91 to 4.68 across a hundredfold
+range in size.
+
+**What is still not measured:** geometric placement of the 5,025-spin mediated
+model. That limit is unchanged, is a property of the placement search rather than
+of the sampler, and is the one a larger machine would address.

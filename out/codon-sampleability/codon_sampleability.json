@@ -1,0 +1,176 @@
+{
+  "rows": [
+    {
+      "name": "codon_tiny_10aa",
+      "logical_spins": 31,
+      "couplings": 118,
+      "physical_spins": 53,
+      "mediators": 22,
+      "bipartite_after_mediation": true,
+      "colour_blocks": 2,
+      "sampleable": true,
+      "draws_needed_for_trustworthy_ess": 32000,
+      "seconds_at_that_size": 0.52,
+      "ess": 8191.208808215285,
+      "tau": 3.9066273060828265,
+      "r_hat": 1.0005,
+      "provisional_r_hat": false,
+      "ess_note": "",
+      "escalation": [
+        {
+          "n_samples": 1000,
+          "draws": 16000,
+          "seconds": 1.02,
+          "draw_array_mb": 6.5,
+          "ess": null,
+          "tau": null,
+          "r_hat": 1.0019,
+          "reliable": false,
+          "reason": "unavailable: N/tau=4023 (N=16000, tau~=3.98) is below the reliability threshold 5000 the AR(1) validation established (see ess-report.md); chain too short/too correlated for a trustworthy estimate"
+        },
+        {
+          "n_samples": 2000,
+          "draws": 32000,
+          "seconds": 0.52,
+          "draw_array_mb": 12.9,
+          "ess": 8191.208808215285,
+          "tau": 3.9066273060828265,
+          "r_hat": 1.0005,
+          "reliable": true,
+          "reason": ""
+        }
+      ],
+      "placement_note": "NOT MEASURED HERE. Sampling and placement are different passes; the verification pack records that the mediated spike's geometric placement was not fully searched, and that limit says nothing about whether the model can be sampled."
+    },
+    {
+      "name": "codon_default_prefix",
+      "logical_spins": 266,
+      "couplings": 875,
+      "physical_spins": 434,
+      "mediators": 168,
+      "bipartite_after_mediation": true,
+      "colour_blocks": 2,
+      "sampleable": true,
+      "draws_needed_for_trustworthy_ess": 32000,
+      "seconds_at_that_size": 2.79,
+      "ess": 7953.907000405329,
+      "tau": 4.02318005457812,
+      "r_hat": 1.0011,
+      "provisional_r_hat": false,
+      "ess_note": "",
+      "escalation": [
+        {
+          "n_samples": 1000,
+          "draws": 16000,
+          "seconds": 1.9,
+          "draw_array_mb": 53.0,
+          "ess": null,
+          "tau": null,
+          "r_hat": 1.0011,
+          "reliable": false,
+          "reason": "unavailable: N/tau=3817 (N=16000, tau~=4.19) is below the reliability threshold 5000 the AR(1) validation established (see ess-report.md); chain too short/too correlated for a trustworthy estimate"
+        },
+        {
+          "n_samples": 2000,
+          "draws": 32000,
+          "seconds": 2.79,
+          "draw_array_mb": 106.0,
+          "ess": 7953.907000405329,
+          "tau": 4.02318005457812,
+          "r_hat": 1.0011,
+          "reliable": true,
+          "reason": ""
+        }
+      ],
+      "placement_note": "NOT MEASURED HERE. Sampling and placement are different passes; the verification pack records that the mediated spike's geometric placement was not fully searched, and that limit says nothing about whether the model can be sampled."
+    },
+    {
+      "name": "codon_spike_200aa",
+      "logical_spins": 481,
+      "couplings": 1460,
+      "physical_spins": 764,
+      "mediators": 283,
+      "bipartite_after_mediation": true,
+      "colour_blocks": 2,
+      "sampleable": true,
+      "draws_needed_for_trustworthy_ess": 32000,
+      "seconds_at_that_size": 2.44,
+      "ess": 7606.121467522738,
+      "tau": 4.2071376504617115,
+      "r_hat": 1.0008,
+      "provisional_r_hat": false,
+      "ess_note": "",
+      "escalation": [
+        {
+          "n_samples": 1000,
+          "draws": 16000,
+          "seconds": 1.98,
+          "draw_array_mb": 93.3,
+          "ess": null,
+          "tau": null,
+          "r_hat": 1.0009,
+          "reliable": false,
+          "reason": "unavailable: N/tau=3769 (N=16000, tau~=4.24) is below the reliability threshold 5000 the AR(1) validation established (see ess-report.md); chain too short/too correlated for a trustworthy estimate"
+        },
+        {
+          "n_samples": 2000,
+          "draws": 32000,
+          "seconds": 2.44,
+          "draw_array_mb": 186.5,
+          "ess": 7606.121467522738,
+          "tau": 4.2071376504617115,
+          "r_hat": 1.0008,
+          "reliable": true,
+          "reason": ""
+        }
+      ],
+      "placement_note": "NOT MEASURED HERE. Sampling and placement are different passes; the verification pack records that the mediated spike's geometric placement was not fully searched, and that limit says nothing about whether the model can be sampled."
+    },
+    {
+      "name": "codon_spike_full",
+      "logical_spins": 3147,
+      "couplings": 9557,
+      "physical_spins": 5025,
+      "mediators": 1878,
+      "bipartite_after_mediation": true,
+      "colour_blocks": 2,
+      "sampleable": true,
+      "draws_needed_for_trustworthy_ess": 32000,
+      "seconds_at_that_size": 10.81,
+      "ess": 6837.052574386526,
+      "tau": 4.680379396215377,
+      "r_hat": 1.0016,
+      "provisional_r_hat": false,
+      "ess_note": "",
+      "escalation": [
+        {
+          "n_samples": 1000,
+          "draws": 16000,
+          "seconds": 7.16,
+          "draw_array_mb": 613.4,
+          "ess": null,
+          "tau": null,
+          "r_hat": 1.0028,
+          "reliable": false,
+          "reason": "unavailable: N/tau=3633 (N=16000, tau~=4.40) is below the reliability threshold 5000 the AR(1) validation established (see ess-report.md); chain too short/too correlated for a trustworthy estimate"
+        },
+        {
+          "n_samples": 2000,
+          "draws": 32000,
+          "seconds": 10.81,
+          "draw_array_mb": 1226.8,
+          "ess": 6837.052574386526,
+          "tau": 4.680379396215377,
+          "r_hat": 1.0016,
+          "reliable": true,
+          "reason": ""
+        }
+      ],
+      "placement_note": "NOT MEASURED HERE. Sampling and placement are different passes; the verification pack records that the mediated spike's geometric placement was not fully searched, and that limit says nothing about whether the model can be sampled."
+    }
+  ],
+  "control_failures": [],
+  "machine": "CPU only, no hardware",
+  "n_chains": 16,
+  "reliability_floor_n_over_tau": 5000.0
+}
