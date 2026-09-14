@@ -1,0 +1,58 @@
+{
+  "name": "codon_default_prefix",
+  "seq_len": 100,
+  "n_spins": 266,
+  "n_edges": 875,
+  "max_degree": 12,
+  "bipartite": false,
+  "mediators_est": -1,
+  "max_abs_J": 2.5,
+  "max_abs_b": 3.5002760887145996,
+  "colour_blocks": 4,
+  "gates": [
+    {
+      "gate": "degree",
+      "passed": true,
+      "measured": 12,
+      "limit": 16,
+      "assumed": false
+    },
+    {
+      "gate": "coupling_cap",
+      "passed": true,
+      "measured": 2.5,
+      "limit": 6.0,
+      "assumed": false
+    },
+    {
+      "gate": "field_cap",
+      "passed": true,
+      "measured": 3.5002760887145996,
+      "limit": 6.0,
+      "assumed": true
+    },
+    {
+      "gate": "node_budget",
+      "passed": true,
+      "measured": 266,
+      "limit": 269568,
+      "assumed": false
+    },
+    {
+      "gate": "colouring",
+      "passed": true,
+      "measured": null,
+      "limit": "distinct",
+      "assumed": false
+    }
+  ],
+  "place": {
+    "verdict": "fail",
+    "embedding": "failed",
+    "mediators": 0,
+    "place_error": "placement failed: placement effort exhausted"
+  },
+  "P": 10.0,
+  "beta": 1.0,
+  "source": "extropic-ai/codon_opt prepare_ising_statics + DWC export"
+}

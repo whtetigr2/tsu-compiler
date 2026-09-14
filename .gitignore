@@ -4,6 +4,16 @@ __pycache__/
 dist/
 build/
 *.egg-info/
-out/
+
+# Scratch output. `out/*` rather than `out/` so the evidence pack below can be
+# re-included: git cannot re-include a path whose PARENT directory is excluded.
+out/*
+!out/extropic-verify/
 out_check/
 worlds/
+
+# Working archives -- these are scratch, and one of them was sitting inside
+# src/ where it would have shipped with the package.
+*.zip
+*.tgz
+*.tar.gz

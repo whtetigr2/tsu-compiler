@@ -1,0 +1,53 @@
+{
+  "name": "codon_tiny_P5",
+  "seq_len": 10,
+  "n_spins": 31,
+  "n_edges": 118,
+  "max_degree": 12,
+  "bipartite": false,
+  "mediators_est": -1,
+  "max_abs_J": 1.25,
+  "max_abs_b": 1.7410672903060913,
+  "colour_blocks": 4,
+  "gates": [
+    {
+      "gate": "degree",
+      "passed": true,
+      "measured": 12,
+      "limit": 16,
+      "assumed": false
+    },
+    {
+      "gate": "coupling_cap",
+      "passed": true,
+      "measured": 1.25,
+      "limit": 6.0,
+      "assumed": false
+    },
+    {
+      "gate": "field_cap",
+      "passed": true,
+      "measured": 1.7410672903060913,
+      "limit": 6.0,
+      "assumed": true
+    },
+    {
+      "gate": "node_budget",
+      "passed": true,
+      "measured": 31,
+      "limit": 269568,
+      "assumed": false
+    },
+    {
+      "gate": "colouring",
+      "passed": true,
+      "measured": null,
+      "limit": "distinct",
+      "assumed": false
+    }
+  ],
+  "place": null,
+  "P": 5.0,
+  "beta": 1.0,
+  "source": "extropic-ai/codon_opt prepare_ising_statics + DWC export"
+}

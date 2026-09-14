@@ -1,0 +1,53 @@
+{
+  "name": "codon_tiny_P40",
+  "seq_len": 10,
+  "n_spins": 31,
+  "n_edges": 118,
+  "max_degree": 12,
+  "bipartite": false,
+  "mediators_est": -1,
+  "max_abs_J": 10.0,
+  "max_abs_b": 10.491067886352539,
+  "colour_blocks": 4,
+  "gates": [
+    {
+      "gate": "degree",
+      "passed": true,
+      "measured": 12,
+      "limit": 16,
+      "assumed": false
+    },
+    {
+      "gate": "coupling_cap",
+      "passed": false,
+      "measured": 10.0,
+      "limit": 6.0,
+      "assumed": false
+    },
+    {
+      "gate": "field_cap",
+      "passed": false,
+      "measured": 10.491067886352539,
+      "limit": 6.0,
+      "assumed": true
+    },
+    {
+      "gate": "node_budget",
+      "passed": true,
+      "measured": 31,
+      "limit": 269568,
+      "assumed": false
+    },
+    {
+      "gate": "colouring",
+      "passed": true,
+      "measured": null,
+      "limit": "distinct",
+      "assumed": false
+    }
+  ],
+  "place": null,
+  "P": 40.0,
+  "beta": 1.0,
+  "source": "extropic-ai/codon_opt prepare_ising_statics + DWC export"
+}
