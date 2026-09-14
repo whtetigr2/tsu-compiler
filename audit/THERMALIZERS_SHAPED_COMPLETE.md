@@ -21,10 +21,10 @@ derived from it, or a substitute for it.
 
 | id | verdict | evidence | note |
 |---|---|---|---|
-| B1 | **PASS** | `search.py` module docstring | "Every compilation runs `ideal` FIRST." A fault in this compiler now reports `COMPILER_ERROR`, never as a hardware verdict about the user's model. |
+| B1 | **PASS** | `src/tsu/passes/search.py` module docstring | "Every compilation runs `ideal` FIRST." A fault in this compiler now reports `COMPILER_ERROR`, never as a hardware verdict about the user's model. |
 | B2 | **PASS** | `README.md` "The pipeline" | encode → lower → analyse → gate → place → mediate → re-gate → program → verify, with what each step refuses. |
 | B3 | **PASS** | `route.py::mediator_coupling`, `assert_beta_consistent` | Closed form kept; β mismatch refused. Mediators are bipartite-parity gadgets, explicitly not Torx chain embedding. |
-| B4 | **PARKED** | `passes/split.py` docstring | Deliberately unwired, and the docstring names the four design questions wiring would require. A degree-exceeded compile rejects with remediations; it does not attempt a split. |
+| B4 | **PARKED** | `src/tsu/passes/split.py` docstring | Deliberately unwired, and the docstring names the four design questions wiring would require. A degree-exceeded compile rejects with remediations; it does not attempt a split. |
 | B5 | **PASS** | `search.py::post_mediation_gate_checks`, `preflight`'s `mediated_coupling_cap` | Found independently by two external reviewers from different evidence. `A = acosh(exp(2β\|J\|))/(2β) > \|J\|` always, so a model can clear `\|J\|<=6` and then need `A>6` for any `\|J\| > ln(cosh(12))/2 = 5.6534`. Now predicted from the closed form before placement runs. |
 
 ## C — fidelity
@@ -34,7 +34,7 @@ derived from it, or a substitute for it.
 | C1 | **PASS** | `search.py::_transport_note` + 2 mutation-proven tests | `conserve_over_edges` declares directed flow; the verification now states outright that TV does not certify a current (SPR N-026/N-027). Set only for flow workloads — the negative case is tested, so the disclosure cannot decay into boilerplate. |
 | C2 | **PASS (vacuous)** | grep | Nothing in this repo claims Kawasaki or bond-Metropolis is Z1-native, because nothing mentions them. Clean by absence, not by argument. |
 | C3 | **PASS** | `demo/lattice_app.py::render_acf_plot` | Refuses to report τ on a restart-flattened live trace rather than reshaping invalid data into a plausible number. |
-| C4 | **PASS** | `backends/torx_backend.py` | Multi-edge returns `None` with EXP-TX4's reason; the independent control stays single-bond exact. |
+| C4 | **PASS** | `src/tsu/backends/torx_backend.py` | Multi-edge returns `None` with EXP-TX4's reason; the independent control stays single-bond exact. |
 
 ## D — Extropic workload regression
 
@@ -57,8 +57,8 @@ derived from it, or a substitute for it.
 | id | verdict | evidence | note |
 |---|---|---|---|
 | F1 | **PASS** | `README.md`, `LICENSE`, `NOTICE` | Apache-2.0 with the patent grant; NOTICE states the independence explicitly. |
-| F2 | **PASS** | `README.md` "For Extropic" | `EXTROPIC-NOTE.md` and both evidence packs linked — and, more to the point, actually **tracked**: `out/` was gitignored wholesale, so none of it was in the repository until this pass. |
-| F3 | **PASS** | `EXTROPIC-NOTE.md` | ThermoBridge appears once, as a closed negative with its ~0.39% ceiling. |
+| F2 | **PASS** | `docs/EXTROPIC-NOTE.md`, `out/extropic-verify/`, `out/connectivity-cost/` | The note moved to `docs/` so the repository has one front door, and both evidence packs are reachable from the README. More to the point, they are actually **tracked**: `out/` was gitignored wholesale, so none of it was in the repository until this pass. |
+| F3 | **PASS** | `docs/EXTROPIC-NOTE.md` | ThermoBridge appears once, as a closed negative with its ~0.39% ceiling. |
 
 ## What is deliberately not claimed
 
