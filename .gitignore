@@ -18,3 +18,7 @@ worlds/
 *.zip
 *.tgz
 *.tar.gz
+
+# Generated world-render outputs -- regenerable from the scripts in demo/.
+# Kept out of the repo: they were 14 MB of a 16 MB tree.
+demo/*.png
