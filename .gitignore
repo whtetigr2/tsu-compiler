@@ -9,6 +9,7 @@ build/
 # re-included: git cannot re-include a path whose PARENT directory is excluded.
 out/*
 !out/extropic-verify/
+!out/connectivity-cost/
 out_check/
 worlds/
 
