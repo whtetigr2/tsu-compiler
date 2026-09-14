@@ -1,112 +1,100 @@
-# tsu — a compiler for thermodynamic sampling units
+<h1 align='center'>tsu</h1>
 
-Describe a constrained computational problem, and this compiles it into a sampling
-program, then checks that program against a documented hardware target — or tells
-you exactly why it does not fit, and which representation to try next.
+<p align='center'>A compiler for thermodynamic sampling units.</p>
 
-**No hardware claim.** The entire compiler runs on host CPU. Only the block-Gibbs
-sampling loop would ever execute on a TSU, and it has not. Every sampled number in
-this repository comes from `thrml` simulating that loop; `provenance.json` records
-the JAX backend so an artifact cannot be mistaken for a silicon reading.
+`tsu` takes a constrained computational problem, compiles it to an Ising model,
+and answers the two questions that decide whether it can run on thermodynamic
+hardware: **will it fit**, and **at what coupling should it be sampled**. When it
+does not fit, it says which constraint failed, by how much, and which
+representation to try instead.
 
-## What this is, and what it is not
+Features include:
 
-This is a **host compiler targeting Extropic's published Z1 constraints**, emitting
-programs `thrml` can sample, with receipts. It is **Thermalizers-shaped, not
-Thermalizers-complete**: Extropic's own `thermalizers` is described in
-arXiv:2608.01615 and has no public release, so nothing here is byte-compatible
-with it, derived from it, or a substitute for it.
+- Representation search (domain-wall vs one-hot) with rejected candidates kept as evidence
+- Exact mediator insertion for graphs the hardware topology cannot host directly
+- Deterministic lattice embedding, with a budgeted search as fallback
+- Hardware gates carrying per-limit provenance — sourced figure vs project assumption
+- Transition location by finite-size scaling, with τ, effective sample size and Gelman–Rubin
+- Replayable receipts that report `unavailable` with a reason rather than a fabricated value
 
-The two address the same class of target through different front ends —
-thermalizers compiles *stochastic programs* (Torx kernels); this compiles
-*declarative constraints*, or a raw Ising edge list. This exists because that one
-is not public, not as a lesser version of it. When it ships, it becomes a
-comparison, not a verdict on this.
+Compilation runs entirely on host CPU. The block-Gibbs sampling loop is executed
+by [THRML](https://github.com/extropic-ai/thrml) on JAX; `provenance.json` records
+the backend, so an artifact is never mistaken for a hardware measurement.
 
 ## Install
 
     pip install -e .
 
-Requires Python 3.11+, and an interpreter with `thrml` and `extro-torx` available.
+Requires Python 3.11+, with `thrml` and `extro-torx` available.
 
-## Use
+## Quick example
 
-Two questions about any model, before you commit to it:
+Any Ising model, as an edge list:
 
-    tsu preflight --edges model.json --out out/pf   # will it fit on the hardware?
-    tsu regime    --edges model.json --out out/rg   # at what coupling should it sample?
+```json
+{"nodes": 4, "edges": [[0,1,0.5],[1,2,0.5],[2,3,0.5]],
+ "biases": [0,0,0,0], "beta": 0.4}
+```
 
-`--edges` takes `{"nodes": n, "edges": [[i,j,w],...], "biases": [...], "beta": b}`,
-so a model built anywhere goes through the same checks. `--spec` takes this
-project's declarative format instead.
+```bash
+tsu preflight --edges model.json --out out/pf   # will it fit?
+tsu regime    --edges model.json --out out/rg   # where should it sample?
+```
 
-The full pipeline:
+`preflight` reports every gate with its measured value, its limit, and whether
+that limit is a documented hardware figure or an assumption:
 
-    tsu inspect   specs/toy.yaml
-    tsu compile   specs/toy.yaml --target z1 --out out/toy
-    tsu report    out/toy
-    tsu replay    out/toy
+```
+| gate             | value  | limit  | % of limit | status | note                  |
+| max_abs_coupling | 0.5    | 6      | 8.3%       | ok     | |J| against the ...  |
+| max_abs_bias     | 9      | 6      | 150.0%     | fail   | ... (ASSUMED)         |
+```
+
+A verdict resting only on an assumed limit says so, and offers `--allow-assumed`.
 
 ## The pipeline
 
-    encode -> lower -> analyse -> gate -> place -> mediate -> re-gate -> program -> verify
+    encode → lower → analyse → gate → place → mediate → re-gate → program → verify
 
-- **encode** searches representations (domain-wall vs one-hot) and keeps the
-  rejected candidates as evidence rather than discarding them.
-- **lower** reduces to a pairwise Ising model; spin-power reduction happens
-  before the pairwise check, so an unreduced cubic term cannot pass as one.
-- **analyse** measures degree, bipartiteness and a chromatic colouring.
-- **gate** checks the model against the target's caps, *before* placement,
-  because placement raises on a violation rather than returning one.
-- **place** embeds on Z1's published offsets, trying the deterministic grid
-  embed before the heuristic search; effort-exhausted is reported distinctly
-  from geometrically-unreachable, because only the first is something this
-  compiler can actually prove.
-- **mediate** subdivides edges the bipartite lattice cannot host, preserving the
-  exact marginal over the original spins.
-- **re-gate** re-checks the mediated model, since mediation raises couplings.
-- **verify** compares against an exact reference where one is enumerable, and
-  reports `unavailable` with a reason where one is not.
+Mediation raises every coupling it touches — `A = acosh(exp(2β|J|)) / (2β) > |J|`
+for all `J ≠ 0` — so gates are re-run afterwards, and `preflight` predicts the
+result from the closed form before placement runs.
 
-## Guarantees
+A compilation that hits an unexpected fault reports `COMPILER_ERROR`, never a
+hardware verdict about the user's model.
 
-- **Every compile runs the `ideal` control first.** A hardware verdict is only
-  reported when a logically-valid program failed a hardware constraint. A fault in
-  this compiler reports as `COMPILER_ERROR`, never as "your model does not fit".
-- **Verification never fabricates.** Absent a reference, a field reads
-  `unavailable` with the reason. An error bar that could not be estimated prints
-  why, never `0.000`.
-- **Targets carry provenance, and every report says which is which.** `degree`
-  (16) cites `F-14`; `max_abs_coupling` (6.0) is **sourced** to Thermalizers
-  Fig. 12's cap-sweep axis; `node_budget` (269,568) cites Fig. 05 of *From One to
-  One Billion*. `max_abs_bias` (6.0) is **assumed** — this project's working value,
-  not a published Extropic figure — so a verdict resting only on it says so and
-  offers `--allow-assumed`.
-- **Gates are re-run after mediation.** Mediating a non-bipartite graph raises
-  every coupling it touches (`A = acosh(exp(2b|J|))/(2b) > |J|` always), so a model
-  can pass the cap and then need a coupling the hardware cannot hold. `preflight`
-  predicts that from the closed form before placement runs.
-- **No workload-specific code path exists.** Workloads are spec files.
+## Working from a spec
 
-## For Extropic
+```bash
+tsu inspect   specs/toy.yaml
+tsu compile   specs/toy.yaml --target z1 --out out/toy
+tsu report    out/toy
+tsu replay    out/toy
+```
 
-`EXTROPIC-NOTE.md` is the short note: what this does, what it does not claim,
-and a 90-second demo path.
-
-`out/extropic-verify/` compiles Extropic's own published `codon_opt` Ising
-models — including the SARS-CoV-2 spike at 3,147 spins and degree 12, the
-figures their paper reports — and records every gate result.
-
-`out/connectivity-cost/REPORT.md` measures what Z1's bipartite lattice costs
-this compiler. Their paper leaves the connectivity residual explicitly
-unsimulated; this compiler has no residual to report, because placement fails
-closed rather than dropping a coupling, so the cost appears as mediator spins
-instead — 1.60x on the full spike. The report states plainly that this is a
-different currency from their residual, not a comparison with it.
+Workloads are spec files. No workload-specific code path exists in the compiler,
+and a test enforces it.
 
 ## Receipts
 
-`audit/` holds the findings and the oracles. `audit/oracles/exact.py` enumerates
-the Boltzmann distribution independently and does **not** import `src/tsu`, so it
-cannot inherit a sign convention or an encoding bug from the code it checks — a
-test asserts that independence on every run.
+`audit/` holds the findings, the oracles, and the measurements. Every figure names
+the script that produced it or is labelled unreproduced at the point of use.
+
+`audit/oracles/exact.py` enumerates the Boltzmann distribution independently and
+does not import `src/tsu`, so it cannot inherit a sign convention or an encoding
+bug from the code it checks — asserted by a test on every run.
+
+`out/extropic-verify/` compiles published `codon_opt` models, including a 3,147-spin
+instance at degree 12. `out/connectivity-cost/` measures what the bipartite lattice
+costs: 1.60× in mediator spins on that model, against a bipartite control at 1.00×.
+
+## Target profiles
+
+Hardware targets are declarative — degree, offsets, caps, node budget, schedule —
+and each field records whether its value is sourced or assumed. `z1` and an
+`ideal` control ship today. The gate and mediation layers are profile-driven; the
+lattice placer is specific to a fixed-offset topology.
+
+## License
+
+Apache-2.0. See `LICENSE` and `NOTICE`.
