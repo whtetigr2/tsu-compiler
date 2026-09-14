@@ -63,6 +63,15 @@ class Verification:
     diversity_valid_samples: int | None = None
     diversity_reachable: int | None = None
     diversity_reachable_note: str = "unavailable: not measured"
+    # C1 (external review): TV certifies that we SAMPLED the distribution we
+    # COMPILED. It says nothing about directed behaviour. SPR N-026/N-027
+    # measured a flat energy-based model reproducing a ratchet's stationary
+    # distribution to TV ~1e-15 while its net current went to ZERO -- so a
+    # workload declaring `conserve_over_edges` (one binary spin per edge, read
+    # as the flow from u to v) can agree perfectly on TV and still transport
+    # nothing. Set for exactly those workloads, empty otherwise: a disclosure
+    # printed on every compile is one a reader learns to skip.
+    transport_note: str = ""
 
     def to_dict(self):
         def f(v, note):
@@ -84,6 +93,7 @@ class Verification:
             "diversity_valid_samples": self.diversity_valid_samples,
             "diversity_reachable": f(self.diversity_reachable,
                                     self.diversity_reachable_note),
+            "transport": self.transport_note or "not applicable: this workload declares no directed flow variable",
         }
 
 

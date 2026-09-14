@@ -47,6 +47,27 @@ The full pipeline:
     tsu report    out/toy
     tsu replay    out/toy
 
+## The pipeline
+
+    encode -> lower -> analyse -> gate -> place -> mediate -> re-gate -> program -> verify
+
+- **encode** searches representations (domain-wall vs one-hot) and keeps the
+  rejected candidates as evidence rather than discarding them.
+- **lower** reduces to a pairwise Ising model; spin-power reduction happens
+  before the pairwise check, so an unreduced cubic term cannot pass as one.
+- **analyse** measures degree, bipartiteness and a chromatic colouring.
+- **gate** checks the model against the target's caps, *before* placement,
+  because placement raises on a violation rather than returning one.
+- **place** embeds on Z1's published offsets, trying the deterministic grid
+  embed before the heuristic search; effort-exhausted is reported distinctly
+  from geometrically-unreachable, because only the first is something this
+  compiler can actually prove.
+- **mediate** subdivides edges the bipartite lattice cannot host, preserving the
+  exact marginal over the original spins.
+- **re-gate** re-checks the mediated model, since mediation raises couplings.
+- **verify** compares against an exact reference where one is enumerable, and
+  reports `unavailable` with a reason where one is not.
+
 ## Guarantees
 
 - **Every compile runs the `ideal` control first.** A hardware verdict is only
@@ -66,6 +87,22 @@ The full pipeline:
   can pass the cap and then need a coupling the hardware cannot hold. `preflight`
   predicts that from the closed form before placement runs.
 - **No workload-specific code path exists.** Workloads are spec files.
+
+## For Extropic
+
+`EXTROPIC-NOTE.md` is the short note: what this does, what it does not claim,
+and a 90-second demo path.
+
+`out/extropic-verify/` compiles Extropic's own published `codon_opt` Ising
+models — including the SARS-CoV-2 spike at 3,147 spins and degree 12, the
+figures their paper reports — and records every gate result.
+
+`out/connectivity-cost/REPORT.md` measures what Z1's bipartite lattice costs
+this compiler. Their paper leaves the connectivity residual explicitly
+unsimulated; this compiler has no residual to report, because placement fails
+closed rather than dropping a coupling, so the cost appears as mediator spins
+instead — 1.60x on the full spike. The report states plainly that this is a
+different currency from their residual, not a comparison with it.
 
 ## Receipts
 

@@ -619,6 +619,36 @@ _VERIFY_SAMPLE_PARAMS = dict(n_chains=32, n_samples=200, n_warmup=400,
                              steps_per_sample=2, seed=0)
 
 
+def _transport_note(spec) -> str:
+    """Does this workload declare a DIRECTED quantity that TV cannot certify?
+
+    `conserve_over_edges` generates one binary spin per edge, read as "the flow
+    from u to v" in the direction the edge was declared (`spec._flow_var_name`).
+    That is a transport model, and total-variation agreement against the exact
+    Boltzmann distribution does not certify transport: SPR N-026/N-027 measured
+    a flat energy-based model matching a ratchet's stationary distribution to
+    TV ~1e-15 while its net current went to zero. Both facts can hold at once
+    because a distribution and a current are independent properties.
+
+    Detected from the spec's own source text rather than its `terms`, which are
+    already expanded into Product/Linear by the time this runs -- the template
+    kind is gone from them. A comment mentioning the kind would over-disclose,
+    which is the safe direction to be wrong in; missing a real flow workload is
+    not.
+    """
+    text = getattr(spec, "source_text", "") or ""
+    if "conserve_over_edges" not in text:
+        return ""
+    return ("this workload declares conserve_over_edges (directed flow "
+            "variables), and the TV figures above DO NOT CERTIFY TRANSPORT: "
+            "they show the sampler reproduced the distribution that was "
+            "compiled, not that the distribution carries the intended current. "
+            "A flat model can match a ratchet's stationary distribution to "
+            "TV ~1e-15 with zero net current (SPR N-026/N-027). Certifying "
+            "directed behaviour needs a transition observable, which this "
+            "compiler does not measure.")
+
+
 def _verify(spec, art, clamp) -> tuple[Verification, EssEstimate, dict, DecodedSample]:
     from ..backends.thrml_backend import (EXACT_LIMIT, exact_conditional_distribution,
                                           exact_distribution, sample_chains)
@@ -763,6 +793,7 @@ def _verify(spec, art, clamp) -> tuple[Verification, EssEstimate, dict, DecodedS
             execution_tv=None, execution_note="unavailable: no exact reference",
             execution_noise_floor=None,
             cross_check_tv=None, cross_check_note="unavailable: model too large",
+            transport_note=_transport_note(spec),
             codeword_violation_rate=codeword_violation_rate,
             codeword_violation_note="", **ess_kwargs, **diversity_kwargs
         ), ess_result, sample_cost, decoded_sample
@@ -840,6 +871,7 @@ def _verify(spec, art, clamp) -> tuple[Verification, EssEstimate, dict, DecodedS
         execution_note=f"noise floor {floor:.6f}",
         execution_noise_floor=floor,
         cross_check_tv=cross, cross_check_note=cross_note,
+        transport_note=_transport_note(spec),
         codeword_violation_rate=codeword_violation_rate, codeword_violation_note="",
         **ess_kwargs, **diversity_kwargs
     ), ess_result, sample_cost, decoded_sample

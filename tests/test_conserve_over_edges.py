@@ -290,3 +290,45 @@ def test_conserve_over_edges_is_reported_non_bipartite_with_the_honest_clique_co
     assert report.n_edges == 6, "K4 among the 4 incident flow variables"
     assert report.bipartite is False
     assert report.mediators == 2, "6 edges - max-cut(K4)=4"
+
+
+def test_a_directed_flow_workload_discloses_that_TV_does_not_certify_transport():
+    """WHAT THIS PINS: when a spec declares `conserve_over_edges` -- which
+    creates one binary spin per edge read as "the flow from u to v" -- the
+    verification must say outright that its TV agreement does NOT certify the
+    transport behaviour. TV says "we sampled the distribution we compiled". It
+    says nothing about whether that distribution carries the current the user
+    wanted.
+
+    HOW IT FAILS: delete the `conserve_over_edges` detection in search.py's
+    `_verify` and this returns an empty transport_note, so a flow workload
+    compiles reporting `execution_tv = 0.01, PASS` with nothing distinguishing
+    it from a static one.
+
+    PROVENANCE: SPR N-026/N-027 -- a flat energy-based model reproduces a
+    ratchet's stationary distribution to TV ~1e-15 while its net current goes
+    to ZERO. Distributional agreement and directed behaviour are independent,
+    and this compiler can express the second while only measuring the first."""
+    from tsu.passes.search import _transport_note
+    from tsu.spec import load_spec
+
+    note = _transport_note(load_spec("specs/emergence_8x8.yaml"))
+    assert note, "a conserve_over_edges spec must carry a transport disclosure"
+    low = note.lower()
+    assert "tv" in low and ("current" in low or "transport" in low)
+
+
+def test_a_workload_with_no_flow_variables_carries_no_transport_note():
+    """WHAT THIS PINS: the negative case, and it is the one that matters. A
+    disclosure printed on every compile is one a reader learns to skip, and
+    then it is absent exactly where it counts.
+
+    HOW IT FAILS: return the note unconditionally from `_transport_note` and
+    this fires on `specs/toy.yaml`, which declares no flow variable at all.
+
+    PROVENANCE: toy.yaml's own term list -- it has no `conserve_over_edges`
+    term, so there is no directed quantity for TV to fail to certify."""
+    from tsu.passes.search import _transport_note
+    from tsu.spec import load_spec
+
+    assert _transport_note(load_spec("specs/toy.yaml")) == ""
