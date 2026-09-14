@@ -78,7 +78,9 @@ sys.path.insert(0, "src")
 import numpy as np
 
 from tsu.passes.analyse import analyse
+from tsu.gates import gate_checks
 from tsu.passes.route import insert_mediators, mediator_coupling
+from tsu.target import PROFILES
 from tsu.preflight.model import load_model
 
 PACK = Path("out/extropic-verify")
@@ -135,6 +137,20 @@ def measure(stem: str, note: str) -> dict:
             "any unrealized edge, so a compile either realizes every coupling "
             "or fails loudly -- it never drops one"),
         "mediate_seconds": round(secs, 3),
+        # D1/D2: the mediated model must still clear every Z1 gate. Recorded
+        # per gate with its measured value, its limit, and whether that limit
+        # is a sourced Extropic figure or this project's own assumption --
+        # a gate that passes against an ASSUMED cap is weaker evidence than
+        # one that passes against a documented one, and the receipt says which.
+        "gates_after_mediation": [
+            {"gate": g.gate, "passed": bool(g.passed),
+             "measured": (float(g.measured)
+                          if isinstance(g.measured, (int, float)) else g.measured),
+             "limit": (float(g.limit)
+                       if isinstance(g.limit, (int, float)) else g.limit),
+             "limit_is_assumed": bool(g.assumed)}
+            for g in gate_checks(med, mrep2, PROFILES["z1"], False)
+        ],
     }
 
 
@@ -152,6 +168,12 @@ def main() -> int:
                 r["name"] + ": |J|max after mediation "
                 + str(r["jmax_after"]) + " != closed form "
                 + str(r["jmax_predicted_closed_form"]))
+        for g in r.get("gates_after_mediation", []):
+            if not g["passed"]:
+                failures.append(
+                    r["name"] + ": gate " + g["gate"] + " FAILED after "
+                    + "mediation (" + str(g["measured"]) + " vs "
+                    + str(g["limit"]) + ")")
     ctrl = next((r for r in ok if r["name"] == "thrml_docs_chain"), None)
     if ctrl is not None and (ctrl["mediators"] != 0
                              or ctrl["spin_overhead"] != 1.0):

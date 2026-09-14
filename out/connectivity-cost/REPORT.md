@@ -84,3 +84,31 @@ own 3147 → 1878 → 5025 exactly, from a separate script over the same inputs.
 explicitly unsimulated. This is a measurement on *this* placer, of a cost *this*
 design chooses to pay, offered as complementary to their open question — not as
 a comparison, a benchmark, or a correction to anything they published.
+
+## Gates after mediation (rubric D1/D2)
+
+The mediated model must still clear every Z1 gate, and the receipt records per
+gate whether its limit is a **sourced** Extropic figure or this project's own
+**assumption** — because a pass against an assumed cap is weaker evidence than a
+pass against a documented one, and a receipt that does not distinguish them
+invites the reader to treat both the same.
+
+`codon_spike_full`, after mediation, at 5,025 spins:
+
+| gate | measured | limit | result | limit provenance |
+|---|---:|---:|---|---|
+| `degree` | 12.0 | 16.0 | PASS | sourced |
+| `coupling_cap` | 2.8466 | 6.0 | PASS | sourced |
+| **`field_cap`** | **4.0503** | **6.0** | PASS | **ASSUMED** |
+| `node_budget` | 5,025 | 269,568 | PASS | sourced |
+| `colouring` | — | distinct | PASS | sourced |
+
+**The exposure this makes visible.** `|b|` reaches 4.05 against a cap of 6.0 that
+this project assumed rather than sourced. Extropic has published no numeric
+`h_max` that we have found. If their real bias cap is below 4.05, this model does
+not fit and the PASS above is wrong — not because the measurement is wrong, but
+because the limit it was measured against is ours. That is the single most
+load-bearing open question for this workload, and it is one number from Extropic
+away from being settled.
+
+Every other gate on this model clears a **sourced** figure with real headroom.

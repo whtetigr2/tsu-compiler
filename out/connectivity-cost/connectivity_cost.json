@@ -17,7 +17,44 @@
       "closed_form_abs_error": 0.0,
       "structural_residual": 0.0,
       "structural_residual_note": "zero by construction: place() raises CompileError with limit=0 on any unrealized edge, so a compile either realizes every coupling or fails loudly -- it never drops one",
-      "mediate_seconds": 0.0
+      "mediate_seconds": 0.0,
+      "gates_after_mediation": [
+        {
+          "gate": "degree",
+          "passed": true,
+          "measured": 2.0,
+          "limit": 16.0,
+          "limit_is_assumed": false
+        },
+        {
+          "gate": "coupling_cap",
+          "passed": true,
+          "measured": 0.5,
+          "limit": 6.0,
+          "limit_is_assumed": false
+        },
+        {
+          "gate": "field_cap",
+          "passed": true,
+          "measured": 0.0,
+          "limit": 6.0,
+          "limit_is_assumed": true
+        },
+        {
+          "gate": "node_budget",
+          "passed": true,
+          "measured": 5.0,
+          "limit": 269568.0,
+          "limit_is_assumed": false
+        },
+        {
+          "gate": "colouring",
+          "passed": true,
+          "measured": null,
+          "limit": "distinct",
+          "limit_is_assumed": false
+        }
+      ]
     },
     {
       "name": "codon_tiny_10aa",
@@ -36,7 +73,44 @@
       "closed_form_abs_error": 0.0,
       "structural_residual": 0.0,
       "structural_residual_note": "zero by construction: place() raises CompileError with limit=0 on any unrealized edge, so a compile either realizes every coupling or fails loudly -- it never drops one",
-      "mediate_seconds": 0.0
+      "mediate_seconds": 0.0,
+      "gates_after_mediation": [
+        {
+          "gate": "degree",
+          "passed": true,
+          "measured": 12.0,
+          "limit": 16.0,
+          "limit_is_assumed": false
+        },
+        {
+          "gate": "coupling_cap",
+          "passed": true,
+          "measured": 2.846567915192133,
+          "limit": 6.0,
+          "limit_is_assumed": false
+        },
+        {
+          "gate": "field_cap",
+          "passed": true,
+          "measured": 2.991067409515381,
+          "limit": 6.0,
+          "limit_is_assumed": true
+        },
+        {
+          "gate": "node_budget",
+          "passed": true,
+          "measured": 53.0,
+          "limit": 269568.0,
+          "limit_is_assumed": false
+        },
+        {
+          "gate": "colouring",
+          "passed": true,
+          "measured": null,
+          "limit": "distinct",
+          "limit_is_assumed": false
+        }
+      ]
     },
     {
       "name": "codon_default_prefix",
@@ -55,7 +129,44 @@
       "closed_form_abs_error": 0.0,
       "structural_residual": 0.0,
       "structural_residual_note": "zero by construction: place() raises CompileError with limit=0 on any unrealized edge, so a compile either realizes every coupling or fails loudly -- it never drops one",
-      "mediate_seconds": 0.001
+      "mediate_seconds": 0.001,
+      "gates_after_mediation": [
+        {
+          "gate": "degree",
+          "passed": true,
+          "measured": 12.0,
+          "limit": 16.0,
+          "limit_is_assumed": false
+        },
+        {
+          "gate": "coupling_cap",
+          "passed": true,
+          "measured": 2.846567915192133,
+          "limit": 6.0,
+          "limit_is_assumed": false
+        },
+        {
+          "gate": "field_cap",
+          "passed": true,
+          "measured": 3.5002760887145996,
+          "limit": 6.0,
+          "limit_is_assumed": true
+        },
+        {
+          "gate": "node_budget",
+          "passed": true,
+          "measured": 434.0,
+          "limit": 269568.0,
+          "limit_is_assumed": false
+        },
+        {
+          "gate": "colouring",
+          "passed": true,
+          "measured": null,
+          "limit": "distinct",
+          "limit_is_assumed": false
+        }
+      ]
     },
     {
       "name": "codon_spike_200aa",
@@ -74,7 +185,44 @@
       "closed_form_abs_error": 0.0,
       "structural_residual": 0.0,
       "structural_residual_note": "zero by construction: place() raises CompileError with limit=0 on any unrealized edge, so a compile either realizes every coupling or fails loudly -- it never drops one",
-      "mediate_seconds": 0.002
+      "mediate_seconds": 0.002,
+      "gates_after_mediation": [
+        {
+          "gate": "degree",
+          "passed": true,
+          "measured": 12.0,
+          "limit": 16.0,
+          "limit_is_assumed": false
+        },
+        {
+          "gate": "coupling_cap",
+          "passed": true,
+          "measured": 2.846567915192133,
+          "limit": 6.0,
+          "limit_is_assumed": false
+        },
+        {
+          "gate": "field_cap",
+          "passed": true,
+          "measured": 3.5002760887145996,
+          "limit": 6.0,
+          "limit_is_assumed": true
+        },
+        {
+          "gate": "node_budget",
+          "passed": true,
+          "measured": 764.0,
+          "limit": 269568.0,
+          "limit_is_assumed": false
+        },
+        {
+          "gate": "colouring",
+          "passed": true,
+          "measured": null,
+          "limit": "distinct",
+          "limit_is_assumed": false
+        }
+      ]
     },
     {
       "name": "codon_spike_full",
@@ -93,7 +241,44 @@
       "closed_form_abs_error": 0.0,
       "structural_residual": 0.0,
       "structural_residual_note": "zero by construction: place() raises CompileError with limit=0 on any unrealized edge, so a compile either realizes every coupling or fails loudly -- it never drops one",
-      "mediate_seconds": 0.015
+      "mediate_seconds": 0.022,
+      "gates_after_mediation": [
+        {
+          "gate": "degree",
+          "passed": true,
+          "measured": 12.0,
+          "limit": 16.0,
+          "limit_is_assumed": false
+        },
+        {
+          "gate": "coupling_cap",
+          "passed": true,
+          "measured": 2.846567915192133,
+          "limit": 6.0,
+          "limit_is_assumed": false
+        },
+        {
+          "gate": "field_cap",
+          "passed": true,
+          "measured": 4.050275802612305,
+          "limit": 6.0,
+          "limit_is_assumed": true
+        },
+        {
+          "gate": "node_budget",
+          "passed": true,
+          "measured": 5025.0,
+          "limit": 269568.0,
+          "limit_is_assumed": false
+        },
+        {
+          "gate": "colouring",
+          "passed": true,
+          "measured": null,
+          "limit": "distinct",
+          "limit_is_assumed": false
+        }
+      ]
     }
   ],
   "control_failures": [],
