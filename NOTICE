@@ -1,0 +1,28 @@
+tsu -- a compiler for thermodynamic sampling units
+Copyright 2026 Paul Shaver
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+---
+
+This project targets hardware constraints published by Extropic AI. It is an
+independent work: it is not affiliated with, endorsed by, or derived from any
+Extropic source code. Extropic's own compiler (`thermalizers`, arXiv:2608.01615)
+has no public release, and nothing here is derived from it.
+
+Cited Extropic figures are attributed at their point of use in
+`src/tsu/target.py`, which records for every hardware constraint whether the
+value is sourced to a published figure or is this project's own assumption.
+
+Third-party dependencies (`thrml`, `extro-torx`, JAX, NumPy) carry their own
+licenses and are not redistributed here.
