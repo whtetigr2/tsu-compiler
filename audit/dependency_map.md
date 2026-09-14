@@ -54,7 +54,7 @@ produced.
   `contract-fail`, 2 `non-codeword`; every `valid` row's `g0_0` decodes to
   `0` (water, the pinned value) -- the clamp is honoured in every valid
   decode, consistent with `thrml`'s `state_clamp` mechanism
-  (`src/tsu/backends/thrml_backend.py:210-217`). Final
+  (`src/tsu_compiler/backends/thrml_backend.py:210-217`). Final
   `batch_summary`: `{"infeasible": false, "reason": "5/18 draws valid",
   "valid": 5, "total": 18}`.
 
@@ -72,16 +72,16 @@ LATTICE APP -> receipt -> representation -> energy model (J, b, beta)
 | # | Arrow | Function(s) observed in the trace | file:line | Evidence |
 |---|---|---|---|---|
 | 1 | LATTICE APP -> receipt | `main()` constructs `Receipt(RECEIPT_DIR)` once at startup; `Receipt.__init__` reads 9 JSON files verbatim via a local `load()` closure | `demo/lattice_app.py:4501` (call site, not traced -- see caveat below), `demo/lattice_app.py:1111-1125` | `demo/lattice_app.py:1111:__init__ -> demo/lattice_app.py:1114:load`, count=9 (unclamped trace) |
-| 2 | receipt -> representation | `load_spec` parses `spec.yaml`; `encode(spec, encoding_name)` rebuilds the categorical/binary NAME MAPPING (`Encoded.categorical`/`.binary_names`) via `_encode_domain_wall` -> `_build_categorical`, `_guard_penalty_dominates`, `_scale_terms`, `_rewrite_terms` -> `_rewrite_form_domain_wall` | `src/tsu/spec.py:354` (`load_spec`), `src/tsu/passes/encode.py:398` (`encode`), `:323` (`_encode_domain_wall`), `:233`, `:258`, `:288`, `:309`, `:190` | `demo/lattice_app.py:1111:__init__ -> src/tsu/spec.py:354:load_spec` (1x); `-> src/tsu/passes/encode.py:398:encode` (1x); `encode.py:309:_rewrite_terms -> encode.py:190:_rewrite_form_domain_wall` (1,792x) |
-| 3 | representation -> energy model (J, b, beta) | `reconstruct_program()` reads `program.json`'s `nodes/edges/weights/biases/beta/offset/mediator_nodes` **verbatim** into an `IsingModel` -- no `lower()` pass runs live | `src/tsu/simulate.py:49-81` | `demo/lattice_app.py:1111:__init__ -> src/tsu/simulate.py:49:reconstruct_program` (1x); internal genexprs at `simulate.py:66`/`:77` build the `edges`/`blocks` tuples (577/3 calls, matching 576 edges + 1) |
-| 4 | graph/topology/mediators | **Not recomputed.** Mediator identity (which of the 192 physical nodes are the 64 hidden mediator spins) is read from `program.json`'s `mediator_nodes` field, not re-derived by `insert_mediators` | `demo/lattice_app.py:1133` (`mediator_set = set(self.program.get("mediator_nodes", ()))`) | `insert_mediators` (`src/tsu/passes/route.py:150`): **0 edges in either trace** |
-| 5 | physical mapping/placement/routing | **Not observed in either draw.** `place()` and `route()` never appear. The only compile-adjacent passes that DO run live are `analyse()` and `build_program()`, and only on the clamped path, only because `simulate(..., clamp={...})` differs from the receipt's own clamp -- a graph-theoretic REPARTITION of the already-fixed edge set into chromatic blocks, never a re-placement | `src/tsu/passes/place.py:240`, `src/tsu/passes/route.py:235` | `place`: 0 edges either trace. `route`: 0 edges either trace. `analyse` (`src/tsu/passes/analyse.py:43`): 0 edges unclamped, 1 edge clamped (`src/tsu/simulate.py:89:simulate -> src/tsu/passes/analyse.py:43:analyse`) |
-| 6 | program construction | `build_program()` -- **clamped path only**, called from `simulate()`; on the unclamped path the program (blocks/schedule/clamp) is instead read verbatim inside `reconstruct_program` (arrow 3) | `src/tsu/passes/program.py:43` | `build_program`: 0 edges unclamped, 1 edge clamped (`src/tsu/simulate.py:89:simulate -> src/tsu/passes/program.py:43:build_program`) |
-| 7 | THRML/Torx sampling path | `sample()` (unclamped) / `sample_chains()` (both) -> `_model()` builds the `thrml.models.IsingEBM`, then `jax.jit(jax.vmap(lambda i, k: sample_states(...)))(...)` crosses into jax/thrml. **`torx` never appears, either direction, in either trace.** | `src/tsu/backends/thrml_backend.py:232` (`sample`), `:181` (`sample_chains`), `:38` (`_model`), `:226` (the jitted lambda) | `demo/lattice_app.py:1401:_run_unclamped_tick -> thrml_backend.py:232:sample` (1x); `thrml_backend.py:181:sample_chains -> thrml_backend.py:38:_model` (1x, both traces); boundary crossings into pkg `thrml`/`jax`/`jaxlib`/`equinox` (see JIT-opacity section below); `torx_cross_check`/pkg `torx`: **0 matches in 1,229,987 combined call events across all three trace files** |
-| 8 | raw state | The flattened `(n_chains*n_samples, n_spins)` 0/1 numpy array `sample()`/`sample_chains()` returns | `src/tsu/backends/thrml_backend.py:234-236` | Return value shape confirmed via `pushed_messages`: clamped trace's 18 rows = 6 chains x 3 samples (chain-major, matches `chains.reshape(-1, chains.shape[-1])`) |
-| 9 | codeword test | `enc.is_codeword(bits)` -- called from `classify_draw`, **and independently again from `simulate()` itself** on the clamped path (see Finding I-1) | `src/tsu/passes/encode.py:163` | `demo/lattice_app.py:1238:classify_draw -> encode.py:163:is_codeword` (18x clamped, 1x unclamped); `src/tsu/simulate.py:89:simulate -> encode.py:163:is_codeword` (18x clamped) |
-| 10 | decode | `enc.decode(bits)` -- same duplicate-call pattern as arrow 9 | `src/tsu/passes/encode.py:131` | `classify_draw -> decode` (16x clamped, 1x unclamped); `simulate -> decode` (16x clamped) |
-| 11 | contract validation | `spec.contract.validate(decoded)` -- same duplicate-call pattern | `src/tsu/spec.py:38` | `classify_draw -> validate` (16x clamped, 1x unclamped); `simulate -> validate` (16x clamped) |
+| 2 | receipt -> representation | `load_spec` parses `spec.yaml`; `encode(spec, encoding_name)` rebuilds the categorical/binary NAME MAPPING (`Encoded.categorical`/`.binary_names`) via `_encode_domain_wall` -> `_build_categorical`, `_guard_penalty_dominates`, `_scale_terms`, `_rewrite_terms` -> `_rewrite_form_domain_wall` | `src/tsu_compiler/spec.py:354` (`load_spec`), `src/tsu_compiler/passes/encode.py:398` (`encode`), `:323` (`_encode_domain_wall`), `:233`, `:258`, `:288`, `:309`, `:190` | `demo/lattice_app.py:1111:__init__ -> src/tsu_compiler/spec.py:354:load_spec` (1x); `-> src/tsu_compiler/passes/encode.py:398:encode` (1x); `encode.py:309:_rewrite_terms -> encode.py:190:_rewrite_form_domain_wall` (1,792x) |
+| 3 | representation -> energy model (J, b, beta) | `reconstruct_program()` reads `program.json`'s `nodes/edges/weights/biases/beta/offset/mediator_nodes` **verbatim** into an `IsingModel` -- no `lower()` pass runs live | `src/tsu_compiler/simulate.py:49-81` | `demo/lattice_app.py:1111:__init__ -> src/tsu_compiler/simulate.py:49:reconstruct_program` (1x); internal genexprs at `simulate.py:66`/`:77` build the `edges`/`blocks` tuples (577/3 calls, matching 576 edges + 1) |
+| 4 | graph/topology/mediators | **Not recomputed.** Mediator identity (which of the 192 physical nodes are the 64 hidden mediator spins) is read from `program.json`'s `mediator_nodes` field, not re-derived by `insert_mediators` | `demo/lattice_app.py:1133` (`mediator_set = set(self.program.get("mediator_nodes", ()))`) | `insert_mediators` (`src/tsu_compiler/passes/route.py:150`): **0 edges in either trace** |
+| 5 | physical mapping/placement/routing | **Not observed in either draw.** `place()` and `route()` never appear. The only compile-adjacent passes that DO run live are `analyse()` and `build_program()`, and only on the clamped path, only because `simulate(..., clamp={...})` differs from the receipt's own clamp -- a graph-theoretic REPARTITION of the already-fixed edge set into chromatic blocks, never a re-placement | `src/tsu_compiler/passes/place.py:240`, `src/tsu_compiler/passes/route.py:235` | `place`: 0 edges either trace. `route`: 0 edges either trace. `analyse` (`src/tsu_compiler/passes/analyse.py:43`): 0 edges unclamped, 1 edge clamped (`src/tsu_compiler/simulate.py:89:simulate -> src/tsu_compiler/passes/analyse.py:43:analyse`) |
+| 6 | program construction | `build_program()` -- **clamped path only**, called from `simulate()`; on the unclamped path the program (blocks/schedule/clamp) is instead read verbatim inside `reconstruct_program` (arrow 3) | `src/tsu_compiler/passes/program.py:43` | `build_program`: 0 edges unclamped, 1 edge clamped (`src/tsu_compiler/simulate.py:89:simulate -> src/tsu_compiler/passes/program.py:43:build_program`) |
+| 7 | THRML/Torx sampling path | `sample()` (unclamped) / `sample_chains()` (both) -> `_model()` builds the `thrml.models.IsingEBM`, then `jax.jit(jax.vmap(lambda i, k: sample_states(...)))(...)` crosses into jax/thrml. **`torx` never appears, either direction, in either trace.** | `src/tsu_compiler/backends/thrml_backend.py:232` (`sample`), `:181` (`sample_chains`), `:38` (`_model`), `:226` (the jitted lambda) | `demo/lattice_app.py:1401:_run_unclamped_tick -> thrml_backend.py:232:sample` (1x); `thrml_backend.py:181:sample_chains -> thrml_backend.py:38:_model` (1x, both traces); boundary crossings into pkg `thrml`/`jax`/`jaxlib`/`equinox` (see JIT-opacity section below); `torx_cross_check`/pkg `torx`: **0 matches in 1,229,987 combined call events across all three trace files** |
+| 8 | raw state | The flattened `(n_chains*n_samples, n_spins)` 0/1 numpy array `sample()`/`sample_chains()` returns | `src/tsu_compiler/backends/thrml_backend.py:234-236` | Return value shape confirmed via `pushed_messages`: clamped trace's 18 rows = 6 chains x 3 samples (chain-major, matches `chains.reshape(-1, chains.shape[-1])`) |
+| 9 | codeword test | `enc.is_codeword(bits)` -- called from `classify_draw`, **and independently again from `simulate()` itself** on the clamped path (see Finding I-1) | `src/tsu_compiler/passes/encode.py:163` | `demo/lattice_app.py:1238:classify_draw -> encode.py:163:is_codeword` (18x clamped, 1x unclamped); `src/tsu_compiler/simulate.py:89:simulate -> encode.py:163:is_codeword` (18x clamped) |
+| 10 | decode | `enc.decode(bits)` -- same duplicate-call pattern as arrow 9 | `src/tsu_compiler/passes/encode.py:131` | `classify_draw -> decode` (16x clamped, 1x unclamped); `simulate -> decode` (16x clamped) |
+| 11 | contract validation | `spec.contract.validate(decoded)` -- same duplicate-call pattern | `src/tsu_compiler/spec.py:38` | `classify_draw -> validate` (16x clamped, 1x unclamped); `simulate -> validate` (16x clamped) |
 | 12 | UI panels | `_classify_and_push` pushes the classified dict onto `SampleWorker.q`; `_put` (blocking-with-timeout put) is the last in-scope frame this trace observes | `demo/lattice_app.py:1357` (`_classify_and_push`), `:1349` (`_put`) | `_run_unclamped_tick -> _classify_and_push -> classify_draw`, `-> _put` (both traces). **Not traced past this point**: the Tk-side consumer (`_poll_queue`/`_handle_msg`, `demo/lattice_app.py:3402-3527`) runs on Tk's `after`-loop, which this script never starts -- see Methodology caveat below. The `valid` branch of `classify_draw` also calls `render_world_image` (`demo/lattice_app.py:1166`), observed 5x in the clamped trace (once per `valid` draw), 0x in the unclamped trace (its single draw was `contract-fail`, never reaching that branch). |
 
 ### Methodology caveat on arrow 12
@@ -101,16 +101,16 @@ with file:line citations in `audit/truth_table.md` instead, per Task A2.
 
 Recorded as findings, not omissions:
 
-1. **`insert_mediators`** (`src/tsu/passes/route.py:150`) -- 0 occurrences.
+1. **`insert_mediators`** (`src/tsu_compiler/passes/route.py:150`) -- 0 occurrences.
    Mediator topology is fixed at compile time and read back as data
    (`program.json`'s `mediator_nodes`), never recomputed by either draw.
-2. **`place`** (`src/tsu/passes/place.py:240`) -- 0 occurrences in either
+2. **`place`** (`src/tsu_compiler/passes/place.py:240`) -- 0 occurrences in either
    draw. Confirms the docstring claim at the top of `demo/lattice_app.py`
    ("a receipt whose `place` pass alone took ~201s to produce -- read once
    at startup here, NEVER regenerated") against live instrumentation, not
    just against the comment.
-3. **`route`** (`src/tsu/passes/route.py:235`) -- 0 occurrences.
-4. **`search`** (`src/tsu/passes/search.py`, `compile_spec`'s
+3. **`route`** (`src/tsu_compiler/passes/route.py:235`) -- 0 occurrences.
+4. **`search`** (`src/tsu_compiler/passes/search.py`, `compile_spec`'s
    representation search) -- 0 occurrences. `_verify`/`_measure_mixing`
    (search.py:494-520), which is where the receipt's own frozen `ess`
    figure and the `torx_cross_check` call live, ran exactly once, at
@@ -118,8 +118,8 @@ Recorded as findings, not omissions:
 5. **`torx_backend.torx_cross_check`** / package `torx` -- 0 occurrences,
    either direction, across all 1,229,987 call events in the three trace
    files combined. See the dedicated answer below.
-6. **`analyse`** (`src/tsu/passes/analyse.py:43`) and **`build_program`**
-   (`src/tsu/passes/program.py:43`) -- 0 occurrences on the UNCLAMPED
+6. **`analyse`** (`src/tsu_compiler/passes/analyse.py:43`) and **`build_program`**
+   (`src/tsu_compiler/passes/program.py:43`) -- 0 occurrences on the UNCLAMPED
    path; each appears exactly once on the CLAMPED path (see arrows 5-6
    above). Not an absence in the "never runs" sense, but the trace shows
    precisely which of the two draw types it runs under, rather than
@@ -131,7 +131,7 @@ Recorded as findings, not omissions:
 
 **Does `torx` appear anywhere in the live path at all? No.** Confirmed by
 direct instrumentation, not by absence-of-import-search: `torx_backend.py`
-(`src/tsu/backends/torx_backend.py`) is in-scope for this tracer (it lives
+(`src/tsu_compiler/backends/torx_backend.py`) is in-scope for this tracer (it lives
 under `src/`), so if `torx_cross_check` had been called, its `call` event
 would have been recorded as an ordinary in-scope edge, and its own
 subsequent call into the real `torx` package would have been recorded as a
@@ -139,8 +139,8 @@ boundary crossing with `external_package="torx"`. Neither occurred, in
 either the unclamped, clamped, or bonus warm-cache trace. Static reading
 corroborates this independently: `torx_cross_check` is called from exactly
 one place in `src/`, `search.py:520,724`, inside `_verify`
-(`src/tsu/passes/search.py:517`) -- a compile-time-only pass that this
-audit is barred from invoking (`tsu compile` is never run). `demo/` never
+(`src/tsu_compiler/passes/search.py:517`) -- a compile-time-only pass that this
+audit is barred from invoking (`tsuc compile` is never run). `demo/` never
 imports `tsu.backends.torx_backend` at all (`grep -r torx demo/` returns
 nothing). Torx is, in this receipt's live sampling path, entirely inert:
 it exists only as a compile-time independent oracle for a single-bond
@@ -155,7 +155,7 @@ clamp differs from the receipt's own, is `analyse`/`build_program` --
 repartitioning the ALREADY-placed, ALREADY-routed edge set into new
 chromatic colour blocks so the clamped spins can be held fixed during
 Gibbs updates. This is graph bookkeeping over a fixed embedding, not a
-re-placement onto different hardware sites; `src/tsu/simulate.py`'s own
+re-placement onto different hardware sites; `src/tsu_compiler/simulate.py`'s own
 module docstring says exactly this ("clamping changes which nodes may
 share a chromatic block, and that repartition is graph-theoretic
 bookkeeping over the ALREADY-fixed edge set, not a re-derivation of the
@@ -197,7 +197,7 @@ real, in-scope crossing back INTO our code during jax's tracing was
 captured and is worth naming directly, as positive evidence the boundary
 is real and not just a name filter with nothing on the other side:
 `.../site-packages/jax/_src/interpreters/batching.py:118:flatten_fun_for_vmap
--> src/tsu/backends/thrml_backend.py:226:<lambda>` -- jax's own `vmap`
+-> src/tsu_compiler/backends/thrml_backend.py:226:<lambda>` -- jax's own `vmap`
 machinery calling back into the lambda `sample_chains` passed it
 (`thrml_backend.py:226`), during graph construction.
 
@@ -222,14 +222,14 @@ package" rather than a guess.
 
 **I-1: Every clamped-batch draw is codeword-tested, decoded, and
 contract-validated TWICE, by two independent call sites, on the same
-data.** `src/tsu/simulate.py:157-169` (inside `simulate()`) and
+data.** `src/tsu_compiler/simulate.py:157-169` (inside `simulate()`) and
 `demo/lattice_app.py:1238-1255` (`classify_draw`, called once per row from
 `_run_clamped_batch`) each independently call `enc.is_codeword`,
 `enc.decode`, and `spec.contract.validate` on every row of the SAME
 returned array. Confirmed by the trace's exact call counts: `simulate`
 calls `is_codeword` 18x/`decode` 16x/`validate` 16x; `classify_draw` calls
 the identical trio the identical number of times, on the identical 18
-rows (`src/tsu/simulate.py:89:simulate -> encode.py:163:is_codeword`
+rows (`src/tsu_compiler/simulate.py:89:simulate -> encode.py:163:is_codeword`
 count=18; `demo/lattice_app.py:1238:classify_draw -> encode.py:163:is_codeword`
 count=18, both in `audit/traces/clamped_trace.json`). **Concrete failure
 scenario:** this is not a correctness bug -- both call sites use the
@@ -251,13 +251,13 @@ duplication, not two different subsets being checked.
 representation on every app launch, not just a name mapping, contradicting
 the narrower claim in `tsu.simulate`'s own module docstring.**
 `demo/lattice_app.py:1129` (`self.enc = encode(self.spec,
-self.encoding_name)`) calls `src/tsu/passes/encode.py:398`'s `encode()`,
+self.encoding_name)`) calls `src/tsu_compiler/passes/encode.py:398`'s `encode()`,
 which the trace shows reaching `_rewrite_form_domain_wall` 1,792 times,
 `_max_energy_contribution`/`_max_abs_form` (the `MONOTONE_PENALTY`
 dominance guard) 1,792/3,584 times, and `_guard_penalty_dominates` once
 per categorical variable -- i.e. the full linear-form rewriting and
 penalty-dominance verification `lower.py` performs at compile time,
-re-run at every `Receipt()` construction (`src/tsu/simulate.py:11-19`'s
+re-run at every `Receipt()` construction (`src/tsu_compiler/simulate.py:11-19`'s
 own docstring calls `encode`'s re-run "a pure, deterministic re-derivation
 of a NAME MAPPING ... not of the compiled program" -- true of the NUMERIC
 Ising model, which genuinely is read verbatim via `reconstruct_program`,

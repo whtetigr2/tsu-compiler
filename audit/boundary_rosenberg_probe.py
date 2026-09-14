@@ -38,8 +38,8 @@ more than 2 variables). Verified here by:
   1. Brute force over all 2**4 x-configurations x 2**3 w-configurations
      (128 states, tiny): min_w(energy) == (target - N_cross)^2 exactly, on
      the matrix's own 4-cell/3-edge/target=1 instance.
-  2. The REAL compiler pipeline (`tsu.passes.lower.lower` /
-     `tsu.passes.analyse.analyse`), not hand-rolled sympy -- measuring
+  2. The REAL compiler pipeline (`tsu_compiler.passes.lower.lower` /
+     `tsu_compiler.passes.analyse.analyse`), not hand-rolled sympy -- measuring
      n_nodes, max_degree, |J|max, |b|max against the Z1 gates.
 
 Run with the project's pinned interpreter, from the repo root:
@@ -55,9 +55,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from tsu.ir import Binary, EnergyModel, Linear, LinearForm, Product, Var, VarRef  # noqa: E402
-from tsu.passes.lower import lower  # noqa: E402
-from tsu.passes.analyse import analyse  # noqa: E402
+from tsu_compiler.ir import Binary, EnergyModel, Linear, LinearForm, Product, Var, VarRef  # noqa: E402
+from tsu_compiler.passes.lower import lower  # noqa: E402
+from tsu_compiler.passes.analyse import analyse  # noqa: E402
 
 TARGET = 1.0
 OUTER_WEIGHT = 1.0

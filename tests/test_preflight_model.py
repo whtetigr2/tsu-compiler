@@ -11,7 +11,7 @@ import pytest
 
 sys.path.insert(0, "src")
 
-from tsu.preflight.model import load_model
+from tsu_compiler.preflight.model import load_model
 
 
 def _write_edges(tmp_path, **over):
@@ -35,9 +35,9 @@ def test_loads_a_spec_and_agrees_with_the_compiler(tmp_path):
     """The spec path must produce exactly what encode+lower produce directly --
     if it drifted, preflight would report on a different model than the one the
     rest of the toolchain compiles."""
-    from tsu.spec import load_spec
-    from tsu.passes.encode import encode
-    from tsu.passes.lower import lower
+    from tsu_compiler.spec import load_spec
+    from tsu_compiler.passes.encode import encode
+    from tsu_compiler.passes.lower import lower
     p = tmp_path / "s.yaml"
     p.write_text(
         "name: t\n"

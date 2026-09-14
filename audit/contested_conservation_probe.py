@@ -11,7 +11,7 @@ isolation, the other describes two terms competing for the same |b| budget.
 This script measures the CONTESTED setup for real: a `product_over_edges`
 adjacency term (a_value=b_value=1, weight=4.0 -- `symmetric: true` by
 default doubles this to an effective 8.0 per edge, per
-`src/tsu/spec.py::_product_over_edges`'s own docstring) on the full 8x8
+`src/tsu_compiler/spec.py::_product_over_edges`'s own docstring) on the full 8x8
 grid, alongside a `conserve_over_edges` term swept across the SAME range
 the brief specifies (0.1 to 12.0).
 
@@ -42,10 +42,10 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from tsu.spec import load_spec  # noqa: E402
-from tsu.passes.encode import encode  # noqa: E402
-from tsu.passes.lower import lower  # noqa: E402
-from tsu.passes.analyse import analyse  # noqa: E402
+from tsu_compiler.spec import load_spec  # noqa: E402
+from tsu_compiler.passes.encode import encode  # noqa: E402
+from tsu_compiler.passes.lower import lower  # noqa: E402
+from tsu_compiler.passes.analyse import analyse  # noqa: E402
 
 FIELD_CAP = 6.0
 ADJACENCY_WEIGHT = 4.0

@@ -140,7 +140,7 @@ def test_read_model_shape_matches_lattice_smalls_own_rules():
     """lattice_small_8x8_k3.yaml: water(0)-rock(1), water-water, rock-rock,
     grass(2)-grass. water and rock each partner {0,1} (p=2); grass partners
     only {2} (p=1) -- hand-verified against the spec.yaml term list."""
-    from tsu.spec import load_spec
+    from tsu_compiler.spec import load_spec
     spec = load_spec(str(SMALL / "spec.yaml"))
     shape = fr.read_model_shape(spec)
     assert shape.k == 3
@@ -155,7 +155,7 @@ def test_observe_domain_wall_k3_matches_the_receipts_own_measured_numbers():
     """The receipt's own compile measured degree=9, |J|=2.5, |b|=1.6 for
     this exact spec under domain_wall -- `observe` must reproduce it
     exactly (same encode/lower/analyse pipeline the compiler itself runs)."""
-    from tsu.spec import load_spec
+    from tsu_compiler.spec import load_spec
     spec = load_spec(str(SMALL / "spec.yaml"))
     rep = fr.observe(spec, "domain_wall", 1.0)
     assert rep.max_degree == 9
@@ -168,7 +168,7 @@ def test_verify_k_increment_on_one_hot_matches_the_law_exactly():
     """one_hot is the encoding the law was confirmed on -- verifying it on
     THIS model (not just re-citing the spec's own past table) must match
     the law's prediction exactly, not merely approximately."""
-    from tsu.spec import load_spec
+    from tsu_compiler.spec import load_spec
     spec = load_spec(str(SMALL / "spec.yaml"))
     shape = fr.read_model_shape(spec)
     v = fr.verify_k_increment(spec, shape, "one_hot", fr.ONE_HOT_PENALTY, 1.0)
@@ -179,7 +179,7 @@ def test_verify_k_increment_on_one_hot_matches_the_law_exactly():
 
 
 def test_verify_p_increment_on_one_hot_matches_the_law_exactly():
-    from tsu.spec import load_spec
+    from tsu_compiler.spec import load_spec
     spec = load_spec(str(SMALL / "spec.yaml"))
     shape = fr.read_model_shape(spec)
     v = fr.verify_p_increment(spec, shape, "one_hot", 1.0)
@@ -193,7 +193,7 @@ def test_verify_k_increment_on_domain_wall_diverges_from_the_one_hot_law():
     A future maintainer changing encode.py's domain_wall structure and
     making this test fail should treat that as NEWS, not tighten it back to
     'passes' without re-measuring."""
-    from tsu.spec import load_spec
+    from tsu_compiler.spec import load_spec
     spec = load_spec(str(SMALL / "spec.yaml"))
     shape = fr.read_model_shape(spec)
     v = fr.verify_k_increment(spec, shape, "domain_wall", fr.ONE_HOT_PENALTY, 1.0)
@@ -209,8 +209,8 @@ def test_binding_forecast_predicts_field_cap_first_for_small_receipt():
     law would predict a failure (k=10, or p=4). This directly reproduces
     the project's own established finding (spec 4.8/4.9: the field gate,
     not degree, is what actually blocks larger k)."""
-    from tsu.spec import load_spec
-    from tsu.target import Z1
+    from tsu_compiler.spec import load_spec
+    from tsu_compiler.target import Z1
     spec = load_spec(str(SMALL / "spec.yaml"))
     shape = fr.read_model_shape(spec)
     forecast = fr.predict_first_binding_gate(
@@ -246,7 +246,7 @@ def test_binding_forecast_predicts_field_cap_first_for_small_receipt():
 def test_build_frontier_report_field_cap_reads_max_abs_bias_not_max_abs_coupling(
         monkeypatch):
     import dataclasses
-    from tsu.target import Sourced
+    from tsu_compiler.target import Sourced
 
     diverging = dataclasses.replace(
         fr.Z1,
@@ -448,7 +448,7 @@ def test_render_line_plot_still_connects_within_one_chain():
 def test_energy_of_draw_matches_hand_computed_ising_energy():
     """E = offset - sum(b*s) - sum(J*s_u*s_v), s = 2*bit-1 (the same sign
     convention IsingModel/lower.py document: 'sum b s + sum J s s == -E')."""
-    from tsu.passes.lower import IsingModel
+    from tsu_compiler.passes.lower import IsingModel
     import numpy as np
     im = IsingModel(nodes=("a", "b"), edges=((0, 1),),
                     weights=np.array([2.0]), biases=np.array([1.0, -1.0]),

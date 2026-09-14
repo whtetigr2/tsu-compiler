@@ -1,0 +1,23 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+node_modules/
+frontend/dist/
+*.egg-info/
+.DS_Store
+.env
+*.log
+receipts/notepad/
+
+# local snapshot downloads (do not commit)
+*.snapshot.json
+gibbs-observatory-*.png
+
+# Launcher / packaging
+GibbsObservatory.exe
+dist/
+build/
+*.spec
+launcher/__pycache__/

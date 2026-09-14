@@ -1,0 +1,28 @@
+name: maxcut_cycle7
+description: >
+  Max-Cut / network partition on a 7-node cycle (combinatorial / telecom class).
+  Real problem: bipartition vertices of a ring network to maximize cut weight
+  (classic QUBO; also a template for small portfolio long/short assignment on
+  a correlation cycle). Antiferromagnetic couplings (positive product weight
+  on both-1, plus linear shift) encourage disagreeing neighbours. Odd cycle is
+  NOT 2-colorable as a logical conflict graph of the Ising interactions in the
+  trivial embedding sense — watch whether Z1 placement inserts mediators when
+  the realized coupling graph is non-bipartite.
+variables:
+  v0: {domain: binary}
+  v1: {domain: binary}
+  v2: {domain: binary}
+  v3: {domain: binary}
+  v4: {domain: binary}
+  v5: {domain: binary}
+  v6: {domain: binary}
+terms:
+  - {kind: product, a: {v0: 1.0}, b: {v1: 1.0}, weight: 1.0}
+  - {kind: product, a: {v1: 1.0}, b: {v2: 1.0}, weight: 1.0}
+  - {kind: product, a: {v2: 1.0}, b: {v3: 1.0}, weight: 1.0}
+  - {kind: product, a: {v3: 1.0}, b: {v4: 1.0}, weight: 1.0}
+  - {kind: product, a: {v4: 1.0}, b: {v5: 1.0}, weight: 1.0}
+  - {kind: product, a: {v5: 1.0}, b: {v6: 1.0}, weight: 1.0}
+  - {kind: product, a: {v6: 1.0}, b: {v0: 1.0}, weight: 1.0}
+contract:
+  validate: []

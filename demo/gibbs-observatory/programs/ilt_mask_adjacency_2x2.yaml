@@ -1,0 +1,20 @@
+name: ilt_mask_adjacency_2x2
+description: >
+  Inverse-lithography / mask-rule surrogate on a 2x2 tile (ILT class).
+  Real problem: assign each mask tile one of three process features
+  (0=clear/water-analogue, 1=transition/shore, 2=opaque/mountain-analogue)
+  so forbidden feature pairs never sit on a shared edge — the same adjacency
+  grammar OPC/ILT rule decks use for "feature A may not abut feature B".
+  Uses tsu grid + product_over_edges; deliberately tiny so exact verification
+  layers remain available. Source shape: adjacency_2x2_k3 family.
+generate:
+  kind: grid
+  width: 2
+  height: 2
+  variable_domain: {domain: categorical, k: 3}
+terms:
+  - {kind: product_over_edges, a_value: 0, b_value: 2, weight: 4.0}
+contract:
+  validate:
+    - {rule: forbid_value_pair_over_edges, a_value: 0, b_value: 2,
+       message: "forbidden mask features 0 and 2 share an edge"}

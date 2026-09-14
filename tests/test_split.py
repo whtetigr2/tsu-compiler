@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 
 # audit/ (the parent of oracles/) -- `audit/oracles/exact.py` is written from
-# the physics and does NOT import src/tsu (plan Task A4's own rule, restated
+# the physics and does NOT import src/tsu_compiler (plan Task A4's own rule, restated
 # in split.py's own module docstring): "an oracle sharing code with the thing
 # under test verifies nothing." Same sys.path pattern `audit/tests/test_oracles.py`
 # already uses to reach the same module from outside its own directory.
@@ -47,8 +47,8 @@ def _marginal_tv_after_split(im, leaves, max_degree, chain_strength):
     check exists to catch), and return the total-variation distance between
     that marginal and the ORIGINAL model's own exact joint over the same
     spins. Both distributions come from full brute-force enumeration via
-    `audit/oracles/exact.py`, independent of `src/tsu`."""
-    from tsu.passes.split import split_high_degree
+    `audit/oracles/exact.py`, independent of `src/tsu_compiler`."""
+    from tsu_compiler.passes.split import split_high_degree
 
     edges = im.edges
     J_before = {edges[i]: float(im.weights[i]) for i in range(len(edges))}
@@ -96,7 +96,7 @@ def _hub_and_leaves_model():
     arbitrary toy number. 64 states before splitting, 256 after -- both
     exhaustively enumerable by `audit/oracles/exact.py`, nowhere near
     `analyse.MAXCUT_EXACT_LIMIT`/`thrml_backend.EXACT_LIMIT`."""
-    from tsu.passes.lower import IsingModel
+    from tsu_compiler.passes.lower import IsingModel
 
     leaves = [f"l{i}" for i in range(5)]
     nodes = ("h",) + tuple(leaves)
@@ -112,9 +112,9 @@ def _hub_and_leaves_model():
 def test_split_reduces_degree_below_the_cap():
     """A star graph: one hub of degree 6 and six leaves. With max_degree=4 the
     hub must be split, and every node in the result must be within the cap."""
-    from tsu.passes.split import split_high_degree
-    from tsu.passes.lower import IsingModel
-    from tsu.passes.analyse import analyse
+    from tsu_compiler.passes.split import split_high_degree
+    from tsu_compiler.passes.lower import IsingModel
+    from tsu_compiler.passes.analyse import analyse
     n = 7
     edges = tuple((0, i) for i in range(1, 7))     # hub 0, leaves 1..6
     im = IsingModel(nodes=tuple(f"v{i}" for i in range(n)), edges=edges,
@@ -130,7 +130,7 @@ def test_split_reduces_degree_below_the_cap():
 def test_split_preserves_the_marginal_over_original_spins():
     """A split model must sample the SAME distribution over the original
     spins. Verified against audit/oracles/exact.py, which is written from
-    the physics and does not import src/tsu -- an oracle sharing code with
+    the physics and does not import src/tsu_compiler -- an oracle sharing code with
     the thing under test verifies nothing. Chain strength must be high
     enough that no chain breaks; if the marginal disagrees, the chain broke
     and the model is silently wrong rather than approximately right.

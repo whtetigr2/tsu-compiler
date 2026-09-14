@@ -1,5 +1,5 @@
 [project]
-name = "tsu"
+name = "tsu-compiler"  # PyPI: "tsu" is taken, and this compiles FOR a TSU rather than being one
 version = "0.1.0"
 description = "Will your model fit thermodynamic sampling hardware, and at what coupling should it be sampled -- with receipts for every number."
 readme = "README.md"
@@ -18,7 +18,10 @@ classifiers = [
 dependencies = ["numpy", "networkx", "sympy", "pyyaml", "thrml", "extro-torx"]
 
 [project.scripts]
-tsu = "tsu.cli:main"
+# Both names install. "tsu" is deliberately NOT claimed: a hardware vendor
+# may ship a tool by that name, and this compiles FOR a TSU rather than being one.
+tsu-compiler = "tsu_compiler.cli:main"
+tsuc = "tsu_compiler.cli:main"
 
 [build-system]
 requires = ["setuptools>=77"]  # >=77 for PEP 639 license/license-files

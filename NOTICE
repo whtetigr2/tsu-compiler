@@ -21,7 +21,7 @@ Extropic source code. Extropic's own compiler (`thermalizers`, arXiv:2608.01615)
 has no public release, and nothing here is derived from it.
 
 Cited Extropic figures are attributed at their point of use in
-`src/tsu/target.py`, which records for every hardware constraint whether the
+`src/tsu_compiler/target.py`, which records for every hardware constraint whether the
 value is sourced to a published figure or is this project's own assumption.
 
 Third-party dependencies (`thrml`, `extro-torx`, JAX, NumPy) carry their own

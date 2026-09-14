@@ -14,15 +14,15 @@ Describe a constrained problem as a spec. The compiler:
 4. **Places** on Z1's published degree-16 offsets (rotations of (1,0), (2,1), (2,3), (4,1)) — grid embed before heuristic; search-exhausted ≠ unplaceable.
 5. Emits a chromatic `SamplingProgram` + a **replayable receipt** with sourced vs assumed caps (`|J|≤6` documented; `|b|≤6` marked assumed).
 
-`tsu preflight` is the edit-loop tool: bipartite + degree + |J| + budget in milliseconds. Non-bipartite placement is the coffee-vs-afternoon line.
+`tsuc preflight` is the edit-loop tool: bipartite + degree + |J| + budget in milliseconds. Non-bipartite placement is the coffee-vs-afternoon line.
 
 ## Live run (2026-09-13)
 
 ```
-python -m tsu inspect   specs/toy.yaml
-python -m tsu preflight --spec specs/toy.yaml --out out/preflight-toy
-python -m tsu preflight --spec specs/too_dense.yaml --out out/preflight-dense
-python -m tsu compile   specs/toy.yaml --target z1 --out out/toy-z1
+python -m tsuc inspect   specs/toy.yaml
+python -m tsuc preflight --spec specs/toy.yaml --out out/preflight-toy
+python -m tsuc preflight --spec specs/too_dense.yaml --out out/preflight-dense
+python -m tsuc compile   specs/toy.yaml --target z1 --out out/toy-z1
 ```
 
 | run | result |

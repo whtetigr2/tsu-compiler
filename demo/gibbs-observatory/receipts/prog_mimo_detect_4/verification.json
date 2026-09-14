@@ -1,0 +1,12 @@
+{
+  "energy_tv": 3.551170432082312,
+  "task_validity": 1.0,
+  "execution_tv": 0.035646577661253794,
+  "execution_noise_floor": 0.03627378916140073,
+  "cross_check_tv": "unavailable: torx PISING route is exact only for a single-bond model; this has 6 nodes and 8 edges, and composing PISING across edges is a Trotter splitting with its own error (EXP-TX4)",
+  "codeword_violation_rate": 0.0,
+  "ess": 6402.713535563205,
+  "diversity_distinct": 16,
+  "diversity_valid_samples": 6400,
+  "diversity_reachable": 16
+}

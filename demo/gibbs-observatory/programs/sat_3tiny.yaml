@@ -1,0 +1,47 @@
+name: sat_3tiny
+description: >
+  Tiny 3-SAT as pairwise+auxiliary energy penalties (logic / verification).
+  Real problem: satisfy a 3-clause formula over 4 Boolean variables. Pure
+  (1-x)(1-y)(1-z) is cubic; this Ising YAML shelf has only linear/product
+  terms, so each clause uses a Rosenberg auxiliary (w≈xy) and pairwise
+  products only — honest QUBO reduction, not a free 3-local Hamiltonian.
+  Clauses:
+    C0: (v0 ∨ v1 ∨ v2)     aux w0 ≈ v0·v1
+    C1: (¬v1 ∨ v2 ∨ v3)    aux w1 ≈ v1·v2
+    C2: (v0 ∨ ¬v2 ∨ v3)    aux w2 ≈ v0·v2
+  Soft clause weight α=0.35 keeps fields inside Z1 caps. Energy is the QUBO
+  surrogate; decode-time SAT checking is left to the user / future contract.
+variables:
+  v0: {domain: binary}
+  v1: {domain: binary}
+  v2: {domain: binary}
+  v3: {domain: binary}
+  w0: {domain: binary}
+  w1: {domain: binary}
+  w2: {domain: binary}
+terms:
+  # C0 unsat penalty (1-v0)(1-v1)(1-v2) with w0≈v0v1, cubic → w0·v2
+  - {kind: linear, form: {v0: 1.0, v1: 1.0, v2: 1.0}, weight: -0.35}
+  - {kind: linear, form: {w0: 1.0}, weight: 1.05}
+  - {kind: product, a: {v0: 1.0}, b: {v1: 1.0}, weight: 0.35}
+  - {kind: product, a: {v0: 1.0}, b: {v2: 1.0}, weight: 0.35}
+  - {kind: product, a: {v1: 1.0}, b: {v2: 1.0}, weight: 0.35}
+  - {kind: product, a: {w0: 1.0}, b: {v0: 1.0}, weight: -0.7}
+  - {kind: product, a: {w0: 1.0}, b: {v1: 1.0}, weight: -0.7}
+  - {kind: product, a: {w0: 1.0}, b: {v2: 1.0}, weight: -0.35}
+  # C1 unsat penalty v1(1-v2)(1-v3) with w1≈v1v2; pairwise v1v2 cancels with Rosenberg
+  - {kind: linear, form: {v1: 1.0}, weight: 0.35}
+  - {kind: linear, form: {w1: 1.0}, weight: 1.05}
+  - {kind: product, a: {v1: 1.0}, b: {v3: 1.0}, weight: -0.35}
+  - {kind: product, a: {w1: 1.0}, b: {v1: 1.0}, weight: -0.7}
+  - {kind: product, a: {w1: 1.0}, b: {v2: 1.0}, weight: -0.7}
+  - {kind: product, a: {w1: 1.0}, b: {v3: 1.0}, weight: 0.35}
+  # C2 unsat penalty (1-v0)v2(1-v3) with w2≈v0v2; pairwise v0v2 cancels with Rosenberg
+  - {kind: linear, form: {v2: 1.0}, weight: 0.35}
+  - {kind: linear, form: {w2: 1.0}, weight: 1.05}
+  - {kind: product, a: {v2: 1.0}, b: {v3: 1.0}, weight: -0.35}
+  - {kind: product, a: {w2: 1.0}, b: {v0: 1.0}, weight: -0.7}
+  - {kind: product, a: {w2: 1.0}, b: {v2: 1.0}, weight: -0.7}
+  - {kind: product, a: {w2: 1.0}, b: {v3: 1.0}, weight: 0.35}
+contract:
+  validate: []

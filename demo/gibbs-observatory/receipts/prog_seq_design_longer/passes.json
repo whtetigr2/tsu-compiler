@@ -1,0 +1,68 @@
+{
+  "verdict": "COMPILED",
+  "ideal_passed": true,
+  "hardware_evaluated": true,
+  "allow_assumed": false,
+  "candidates": [
+    {
+      "encoding": "domain_wall",
+      "state": "HARDWARE_INFEASIBLE",
+      "reason": "placement failed: placement effort exhausted",
+      "failure": {
+        "measured": 1,
+        "limit": 0,
+        "assumed": false,
+        "remediations": [
+          {
+            "action": "increase placement effort",
+            "detail": "more restarts, more iterations per restart, or a larger patch may find an embedding within budget"
+          },
+          {
+            "action": "change encoding",
+            "detail": "a lower-degree encoding is easier to embed"
+          }
+        ],
+        "failure_class": "placement_effort_exhausted",
+        "offending": [
+          {
+            "kind": "edge",
+            "detail": "p5__dw1-p6__dw1"
+          }
+        ],
+        "mediation": {
+          "mediator_count": 8,
+          "partition_method": "bfs_depth_parity_with_greedy_local_search",
+          "bipartite_after": true,
+          "beta_used": 1.0
+        }
+      }
+    },
+    {
+      "encoding": "one_hot",
+      "state": "SELECTED",
+      "reason": null,
+      "failure": null
+    }
+  ],
+  "ordering_rationale": "selection order: physical p-bit count, then colour blocks, then |J|max; ties broken by declaration order (domain_wall, one_hot)",
+  "pass_durations": {
+    "encode": 0.00021101299716974609,
+    "lower": 0.00019661199985421263,
+    "analyse": 0.00035785199725069106,
+    "gate_checks": 5.3711999498773366e-05,
+    "place": 1.521578217001661,
+    "post_mediation_gate_checks": 9.45129977480974e-05,
+    "route": 1.1449992598500103e-06,
+    "build_program": 5.364900061977096e-05,
+    "regime": 7.416299922624603e-05,
+    "verify": 1.2912593700020807
+  },
+  "coefficient_scale": 1.0,
+  "scaled_beta": 1.0,
+  "mediation": {
+    "mediator_count": 8,
+    "partition_method": "bfs_depth_parity_with_greedy_local_search",
+    "bipartite_after": true,
+    "beta_used": 1.0
+  }
+}

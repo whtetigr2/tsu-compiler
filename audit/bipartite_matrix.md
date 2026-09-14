@@ -8,7 +8,7 @@ Instance (identical shape to `audit/placement_curve.py`'s `OVL`, only `n`
 varies): one binary variable per grid cell, single self-rule
 `product_over_edges(a_value=1, b_value=1, weight=-0.4)`, `domain_wall`
 encoding (a no-op for binary variables — they pass through `encode` as
-`Binary()` directly; see `src/tsu/passes/encode.py` line 242).
+`Binary()` directly; see `src/tsu_compiler/passes/encode.py` line 242).
 
 **Non-degeneracy.** The rule weight (-0.4) is nonzero, `a_value == b_value`
 is a genuine self-rule (not a trivially-satisfied or trivially-violated
@@ -19,7 +19,7 @@ edgeless instance). The `PLACED` verdict is not a fluke of the annealer
 getting lucky on a small/sparse instance: `code_path` below was confirmed by
 calling `_try_grid_embed` directly on the exact same graph `place()` builds,
 and that function's own result is verified against every edge before it is
-ever returned (see `src/tsu/passes/place.py`'s docstring) — a returned
+ever returned (see `src/tsu_compiler/passes/place.py`'s docstring) — a returned
 grid embedding is provably correct, not heuristic.
 
 ## Full curve
@@ -89,7 +89,7 @@ exist for this instance, for the sizes actually measured (16×16–64×64; the
 8–20 rows were not re-measured for these two fields, see above).
 
 **Node budget.** At the largest size measured, 64×64, the overlay uses
-**4,096 nodes against the Z1 node budget of 250,000** (`src/tsu/target.py`,
+**4,096 nodes against the Z1 node budget of 250,000** (`src/tsu_compiler/target.py`,
 `Sourced(250_000, "F-15", ...)`) — **1.64% of budget consumed, 98.36%
 headroom** (245,904 nodes unused, measured not extrapolated). Separately,
 as a labeled *extrapolation* (not a measurement): the same one-spin-per-cell

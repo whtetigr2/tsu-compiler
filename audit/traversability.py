@@ -32,7 +32,7 @@ sys.path.insert(0, "demo")
 import numpy as np
 
 from critical_sweep import compile_layer, grid_of, onsager_kc
-from tsu.backends.thrml_backend import sample as thrml_sample
+from tsu_compiler.backends.thrml_backend import sample as thrml_sample
 
 N = 64
 SEEDS = [0, 1, 2, 3, 4]

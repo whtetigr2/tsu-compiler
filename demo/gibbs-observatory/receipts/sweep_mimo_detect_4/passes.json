@@ -1,0 +1,41 @@
+{
+  "verdict": "COMPILED",
+  "ideal_passed": true,
+  "hardware_evaluated": true,
+  "allow_assumed": false,
+  "candidates": [
+    {
+      "encoding": "domain_wall",
+      "state": "SELECTED",
+      "reason": null,
+      "failure": null
+    },
+    {
+      "encoding": "one_hot",
+      "state": "VIABLE_NOT_SELECTED",
+      "reason": "not selected: domain_wall ranked ahead of one_hot under selection order: physical p-bit count, then colour blocks, then |J|max; ties broken by declaration order (domain_wall, one_hot)",
+      "failure": null
+    }
+  ],
+  "ordering_rationale": "selection order: physical p-bit count, then colour blocks, then |J|max; ties broken by declaration order (domain_wall, one_hot)",
+  "pass_durations": {
+    "encode": 2.9119000828359276e-05,
+    "lower": 4.938000347465277e-05,
+    "analyse": 8.992900256998837e-05,
+    "gate_checks": 2.259699977003038e-05,
+    "place": 0.0007250899980135728,
+    "post_mediation_gate_checks": 2.4431999918306246e-05,
+    "route": 4.2299870983697474e-07,
+    "build_program": 1.1919000826310366e-05,
+    "regime": 1.8837999959941953e-05,
+    "verify": 1.1351172829999996
+  },
+  "coefficient_scale": 1.0,
+  "scaled_beta": 1.0,
+  "mediation": {
+    "mediator_count": 2,
+    "partition_method": "bfs_depth_parity_with_greedy_local_search",
+    "bipartite_after": true,
+    "beta_used": 1.0
+  }
+}

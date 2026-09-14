@@ -8,13 +8,13 @@ import json
 
 import pytest
 
-from tsu.ir import Binary, Product, LinearForm, Var, VarRef
-from tsu.spec import load_spec, TaskContract, WorkloadSpec
-from tsu.target import IDEAL, Z1
-from tsu.passes.search import compile_spec
-from tsu.receipt import write_receipt
-from tsu.report import render_explain, render_report
-from tsu.backends.thrml_backend import EXACT_LIMIT
+from tsu_compiler.ir import Binary, Product, LinearForm, Var, VarRef
+from tsu_compiler.spec import load_spec, TaskContract, WorkloadSpec
+from tsu_compiler.target import IDEAL, Z1
+from tsu_compiler.passes.search import compile_spec
+from tsu_compiler.receipt import write_receipt
+from tsu_compiler.report import render_explain, render_report
+from tsu_compiler.backends.thrml_backend import EXACT_LIMIT
 
 
 def _oversized_spec(n) -> WorkloadSpec:
@@ -50,7 +50,7 @@ def test_diversity_reports_the_reachable_valid_set_size_when_enumerable():
     # {(1,1,0),(1,1,1),(1,1,2)} hits forbid_both, plus (1,0,0) hits
     # forbid_value_with -- so 12 - 4 = 8 are valid. Verified independently
     # below by direct enumeration, not just asserted from this comment.
-    from tsu.spec import load_spec as _load
+    from tsu_compiler.spec import load_spec as _load
     s = _load("specs/toy.yaml")
     hand_count = sum(1 for a in s.assignments() if s.contract.validate(a).ok)
     assert v.diversity_reachable == hand_count

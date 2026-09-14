@@ -1,0 +1,34 @@
+[
+  {
+    "encoding": "domain_wall",
+    "state": "SELECTED",
+    "reason": "",
+    "logical_spins": 14,
+    "logical_edges": 21,
+    "bipartite": true,
+    "mediators": 0,
+    "physical_pbits": 14,
+    "colour_blocks": 2,
+    "max_abs_J": 0.326866498993667,
+    "max_abs_b": 0.1875,
+    "mediators_inserted": 4,
+    "mediation_method": "bfs_depth_parity_with_greedy_local_search",
+    "mediation_beta": 1.0
+  },
+  {
+    "encoding": "one_hot",
+    "state": "VIABLE_NOT_SELECTED",
+    "reason": "not selected: domain_wall ranked ahead of one_hot under selection order: physical p-bit count, then colour blocks, then |J|max; ties broken by declaration order (domain_wall, one_hot)",
+    "logical_spins": 14,
+    "logical_edges": 21,
+    "bipartite": true,
+    "mediators": 0,
+    "physical_pbits": 14,
+    "colour_blocks": 2,
+    "max_abs_J": 0.326866498993667,
+    "max_abs_b": 0.1875,
+    "mediators_inserted": 4,
+    "mediation_method": "bfs_depth_parity_with_greedy_local_search",
+    "mediation_beta": 1.0
+  }
+]

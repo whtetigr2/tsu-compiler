@@ -1,0 +1,19 @@
+name: placement_8x8_exclusion
+description: >
+  Chip / agent placement with hard-core exclusion (Placement Lab class).
+  Real problem: place occupants on an 8x8 site grid such that adjacent cells
+  are not both occupied — classical hard-core lattice gas / packing used for
+  component keep-out zones and wireless-sensor exclusion. Positive
+  product_over_edges weight on (1,1) encodes the exclusion energy at weights
+  that avoid the freeze regime.
+generate:
+  kind: grid
+  width: 8
+  height: 8
+  variable_domain: {domain: binary}
+terms:
+  - {kind: product_over_edges, a_value: 1, b_value: 1, weight: 1.0}
+contract:
+  validate:
+    - {rule: forbid_value_pair_over_edges, a_value: 1, b_value: 1,
+       message: "two occupants share an edge — exclusion violated"}

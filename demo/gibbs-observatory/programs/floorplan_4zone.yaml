@@ -1,0 +1,28 @@
+name: floorplan_4zone
+description: >
+  Facility floorplanning / zone adjacency (layout class). Real problem: assign
+  each of four rooms a categorical function (k=3: lab/office/support) and
+  penalize incompatible abutments along a small corridor graph (room0-1-2-3
+  path plus room0-room2 shortcut). Same product grammar as mask adjacency,
+  applied to architectural adjacency preferences a facilities engineer would
+  actually ask a sampler to explore.
+variables:
+  room0: {domain: categorical, k: 3}
+  room1: {domain: categorical, k: 3}
+  room2: {domain: categorical, k: 3}
+  room3: {domain: categorical, k: 3}
+terms:
+  # lab (0) should not abut support (2) on corridor edges
+  - {kind: product, a: {"room0=0": 1.0}, b: {"room1=2": 1.0}, weight: 1.2}
+  - {kind: product, a: {"room0=2": 1.0}, b: {"room1=0": 1.0}, weight: 1.2}
+  - {kind: product, a: {"room1=0": 1.0}, b: {"room2=2": 1.0}, weight: 1.2}
+  - {kind: product, a: {"room1=2": 1.0}, b: {"room2=0": 1.0}, weight: 1.2}
+  - {kind: product, a: {"room2=0": 1.0}, b: {"room3=2": 1.0}, weight: 1.2}
+  - {kind: product, a: {"room2=2": 1.0}, b: {"room3=0": 1.0}, weight: 1.2}
+  - {kind: product, a: {"room0=0": 1.0}, b: {"room2=2": 1.0}, weight: 1.0}
+  - {kind: product, a: {"room0=2": 1.0}, b: {"room2=0": 1.0}, weight: 1.0}
+  # prefer offices (1) to clump
+  - {kind: product, a: {"room0=1": 1.0}, b: {"room1=1": 1.0}, weight: -0.35}
+  - {kind: product, a: {"room1=1": 1.0}, b: {"room2=1": 1.0}, weight: -0.35}
+contract:
+  validate: []

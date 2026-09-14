@@ -6,7 +6,7 @@ every suite instead.
 
 WHY IT IS THE ORACLE AND NOT JUST ANOTHER TEST. `audit/oracles/exact.py`
 enumerates all 2**n configurations from `E(s) = -sum J s s - sum b s` and does
-NOT import `src/tsu`. So it cannot inherit a sign convention, an encoding
+NOT import `src/tsu_compiler`. So it cannot inherit a sign convention, an encoding
 mistake, or a lowering bug from the code under test -- which is exactly what a
 cross-check has to avoid. A test that verified our sampler against our own
 energy function would prove only that we are consistent.
@@ -34,7 +34,7 @@ sys.path.insert(0, "src")
 sys.path.insert(0, "audit")
 
 from world.fields import compile_layer
-from tsu.backends.thrml_backend import sample as thrml_sample
+from tsu_compiler.backends.thrml_backend import sample as thrml_sample
 from oracles.exact import exact_boltzmann
 
 N = 4
@@ -101,9 +101,9 @@ def test_the_coupling_is_ferromagnetic_not_antiferromagnetic():
 
 def test_the_oracle_does_not_import_the_code_it_checks():
     """The property that makes this a cross-check rather than a tautology. If
-    the oracle ever imports src/tsu it inherits our conventions and stops being
+    the oracle ever imports src/tsu_compiler it inherits our conventions and stops being
     independent evidence."""
     from pathlib import Path
     src = Path("audit/oracles/exact.py").read_text(encoding="utf-8")
-    for banned in ("from tsu", "import tsu", "from src.tsu"):
+    for banned in ("from tsu", "import tsu_compiler", "from src.tsu"):
         assert banned not in src, f"oracle imports the code under test: {banned}"

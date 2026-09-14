@@ -1,0 +1,37 @@
+name: jobshop_tiny
+description: >
+  Tiny job-shop conflict / precedence lite (3 jobs × 2 machines).
+  Real problem: assign each of three jobs to machine A or B (binary = on A;
+  off means B), forbid illegal double-booking on the scarce machine-A queue
+  for jobs that cannot share a slot, and apply a soft precedence bias that
+  prefers job0 on A when job1 also claims A (ordering / contention energy).
+  Same pairwise grammar as roster_shift_conflicts, reframed as a manufacturing
+  shop-floor Thermodynamic Program a Z1 owner can Compile → Apply → Run.
+variables:
+  j0_mA: {domain: binary}
+  j1_mA: {domain: binary}
+  j2_mA: {domain: binary}
+  j0_mB: {domain: binary}
+  j1_mB: {domain: binary}
+  j2_mB: {domain: binary}
+terms:
+  # prefer covering each job on exactly one machine (mild occupancy reward)
+  - {kind: linear, form: {j0_mA: 1.0, j0_mB: 1.0, j1_mA: 1.0, j1_mB: 1.0, j2_mA: 1.0, j2_mB: 1.0}, weight: -0.45}
+  # each job cannot claim both machines
+  - {kind: product, a: {j0_mA: 1.0}, b: {j0_mB: 1.0}, weight: 2.5}
+  - {kind: product, a: {j1_mA: 1.0}, b: {j1_mB: 1.0}, weight: 2.5}
+  - {kind: product, a: {j2_mA: 1.0}, b: {j2_mB: 1.0}, weight: 2.5}
+  # machine-A queue conflicts (jobs 0 & 1 cannot share A; 1 & 2 cannot share A)
+  - {kind: product, a: {j0_mA: 1.0}, b: {j1_mA: 1.0}, weight: 2.0}
+  - {kind: product, a: {j1_mA: 1.0}, b: {j2_mA: 1.0}, weight: 2.0}
+  # machine-B mild contention between job0 and job2
+  - {kind: product, a: {j0_mB: 1.0}, b: {j2_mB: 1.0}, weight: 1.5}
+  # precedence-lite: prefer job0 on A when job1 is on B (ordering bias)
+  - {kind: product, a: {j0_mA: 1.0}, b: {j1_mB: 1.0}, weight: -0.35}
+contract:
+  validate:
+    - {rule: forbid_both, vars: [j0_mA, j0_mB], message: "job0 assigned to both machines"}
+    - {rule: forbid_both, vars: [j1_mA, j1_mB], message: "job1 assigned to both machines"}
+    - {rule: forbid_both, vars: [j2_mA, j2_mB], message: "job2 assigned to both machines"}
+    - {rule: forbid_both, vars: [j0_mA, j1_mA], message: "jobs 0 and 1 both claim machine A"}
+    - {rule: forbid_both, vars: [j1_mA, j2_mA], message: "jobs 1 and 2 both claim machine A"}

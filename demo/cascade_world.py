@@ -6,7 +6,7 @@ BEFORE BUILDING FOUR LEVELS, PROVE TWO. If 8x8 -> 16x16 does not preserve
 coarse structure, the cascade is dead and Task 3/4 never run. This module:
 
 1. Samples the existing 8x8 base receipt (demo/receipts/small -- hard
-   rules, already compiled) via `tsu.simulate.simulate`. NEVER recompiles
+   rules, already compiled) via `tsu_compiler.simulate.simulate`. NEVER recompiles
    it (`simulate()` reuses the receipt's own compiled program verbatim --
    see that function's own module docstring). `output_dir` is always
    outside the receipt directory (tempfile.gettempdir(), matching
@@ -70,16 +70,16 @@ sys.path.insert(0, "demo")
 
 import numpy as np
 
-from tsu.spec import load_spec
-from tsu.passes.encode import encode
-from tsu.passes.lower import lower
-from tsu.passes.analyse import analyse
-from tsu.passes.place import place
-from tsu.passes.route import route
-from tsu.passes.program import build_program
-from tsu.target import PROFILES
-from tsu.backends.thrml_backend import sample as thrml_sample
-from tsu.simulate import simulate
+from tsu_compiler.spec import load_spec
+from tsu_compiler.passes.encode import encode
+from tsu_compiler.passes.lower import lower
+from tsu_compiler.passes.analyse import analyse
+from tsu_compiler.passes.place import place
+from tsu_compiler.passes.route import route
+from tsu_compiler.passes.program import build_program
+from tsu_compiler.target import PROFILES
+from tsu_compiler.backends.thrml_backend import sample as thrml_sample
+from tsu_compiler.simulate import simulate
 
 from layers import bias_patch, FieldCapExceeded, FIELD_CAP
 from cascade import upsample, cascade_patch
@@ -149,7 +149,7 @@ def _decode_codewords(rows, im, enc) -> list[dict]:
 
 def _base_decode(seed: int) -> dict:
     """Sample the existing, already-compiled 8x8 base receipt via
-    `tsu.simulate.simulate` (NEVER recompiled) and return its ONE
+    `tsu_compiler.simulate.simulate` (NEVER recompiled) and return its ONE
     representative valid decode (`decoded_example.decoded`). Raises if this
     run drew no valid world -- not fabricating a fallback (matches
     demo/elevation_world.py's own "not fabricating a fallback world" refusal)."""
@@ -393,7 +393,7 @@ def main_task2():
 # function (`run_full_cascade`) rather than an in-place change to Task 2's.
 # ===========================================================================
 
-from tsu.simulate import _selected_encoding  # noqa: E402  (see module's own
+from tsu_compiler.simulate import _selected_encoding  # noqa: E402  (see module's own
                                               # sys.path.insert(0, "src") above)
 
 # The renderer, adapted from demo/render_world.py / demo/lattice_app.py's own

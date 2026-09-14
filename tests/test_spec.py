@@ -1,6 +1,6 @@
 import pytest
-from tsu.spec import load_spec, ValidationResult
-from tsu.ir import Binary, Categorical
+from tsu_compiler.spec import load_spec, ValidationResult
+from tsu_compiler.ir import Binary, Categorical
 
 
 SPECS = "specs"
@@ -98,7 +98,7 @@ def test_literal_terms_carry_a_formulation_record_with_no_invented_reason():
     directly -- there is no structural template choosing their shape, so the
     honest rationale is an ABSENT reason, never invented prose standing in
     for one."""
-    from tsu.spec import FormulationRationale
+    from tsu_compiler.spec import FormulationRationale
     s = load_spec(f"{SPECS}/toy.yaml")
     assert s.formulation, "toy.yaml's hand-written terms must still be recorded"
     by_construct = {r.construct: r for r in s.formulation}
@@ -120,7 +120,7 @@ def test_product_over_edges_formulation_record_states_the_structural_reason():
     (per orientation) because a two-variable constraint IS a product of two
     value-indicator linear forms -- that structural fact is the recorded
     reason, sourced at the point spec.py actually builds the Product terms."""
-    from tsu.spec import FormulationRationale
+    from tsu_compiler.spec import FormulationRationale
     s = load_spec(f"{SPECS}/adjacency_2x2_k3.yaml")
     poe = next(r for r in s.formulation if r.construct == "product_over_edges")
     assert isinstance(poe, FormulationRationale)
@@ -135,7 +135,7 @@ def test_conserve_over_edges_formulation_record_states_the_structural_reason():
     keeps the penalty pairwise regardless of how many flow variables the
     form itself sums over -- the recorded structural reason."""
     import os, tempfile, textwrap
-    from tsu.spec import FormulationRationale
+    from tsu_compiler.spec import FormulationRationale
     body = textwrap.dedent("""
         name: flow_formulation
         generate:
@@ -164,7 +164,7 @@ def test_conserve_over_edges_formulation_record_states_the_structural_reason():
 
 def test_clique_formulation_record_states_the_structural_reason():
     import os, tempfile, textwrap
-    from tsu.spec import FormulationRationale
+    from tsu_compiler.spec import FormulationRationale
     body = textwrap.dedent("""
         name: clique_formulation
         generate:

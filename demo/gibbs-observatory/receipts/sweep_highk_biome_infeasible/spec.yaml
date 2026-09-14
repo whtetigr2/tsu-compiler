@@ -1,0 +1,41 @@
+name: highk_biome_infeasible
+description: >
+  High-cardinality biome / landcover layout that a Z1 owner might attempt
+  after seeing k=3 succeed (GIS stress class). Same hard/soft adjacency deck
+  as lattice_l1_infeasible: 16x16 grid, k=5 landcover classes, extra hard
+  rules that push measured partner count so interior degree hits 20 > Z1's 16.
+  Expect IDEAL pass then HARDWARE fail citing degree — documents the real
+  gate, not a bug. Do not "fix" by dropping rules; change k or topology instead.
+generate:
+  kind: grid
+  width: 16
+  height: 16
+  variable_domain: {domain: categorical, k: 5}
+terms:
+  # HARD: the L1 set's original four rules...
+  - {kind: product_over_edges, a_value: 3, b_value: 0, weight: 4.0}
+  - {kind: product_over_edges, a_value: 1, b_value: 2, weight: 4.0}
+  - {kind: product_over_edges, a_value: 4, b_value: 3, weight: 4.0}
+  - {kind: product_over_edges, a_value: 4, b_value: 1, weight: 4.0}
+  # ...PLUS the two extra hard rules that push degree past budget.
+  - {kind: product_over_edges, a_value: 0, b_value: 4, weight: 4.0}
+  - {kind: product_over_edges, a_value: 2, b_value: 3, weight: 4.0}
+  # SOFT: unchanged from the L1 set (pre-scale weight -1.5).
+  - {kind: product_over_edges, a_value: 2, b_value: 2, weight: -1.5}
+  - {kind: product_over_edges, a_value: 1, b_value: 1, weight: -1.5}
+  - {kind: product_over_edges, a_value: 4, b_value: 4, weight: -1.5}
+  - {kind: product_over_edges, a_value: 3, b_value: 3, weight: -1.5}
+contract:
+  validate:
+    - {rule: forbid_value_pair_over_edges, a_value: 3, b_value: 0,
+       message: "value 3 (mountain) directly adjacent to value 0 (plains) with no buffer between"}
+    - {rule: forbid_value_pair_over_edges, a_value: 1, b_value: 2,
+       message: "value 1 (desert) directly adjacent to value 2 (forest) with no buffer between"}
+    - {rule: forbid_value_pair_over_edges, a_value: 4, b_value: 3,
+       message: "value 4 (water) directly adjacent to value 3 (mountain) with no buffer between"}
+    - {rule: forbid_value_pair_over_edges, a_value: 4, b_value: 1,
+       message: "value 4 (water) directly adjacent to value 1 (desert) with no buffer between"}
+    - {rule: forbid_value_pair_over_edges, a_value: 0, b_value: 4,
+       message: "value 0 (plains) directly adjacent to value 4 (water) with no buffer between"}
+    - {rule: forbid_value_pair_over_edges, a_value: 2, b_value: 3,
+       message: "value 2 (forest) directly adjacent to value 3 (mountain) with no buffer between"}

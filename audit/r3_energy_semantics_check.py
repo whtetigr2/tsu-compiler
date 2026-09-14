@@ -2,10 +2,10 @@
 falsification test (plan Wave 2, mandatory tests (a) and (b)).
 
 Builds a small, DELIBERATELY ASYMMETRIC 3-spin instance directly from the
-IR (`tsu.ir.EnergyModel`) and pushes it through the real compiler passes
-`tsu.passes.lower.lower` and `tsu.passes.analyse.analyse` /
-`tsu.passes.program.build_program` -- the fast, pure passes only. This
-script never calls `tsu compile`, `place`, `route`, or `search` (all
+IR (`tsu_compiler.ir.EnergyModel`) and pushes it through the real compiler passes
+`tsu_compiler.passes.lower.lower` and `tsu_compiler.passes.analyse.analyse` /
+`tsu_compiler.passes.program.build_program` -- the fast, pure passes only. This
+script never calls `tsuc compile`, `place`, `route`, or `search` (all
 forbidden/expensive per the audit's global constraints); `lower` and
 `analyse`/`build_program` are the passes actually under test for R3's own
 question (where does E(x) come from, and where does beta enter) and are
@@ -21,13 +21,13 @@ landscape; a bug that flips zero or one time would not.
 
 Three independent computations of the SAME E(x), per plan Wave 2 (a):
   1. `EnergyModel.energy(assignment)`      -- the IR's OWN definition,
-     src/tsu/ir.py:117-118, "E(x) = sum over terms of weight * term(x)".
+     src/tsu_compiler/ir.py:117-118, "E(x) = sum over terms of weight * term(x)".
      This is "the compiler's own energy" -- the pre-lowering ground truth
      of what the compiler claims a workload's energy IS.
   2. `demo.lattice_app.energy_of_draw(im, row)` -- the live app's function,
      reimplemented independently of `_from_ising` per its own docstring.
   3. `audit.oracles.exact.exact_energy(state, J, b)` -- the audit's oracle,
-     written from the physics, never importing `src/tsu` (see that module's
+     written from the physics, never importing `src/tsu_compiler` (see that module's
      own docstring). The oracle carries NO notion of `offset` (it was
      written from the bare two-spin Ising Hamiltonian, which has none by
      construction) -- so the three-way check compares
@@ -56,8 +56,8 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 sys.path.insert(0, str(REPO_ROOT / "demo"))
 sys.path.insert(0, str(REPO_ROOT / "audit"))
 
-from tsu.ir import Binary, EnergyModel, Linear, LinearForm, Product, Var  # noqa: E402
-from tsu.passes.lower import lower  # noqa: E402
+from tsu_compiler.ir import Binary, EnergyModel, Linear, LinearForm, Product, Var  # noqa: E402
+from tsu_compiler.passes.lower import lower  # noqa: E402
 
 from oracles.exact import exact_energy, exact_boltzmann  # noqa: E402
 
@@ -118,7 +118,7 @@ def make_asymmetric_model(j_sign: float = 1.0) -> EnergyModel:
 
 
 def VarRefLike(name: str):
-    from tsu.ir import VarRef
+    from tsu_compiler.ir import VarRef
     return VarRef(name)
 
 
@@ -220,9 +220,9 @@ print(f"  (0.0 would mean the sign flip had NO effect -- a test with no teeth.)"
 # thrml's OWN exact_distribution as a fourth, independent cross-check
 # (beyond R3's mandatory 3, but directly answers "where does beta enter"
 # and "does thrml's own softmax(-e) route agree with the IR's p(x) definition").
-from tsu.passes.analyse import analyse  # noqa: E402
-from tsu.passes.program import build_program  # noqa: E402
-from tsu.backends.thrml_backend import exact_distribution  # noqa: E402
+from tsu_compiler.passes.analyse import analyse  # noqa: E402
+from tsu_compiler.passes.program import build_program  # noqa: E402
+from tsu_compiler.backends.thrml_backend import exact_distribution  # noqa: E402
 
 report_pos = analyse(im_pos)
 prog_pos = build_program(im_pos, report_pos)

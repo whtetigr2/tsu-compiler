@@ -1,0 +1,9 @@
+{
+  "energy_scale": "unavailable: 2^108 too large to enumerate",
+  "coupling_utilisation": 0.47442798586535556,
+  "precision_headroom": 0.2666666666666666,
+  "beta_recommendation": null,
+  "mixing_indicator": "unavailable: N/tau=884 (N=6400, tau~=7.24) is below the reliability threshold 5000 the AR(1) validation established (see ess-report.md); chain too short/too correlated for a trustworthy estimate",
+  "regime": "precision_limited",
+  "basis": "two distinct |J| values are closer together than one quantisation step and may become indistinguishable"
+}

@@ -1,0 +1,29 @@
+name: roster_shift_conflicts
+description: >
+  Nurse / machine rostering with shift conflicts (scheduling class).
+  Real problem: four binary shift-assignment decisions (e.g. NurseA-MonAM,
+  NurseA-MonPM, NurseB-MonAM, MachineM1-Slot1). Pairwise products forbid
+  illegal double-booking (same person two overlapping shifts, or two staff
+  claiming the same scarce slot). Mild negative linear terms prefer covering
+  high-priority slots. At-most-one among the first three is enforced via
+  pairwise forbid_both in the contract (task layer) and matching energy terms.
+variables:
+  nA_am: {domain: binary}
+  nA_pm: {domain: binary}
+  nB_am: {domain: binary}
+  m1_slot: {domain: binary}
+terms:
+  # prefer covering AM and the machine slot
+  - {kind: linear, form: {nA_am: 1.0, nB_am: 1.0, m1_slot: 1.0}, weight: -0.5}
+  # Nurse A cannot work AM and PM same day
+  - {kind: product, a: {nA_am: 1.0}, b: {nA_pm: 1.0}, weight: 2.0}
+  # only one of nA_am / nB_am / m1_slot may claim the scarce shared resource
+  - {kind: product, a: {nA_am: 1.0}, b: {nB_am: 1.0}, weight: 2.0}
+  - {kind: product, a: {nA_am: 1.0}, b: {m1_slot: 1.0}, weight: 2.0}
+  - {kind: product, a: {nB_am: 1.0}, b: {m1_slot: 1.0}, weight: 2.0}
+contract:
+  validate:
+    - {rule: forbid_both, vars: [nA_am, nA_pm], message: "Nurse A double-booked AM+PM"}
+    - {rule: forbid_both, vars: [nA_am, nB_am], message: "two nurses claim same AM resource"}
+    - {rule: forbid_both, vars: [nA_am, m1_slot], message: "Nurse A AM conflicts machine slot"}
+    - {rule: forbid_both, vars: [nB_am, m1_slot], message: "Nurse B AM conflicts machine slot"}

@@ -1,9 +1,9 @@
 import numpy as np
-from tsu.passes.lower import IsingModel
-from tsu.passes.analyse import analyse
-from tsu.passes.program import build_program
-from tsu.passes.route import route
-from tsu.target import Z1
+from tsu_compiler.passes.lower import IsingModel
+from tsu_compiler.passes.analyse import analyse
+from tsu_compiler.passes.program import build_program
+from tsu_compiler.passes.route import route
+from tsu_compiler.target import Z1
 
 
 def ising(n, edges):

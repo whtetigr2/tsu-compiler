@@ -12,11 +12,11 @@ import pytest
 
 sys.path.insert(0, "src")
 
-from tsu.passes.lower import IsingModel
-from tsu.preflight.check import Gate, PreflightReport, preflight
-from tsu.preflight.diagnostics import RHAT_THRESHOLD
-from tsu.preflight.sweep import RegimeRow
-from tsu.preflight.render import provenance, write_preflight, write_regime
+from tsu_compiler.passes.lower import IsingModel
+from tsu_compiler.preflight.check import Gate, PreflightReport, preflight
+from tsu_compiler.preflight.diagnostics import RHAT_THRESHOLD
+from tsu_compiler.preflight.sweep import RegimeRow
+from tsu_compiler.preflight.render import provenance, write_preflight, write_regime
 
 
 def grid(n: int, j: float = 0.4, b: float = 0.0) -> IsingModel:
@@ -293,7 +293,7 @@ def test_verdict_qualifier_states_the_override_instead_of_reoffering_the_flag_wh
     branch-fixes-report.md's transcript): reverting the fix to the
     unconditional wording made this exact test fail.
     PROVENANCE: coordinator's own residue review, reading
-    `tsu preflight --edges bigbias.json --allow-assumed`'s real output."""
+    `tsuc preflight --edges bigbias.json --allow-assumed`'s real output."""
     rep = preflight(_bigbias_model(), allow_assumed=True)
     assert rep.verdict == "warn"
     bias_gate = next(g for g in rep.gates if g.name == "max_abs_bias")
@@ -576,7 +576,7 @@ def test_provenance_asks_jax_for_the_backend_rather_than_hardcoding_cpu(monkeypa
     (`out["jax_backend"] = "cpu"`) makes this fail regardless of what
     jax.default_backend() is patched to return."""
     import jax
-    from tsu.preflight.render import provenance
+    from tsu_compiler.preflight.render import provenance
     monkeypatch.setattr(jax, "default_backend", lambda: "gpu-test-stub")
     assert provenance()["jax_backend"] == "gpu-test-stub"
 
@@ -585,13 +585,13 @@ def test_provenance_asks_thrml_for_its_version_rather_than_hardcoding_it(monkeyp
     """Complementary case for the thrml-version half of M2
     (`out["thrml"] = "0.1.4"`)."""
     import thrml
-    from tsu.preflight.render import provenance
+    from tsu_compiler.preflight.render import provenance
     monkeypatch.setattr(thrml, "__version__", "0.0.0-test-stub")
     assert provenance()["thrml"] == "0.0.0-test-stub"
 
 
 def test_a_row_with_no_reliable_ess_prints_its_reason_not_a_number(tmp_path):
-    """WHAT THIS PINS: a row whose abs_m_err/tau/n_eff are None (tsu.ess
+    """WHAT THIS PINS: a row whose abs_m_err/tau/n_eff are None (tsu_compiler.ess
     refused an estimate) must render its ess_reason text in report.md, and
     must keep None (JSON null) in regime.json -- never 0.0, never a blank
     table cell. ALSO (F5, branch review, strengthening this test): a row
@@ -726,7 +726,7 @@ def test_a_closed_usable_band_renders_as_a_plain_pair(tmp_path):
     "0.4" / "0.6" substring checks below fail or pollutes the line with
     "open above" text that does not apply here.
     PROVENANCE: `usable_band`'s own closed-band return shape,
-    `(float(lo), float(hi))` (src/tsu/preflight/sweep.py)."""
+    `(float(lo), float(hi))` (src/tsu_compiler/preflight/sweep.py)."""
     write_regime(_rows(), (0.4, 0.6), 0.45, tmp_path, onsager=None)
     text = (tmp_path / "report.md").read_text(encoding="utf-8")
     band_line = next(ln for ln in text.splitlines()
@@ -739,7 +739,7 @@ def test_a_closed_usable_band_renders_as_a_plain_pair(tmp_path):
 def test_an_open_above_band_renders_as_an_explicit_interval_not_a_python_tuple(tmp_path):
     """WHAT THIS PINS: `usable_band`'s open-above return, `(lo, None)`
     (no row at or above the crossing reached SATURATION within the
-    sweep -- see `tsu.preflight.sweep.usable_band`), renders in report.md
+    sweep -- see `tsu_compiler.preflight.sweep.usable_band`), renders in report.md
     as an explicit half-open interval a reader can parse on sight -- not
     Python's own tuple repr, which would print the literal substring
     "None" next to a beta value and read as a formatting bug rather than
@@ -753,7 +753,7 @@ def test_an_open_above_band_renders_as_an_explicit_interval_not_a_python_tuple(t
     **(0.2, None)**", and the `"None" not in band_line` assertion below
     catches exactly that regression.
     PROVENANCE: `usable_band`'s own `(lo, None)` open-above convention
-    (src/tsu/preflight/sweep.py, the "no row saturates" branch)."""
+    (src/tsu_compiler/preflight/sweep.py, the "no row saturates" branch)."""
     write_regime(_rows(), (0.2, None), 0.2, tmp_path, onsager=None)
     text = (tmp_path / "report.md").read_text(encoding="utf-8")
     band_line = next(ln for ln in text.splitlines()
@@ -784,7 +784,7 @@ def test_regime_report_is_titled_regime_not_pre_flight(tmp_path):
     """WHAT THIS PINS (F8, branch review): write_regime's report.md is
     titled distinctly from write_preflight's -- both shared one hardcoded
     "# Pre-flight report" `_HEADER` literal before this fix, so every
-    `tsu regime` run's own report.md opened with a title describing the
+    `tsuc regime` run's own report.md opened with a title describing the
     WRONG report (the front page of an artifact whose stated job is that
     a reader can check the work from it).
     HOW IT FAILS: an unfixed shared `_HEADER` makes report.md's first

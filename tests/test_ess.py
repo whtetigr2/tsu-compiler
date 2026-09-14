@@ -1,6 +1,6 @@
-"""Validation of tsu.ess: an estimator is a measurement instrument, and this
+"""Validation of tsu_compiler.ess: an estimator is a measurement instrument, and this
 file is its known-answer control, its cross-implementation control, and its
-must-fail potency control -- see src/tsu/ess.py's module docstring and
+must-fail potency control -- see src/tsu_compiler/ess.py's module docstring and
 sdd/2026-08-26-tsu-compiler-vertical-slice/ess-report.md.
 
 `arviz` and `statsmodels` are TEST-ONLY dependencies (per the task brief);
@@ -9,7 +9,7 @@ this is the only place in the repo that should import them.
 import numpy as np
 import pytest
 
-from tsu.ess import (
+from tsu_compiler.ess import (
     DEFAULT_C,
     RELIABILITY_MIN_N_OVER_TAU,
     EssEstimate,

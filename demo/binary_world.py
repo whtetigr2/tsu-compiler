@@ -57,15 +57,15 @@ sys.path.insert(0, "demo")
 
 import numpy as np
 
-from tsu.spec import load_spec
-from tsu.passes.encode import encode
-from tsu.passes.lower import lower
-from tsu.passes.analyse import analyse
-from tsu.passes.place import place
-from tsu.passes.route import route
-from tsu.passes.program import build_program
-from tsu.target import PROFILES
-from tsu.backends.thrml_backend import sample as thrml_sample
+from tsu_compiler.spec import load_spec
+from tsu_compiler.passes.encode import encode
+from tsu_compiler.passes.lower import lower
+from tsu_compiler.passes.analyse import analyse
+from tsu_compiler.passes.place import place
+from tsu_compiler.passes.route import route
+from tsu_compiler.passes.program import build_program
+from tsu_compiler.target import PROFILES
+from tsu_compiler.backends.thrml_backend import sample as thrml_sample
 
 from layers import bias_patch, FieldCapExceeded, FIELD_CAP
 
@@ -119,8 +119,8 @@ def compose_state(bits: list[int]) -> int:
 # ---------------------------------------------------------------------------
 # Step 4a: compile each layer directly through the pass pipeline (encode ->
 # lower -> analyse -> place -> route -> build_program), never through
-# `tsu compile`/`compile_spec`'s full multi-encoding search -- the plan's
-# Global Constraints forbid running `tsu compile` in this work, and every
+# `tsuc compile`/`compile_spec`'s full multi-encoding search -- the plan's
+# Global Constraints forbid running `tsuc compile` in this work, and every
 # layer here is binary, where domain_wall is a no-op (one encoding, nothing
 # to search over; see audit/bipartite_matrix.md's own note). This mirrors
 # audit/bipartite_routes.py::bipartite_at's own encode/lower/place sequence,

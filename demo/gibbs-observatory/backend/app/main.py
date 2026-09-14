@@ -1,0 +1,715 @@
+"""FastAPI + WebSocket server for Gibbs Observatory."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+from typing import Any
+
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
+
+from .program_service import (
+    ProgramServiceError,
+    apply_program,
+    compile_program,
+    preflight_program,
+    read_spec_yaml,
+    tsu_status,
+)
+from .receipt_loader import examples_shelf, list_receipts, load_receipt
+from .sampler_engine import SamplerConfig, SamplerEngine
+from .snapshot import (
+    APP_VERSION,
+    build_snapshot_slice,
+    claim_hygiene_payload,
+)
+from .distribution_lab import (
+    ALLOY_RECEIPT_ID,
+    batch_decode,
+    decode_sample,
+    load_alloy_weights_from_receipt,
+)
+from .ebm_bars_stripes import (
+    ARTIFACT_DIR,
+    CAPTION as EBM_CAPTION,
+    EBM_PROGRAM_NAME,
+    EBM_RECEIPT_ID,
+    GRID as EBM_GRID,
+    HONESTY as EBM_HONESTY,
+    N_HIDDEN as EBM_N_HIDDEN,
+    N_VISIBLE as EBM_N_VISIBLE,
+    decode_ebm_sample,
+    load_checkpoint,
+    train_and_export,
+)
+
+app = FastAPI(
+    title="Gibbs Observatory",
+    description="Nsight-style compiled-program inspector for THRML block-Gibbs sampling",
+    version="0.5.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Shared engine for REST; WebSocket sessions get their own engines.
+_engine = SamplerEngine(SamplerConfig())
+
+
+class ConfigBody(BaseModel):
+    preset: str = "lattice2d"
+    size: int = Field(16, ge=4, le=48)
+    degree_cap: int = Field(16, ge=2, le=16)
+    beta: float = Field(0.5, ge=0.01, le=5.0)
+    J: float = Field(1.0, ge=-3.0, le=3.0)
+    h: float = Field(0.0, ge=-2.0, le=2.0)
+    warmup: int = Field(50, ge=0, le=2000)
+    steps_per_sample: int = Field(2, ge=1, le=32)
+    batch_size: int = Field(8, ge=1, le=64)
+    seed: int = Field(0, ge=0, le=2**31 - 1)
+    clamp: bool = False
+    receipt_id: str | None = None
+
+
+class ParamPatch(BaseModel):
+    beta: float | None = None
+    J: float | None = None
+    h: float | None = None
+    clamp: bool | None = None
+    warmup: int | None = None
+    steps_per_sample: int | None = None
+    batch_size: int | None = None
+    seed: int | None = None
+
+
+class ProgramBody(BaseModel):
+    """YAML / tsu_compiler.spec text for a Thermodynamic Program."""
+
+    yaml: str = Field(..., min_length=1)
+    allow_assumed: bool = False
+    target: str = "z1"
+    receipt_id: str = "notepad"
+
+
+class ApplyBody(BaseModel):
+    receipt_id: str = Field(..., min_length=1)
+
+
+def _config_from_msg(msg: dict[str, Any]) -> SamplerConfig:
+    fields = SamplerConfig.__dataclass_fields__
+    kwargs: dict[str, Any] = {}
+    for k in fields:
+        if k not in msg:
+            continue
+        # Allow explicit null for receipt_id to clear receipt mode
+        if k == "receipt_id" or msg[k] is not None:
+            kwargs[k] = msg[k]
+    return SamplerConfig(**kwargs)
+
+
+def _program_http(exc: ProgramServiceError) -> HTTPException:
+    return HTTPException(
+        status_code=400,
+        detail={"message": str(exc), "extra": exc.detail},
+    )
+
+
+@app.get("/api/health")
+def health() -> dict[str, Any]:
+    return {
+        "ok": True,
+        "service": "gibbs-observatory",
+        "backend": "thrml+jax",
+        "version": "0.5.0",
+        "label": "JAX/THRML simulation — not Extropic silicon",
+        "tsu": tsu_status(),
+    }
+
+
+@app.get("/api/presets")
+def presets() -> dict[str, Any]:
+    return {
+        "presets": [
+            {
+                "id": "lattice2d",
+                "name": "2D Ising lattice",
+                "desc": "Checkerboard chromatic 2-coloring, nearest-neighbor",
+                "default_size": 16,
+            },
+            {
+                "id": "chain1d",
+                "name": "1D Ising chain",
+                "desc": "Even/odd bipartite blocks",
+                "default_size": 32,
+            },
+            {
+                "id": "sparse",
+                "name": "Sparse degree-capped",
+                "desc": "Bipartite random graph, degree ≤ 16",
+                "default_size": 40,
+            },
+        ]
+    }
+
+
+@app.get("/api/receipts")
+def api_list_receipts() -> dict[str, Any]:
+    return {"receipts": list_receipts()}
+
+
+@app.get("/api/receipts/{receipt_id}")
+def api_get_receipt(receipt_id: str) -> dict[str, Any]:
+    try:
+        return load_receipt(receipt_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/receipts/{receipt_id}/spec")
+def api_get_receipt_spec(receipt_id: str) -> dict[str, Any]:
+    try:
+        return read_spec_yaml(receipt_id)
+    except ProgramServiceError as exc:
+        raise _program_http(exc) from exc
+
+
+@app.get("/api/examples")
+def api_examples() -> dict[str, Any]:
+    """Curated Extropic / Lattice examples shelf (includes stubs)."""
+    return {"examples": examples_shelf()}
+
+
+@app.get("/api/program/status")
+def api_program_status() -> dict[str, Any]:
+    return tsu_status()
+
+
+@app.post("/api/program/preflight")
+def api_program_preflight(body: ProgramBody) -> dict[str, Any]:
+    try:
+        return preflight_program(body.yaml, allow_assumed=body.allow_assumed)
+    except ProgramServiceError as exc:
+        raise _program_http(exc) from exc
+
+
+@app.post("/api/program/compile")
+def api_program_compile(body: ProgramBody) -> dict[str, Any]:
+    try:
+        return compile_program(
+            body.yaml,
+            allow_assumed=body.allow_assumed,
+            target=body.target,
+            receipt_id=body.receipt_id or "notepad",
+        )
+    except ProgramServiceError as exc:
+        raise _program_http(exc) from exc
+
+
+@app.post("/api/program/apply")
+def api_program_apply(body: ApplyBody) -> dict[str, Any]:
+    try:
+        return apply_program(body.receipt_id)
+    except ProgramServiceError as exc:
+        raise _program_http(exc) from exc
+
+
+class SnapshotBody(BaseModel):
+    """Optional client metadata for snapshot JSON (no sample dumps)."""
+
+    receipt_id: str | None = None
+    step: int | None = None
+    active_block: int | None = None
+    view: str | None = None
+    png_filename: str | None = None
+
+
+@app.get("/api/claim-hygiene")
+def api_claim_hygiene(receipt_id: str | None = None) -> dict[str, Any]:
+    """Standing prohibitions + live claim badges (always honest)."""
+    receipt = None
+    if receipt_id:
+        try:
+            receipt = load_receipt(receipt_id)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return claim_hygiene_payload(receipt)
+
+
+@app.post("/api/snapshot")
+def api_snapshot(body: SnapshotBody | None = None) -> dict[str, Any]:
+    """Return JSON receipt-slice metadata for a snapshot export.
+
+    Does not persist files or accept sim dumps. PNG capture is client-side.
+    """
+    body = body or SnapshotBody()
+    receipt = None
+    rid = body.receipt_id
+    if rid:
+        try:
+            receipt = load_receipt(rid)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+    slice_ = build_snapshot_slice(
+        receipt,
+        client={
+            "receipt_id": rid,
+            "step": body.step,
+            "active_block": body.active_block,
+            "view": body.view,
+            "png_filename": body.png_filename,
+        },
+    )
+    return {"ok": True, "version": APP_VERSION, "snapshot": slice_}
+
+
+@app.get("/api/graph")
+def get_graph() -> dict[str, Any]:
+    return _engine.graph_payload()
+
+
+@app.post("/api/reset")
+def reset(body: ConfigBody) -> dict[str, Any]:
+    cfg = SamplerConfig(**body.model_dump())
+    return _engine.reset(cfg)
+
+
+@app.post("/api/params")
+def patch_params(body: ParamPatch) -> dict[str, Any]:
+    return _engine.update_params(**body.model_dump(exclude_none=True))
+
+
+@app.post("/api/sample")
+def sample_once(n: int = 8) -> dict[str, Any]:
+    return _engine.sample_batch(n_samples=n)
+
+
+@app.websocket("/ws/stream")
+async def ws_stream(ws: WebSocket) -> None:
+    await ws.accept()
+    engine = SamplerEngine(SamplerConfig())
+    running = False
+    stop = False
+    await ws.send_text(
+        json.dumps(
+            {
+                "type": "status",
+                "running": False,
+                "connected": True,
+                "message": "ws open",
+            }
+        )
+    )
+
+    async def sender() -> None:
+        nonlocal running
+        while not stop:
+            if not running:
+                await asyncio.sleep(0.05)
+                continue
+            try:
+                # Run sampling in thread so event loop stays responsive
+                batch = await asyncio.to_thread(engine.sample_batch)
+                await ws.send_text(json.dumps(batch))
+                await asyncio.sleep(0.02)
+            except Exception as exc:  # noqa: BLE001
+                await ws.send_text(json.dumps({"type": "error", "message": f"sampler: {exc}"}))
+                running = False
+                await asyncio.sleep(0.2)
+
+    task = asyncio.create_task(sender())
+    try:
+        await ws.send_text(json.dumps({"type": "graph", **engine.graph_payload()}))
+        while True:
+            raw = await ws.receive_text()
+            msg = json.loads(raw)
+            mtype = msg.get("type")
+            if mtype == "reset":
+                cfg = _config_from_msg(msg)
+                payload = engine.reset(cfg)
+                running = False
+                await ws.send_text(json.dumps({"type": "graph", **payload}))
+            elif mtype == "params":
+                payload = engine.update_params(
+                    **{
+                        k: msg[k]
+                        for k in (
+                            "beta",
+                            "J",
+                            "h",
+                            "clamp",
+                            "warmup",
+                            "steps_per_sample",
+                            "batch_size",
+                            "seed",
+                        )
+                        if k in msg
+                    }
+                )
+                await ws.send_text(json.dumps({"type": "graph", **payload}))
+            elif mtype == "run":
+                running = True
+                await ws.send_text(json.dumps({"type": "status", "running": True}))
+            elif mtype == "pause":
+                running = False
+                await ws.send_text(json.dumps({"type": "status", "running": False}))
+            elif mtype == "step":
+                batch = await asyncio.to_thread(
+                    engine.sample_batch, n_samples=int(msg.get("n", 1))
+                )
+                await ws.send_text(json.dumps(batch))
+            elif mtype == "ping":
+                await ws.send_text(json.dumps({"type": "pong"}))
+    except WebSocketDisconnect:
+        pass
+    finally:
+        stop = True
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+
+
+class AlloyDecodeBody(BaseModel):
+    """Decode one occupancy / spin vector into Distribution Lab metrics."""
+
+    state: list[float | int | bool] = Field(..., min_length=1)
+    width: int = Field(8, ge=2, le=32)
+    height: int = Field(8, ge=2, le=32)
+    receipt_id: str | None = None
+    energy_ising: float | None = None
+
+
+class AlloyBatchBody(BaseModel):
+    """Sample N configs via SamplerEngine and decode/rank as alloy gallery."""
+
+    n: int = Field(16, ge=1, le=64)
+    width: int = Field(8, ge=2, le=32)
+    height: int = Field(8, ge=2, le=32)
+    receipt_id: str | None = ALLOY_RECEIPT_ID
+    rank_by: str = "abs_m_s"
+    top_k: int = Field(8, ge=1, le=64)
+    beta: float | None = Field(None, ge=0.01, le=5.0)
+    warmup: int = Field(40, ge=0, le=2000)
+    steps_per_sample: int = Field(4, ge=1, le=32)
+    seed: int | None = None
+    use_engine_state: bool = False
+    states: list[list[float | int | bool]] | None = None
+
+
+@app.post("/api/lab/alloy/decode")
+def api_alloy_decode(body: AlloyDecodeBody) -> dict[str, Any]:
+    """Decode a single state into occupancy grid + order metrics."""
+    rid = body.receipt_id or ALLOY_RECEIPT_ID
+    weights = load_alloy_weights_from_receipt(rid)
+    decoded = decode_sample(
+        body.state,
+        width=body.width,
+        height=body.height,
+        weights=weights,
+        ising_energy=body.energy_ising,
+    )
+    return {"ok": True, "decoded": decoded, "receipt_id": rid}
+
+
+@app.post("/api/lab/alloy/batch")
+def api_alloy_batch(body: AlloyBatchBody) -> dict[str, Any]:
+    """Batch-sample (or accept states) and return ranked alloy gallery + histogram."""
+    rid = body.receipt_id or ALLOY_RECEIPT_ID
+    weights = load_alloy_weights_from_receipt(rid)
+    energies: list[float] | None = None
+    states: list[list] = []
+
+    if body.states:
+        states = [list(s) for s in body.states]
+    elif body.use_engine_state and _engine.state is not None and _engine.state.last_state is not None:
+        st = _engine.state.last_state.astype(int).tolist()
+        states = [st]
+        batch = _engine.sample_batch(n_samples=body.n, warmup=0)
+        states = batch.get("states") or states
+        energies = batch.get("energies")
+    else:
+        # Reset shared engine onto the alloy receipt (or keep current if matching)
+        cfg = SamplerConfig(
+            receipt_id=rid,
+            size=max(body.width, body.height),
+            beta=float(body.beta) if body.beta is not None else 0.8,
+            warmup=body.warmup,
+            steps_per_sample=body.steps_per_sample,
+            batch_size=body.n,
+            seed=int(body.seed) if body.seed is not None else 0,
+        )
+        _engine.reset(cfg)
+        batch = _engine.sample_batch(n_samples=body.n, warmup=body.warmup)
+        states = batch.get("states") or []
+        energies = batch.get("energies")
+
+    if not states:
+        raise HTTPException(status_code=400, detail="no states to decode")
+
+    # Shape check: only world sites for WxH grid
+    n_sites = body.width * body.height
+    trimmed = []
+    for s in states:
+        flat = list(s)[:n_sites]
+        if len(flat) < n_sites:
+            flat = flat + [0] * (n_sites - len(flat))
+        trimmed.append(flat)
+
+    result = batch_decode(
+        trimmed,
+        width=body.width,
+        height=body.height,
+        weights=weights,
+        energies=energies,
+        rank_by=body.rank_by,
+        top_k=body.top_k,
+    )
+    result["ok"] = True
+    result["receipt_id"] = rid
+    result["n_sampled"] = len(trimmed)
+    return result
+
+
+@app.get("/api/lab/alloy/info")
+def api_alloy_info() -> dict[str, Any]:
+    """Static caption + default receipt for the Alloy Distribution Lab."""
+    return {
+        "ok": True,
+        "name": "Distribution Lab",
+        "program": "alloy_ordering_8x8",
+        "receipt_id": ALLOY_RECEIPT_ID,
+        "caption": "Distribution Lab · binary ordering alloy · THRML sim · not silicon",
+        "honesty": "JAX/THRML software sim — not Extropic silicon",
+        "physics": {
+            "lattice": "8x8 square",
+            "species": {"0": "A (Cu-like)", "1": "B (Zn-like)"},
+            "coupling": "antiferromagnetic NN — prefer unlike neighbours",
+            "order_parameter": "staggered m_s",
+        },
+    }
+
+
+
+class EbmTrainBody(BaseModel):
+    """Optional short retrain (lite) or no-op load of existing checkpoint."""
+
+    lite: bool = True
+    epochs: int = Field(12, ge=1, le=40)
+    seed: int = Field(0, ge=0, le=2**31 - 1)
+    force: bool = False
+
+
+class EbmSampleBody(BaseModel):
+    """Sample from compiled RBM receipt (or numpy Gibbs fallback) and decode to 4×4 visibles."""
+
+    n: int = Field(16, ge=1, le=64)
+    beta: float | None = Field(None, ge=0.01, le=5.0)
+    warmup: int = Field(40, ge=0, le=2000)
+    steps_per_sample: int = Field(4, ge=1, le=32)
+    seed: int | None = None
+    receipt_id: str | None = EBM_RECEIPT_ID
+    use_checkpoint_gibbs: bool = False
+
+
+@app.post("/api/lab/ebm/train")
+def api_ebm_train(body: EbmTrainBody) -> dict[str, Any]:
+    """Load checkpoint by default; optional lite retrain (seconds, not minutes)."""
+    ckpt = load_checkpoint()
+    if ckpt is not None and not body.force:
+        log = ckpt.get("train_log") or {}
+        return {
+            "ok": True,
+            "action": "loaded_checkpoint",
+            "final_cd_moment_l1": log.get("final_cd_moment_l1"),
+            "pure_rate": log.get("pure_rate"),
+            "mean_bar_stripe_score": log.get("mean_bar_stripe_score"),
+            "n_epochs": log.get("n_epochs"),
+            "curve": (log.get("curve") or [])[-40:],
+            "artifact_dir": ckpt.get("artifact_dir"),
+            "honesty": EBM_HONESTY,
+            "model_kind": "rbm",
+        }
+    # Lite retrain for demo responsiveness (does not recompile receipt)
+    result = train_and_export(n_epochs=body.epochs, lite=bool(body.lite), seed=body.seed)
+    return {
+        "ok": True,
+        "action": "retrain_lite",
+        "final_cd_moment_l1": result["final_cd_moment_l1"],
+        "pure_rate": result.get("pure_rate"),
+        "mean_bar_stripe_score": result.get("mean_bar_stripe_score"),
+        "gate_passed": result.get("gate_passed"),
+        "elapsed_s": result["elapsed_s"],
+        "n_epochs": result["n_epochs"],
+        "n_train": result.get("n_train"),
+        "curve": result.get("train_log") or [],
+        "paths": result.get("paths"),
+        "honesty": EBM_HONESTY,
+        "model_kind": "rbm",
+        "note": "Lite retrain only — full train via scripts/train_bars_stripes_ebm.py --compile",
+    }
+
+
+@app.post("/api/lab/ebm/sample")
+def api_ebm_sample(body: EbmSampleBody) -> dict[str, Any]:
+    """Sample + decode bars-and-stripes images via SamplerEngine on compiled receipt."""
+    rid = body.receipt_id or EBM_RECEIPT_ID
+    ckpt = load_checkpoint()
+    energies: list[float] | None = None
+    states: list[list] = []
+
+    if body.use_checkpoint_gibbs and ckpt is not None:
+        from .ebm_bars_stripes import sample_model, spins_to_binary
+
+        beta = float(body.beta) if body.beta is not None else 1.2
+        spins = sample_model(
+            ckpt["J_edge"],
+            ckpt["h"],
+            ckpt["edges"],
+            n_samples=body.n,
+            beta=beta,
+            warmup=max(body.warmup, 80),
+            seed=int(body.seed) if body.seed is not None else 0,
+            W=ckpt.get("W"),
+            a=ckpt.get("a"),
+            b=ckpt.get("b"),
+        )
+        states = [spins_to_binary(s).astype(int).tolist() for s in spins]
+    else:
+        cfg = SamplerConfig(
+            receipt_id=rid,
+            size=EBM_GRID,
+            beta=float(body.beta) if body.beta is not None else 1.0,
+            warmup=body.warmup,
+            steps_per_sample=body.steps_per_sample,
+            batch_size=body.n,
+            seed=int(body.seed) if body.seed is not None else 0,
+        )
+        try:
+            _engine.reset(cfg)
+            batch = _engine.sample_batch(n_samples=body.n, warmup=body.warmup)
+            states = batch.get("states") or []
+            energies = batch.get("energies")
+        except Exception as exc:  # noqa: BLE001
+            # Fallback to checkpoint Gibbs if receipt sample fails
+            if ckpt is None:
+                raise HTTPException(status_code=500, detail=f"sample failed: {exc}") from exc
+            from .ebm_bars_stripes import sample_model, spins_to_binary
+
+            beta = float(body.beta) if body.beta is not None else 1.2
+            spins = sample_model(
+                ckpt["J_edge"],
+                ckpt["h"],
+                ckpt["edges"],
+                n_samples=body.n,
+                beta=beta,
+                warmup=max(body.warmup, 80),
+                seed=int(body.seed) if body.seed is not None else 0,
+                W=ckpt.get("W"),
+                a=ckpt.get("a"),
+                b=ckpt.get("b"),
+            )
+            states = [spins_to_binary(s).astype(int).tolist() for s in spins]
+
+    if not states:
+        raise HTTPException(status_code=400, detail="no states sampled")
+
+    n_sites = EBM_GRID * EBM_GRID
+    decoded = []
+    j_edge = ckpt["J_edge"] if ckpt else None
+    h = ckpt["h"] if ckpt else None
+    edges = ckpt["edges"] if ckpt else None
+    for i, s in enumerate(states):
+        flat = list(s)[:n_sites]
+        if len(flat) < n_sites:
+            flat = flat + [0] * (n_sites - len(flat))
+        e = float(energies[i]) if energies and i < len(energies) else None
+        decoded.append(
+            decode_ebm_sample(
+                flat,
+                width=EBM_GRID,
+                height=EBM_GRID,
+                ising_energy=e,
+                sample_index=i,
+                J_edge=j_edge,
+                h=h,
+                edges=edges,
+            )
+        )
+
+    decoded_sorted = sorted(
+        decoded, key=lambda d: float(d.get("bar_stripe_score") or 0.0), reverse=True
+    )
+    pure_frac = float(sum(1 for d in decoded if d.get("is_pure")) / max(1, len(decoded)))
+    return {
+        "ok": True,
+        "receipt_id": rid,
+        "n_sampled": len(decoded),
+        "samples": decoded_sorted,
+        "pure_fraction": pure_frac,
+        "caption": EBM_CAPTION,
+        "honesty": EBM_HONESTY,
+    }
+
+
+@app.get("/api/lab/ebm/info")
+def api_ebm_info() -> dict[str, Any]:
+    """Dataset, honesty badge, artifact paths for EBM Lab."""
+    ckpt = load_checkpoint()
+    log = (ckpt or {}).get("train_log") or {}
+    grids = (ckpt or {}).get("sample_grids") or {}
+    return {
+        "ok": True,
+        "name": "EBM Lab",
+        "program": EBM_PROGRAM_NAME,
+        "receipt_id": EBM_RECEIPT_ID,
+        "caption": EBM_CAPTION,
+        "honesty": EBM_HONESTY,
+        "dataset": {
+            "name": "bars_and_stripes",
+            "grid": f"{EBM_GRID}x{EBM_GRID}",
+            "n_visible": EBM_N_VISIBLE,
+            "n_hidden": EBM_N_HIDDEN,
+            "n_spins": EBM_N_VISIBLE + EBM_N_HIDDEN,
+            "positive": "pure horizontal bars OR pure vertical stripes",
+            "not": ["MNIST", "Extropic codon", "alloy", "pairwise-visible Ising"],
+        },
+        "model": {
+            "kind": "Restricted Boltzmann Machine (RBM)",
+            "graph": f"{EBM_GRID}x{EBM_GRID} visibles + {EBM_N_HIDDEN} hiddens; couplings only V↔H",
+            "convention": "E(v,h)= -v^T W h - a^T v - b^T h ; s in {-1,+1}; Ising export on [v|h]",
+            "expect": "bipartite V–H, deg(v)=n_h≤12, deg(h)=16, 0 mediators",
+            "pairwise_failure": "Pairwise grid Ising cannot represent bars∪stripes (conflicting ferro) → blobs; CD L1 was false success.",
+        },
+        "train": {
+            "final_cd_moment_l1": log.get("final_cd_moment_l1"),
+            "pure_rate": log.get("pure_rate"),
+            "mean_bar_stripe_score": log.get("mean_bar_stripe_score"),
+            "gate_passed": log.get("gate_passed"),
+            "n_epochs": log.get("n_epochs"),
+            "curve": (log.get("curve") or [])[-40:],
+            "checkpoint_loaded": ckpt is not None,
+        },
+        "paths": {
+            "artifacts": str(ARTIFACT_DIR),
+            "yaml": "programs/ebm_bars_stripes.yaml",
+            "receipt": f"receipts/{EBM_RECEIPT_ID}/",
+            "data_examples_png": "artifacts/ebm_bars_stripes/data_examples.png",
+            "samples_png": "artifacts/ebm_bars_stripes/samples_after_train.png",
+        },
+        "cached_data_examples": grids.get("data") or [],
+        "cached_model_samples": grids.get("samples") or [],
+    }
+
+
+
+def create_app() -> FastAPI:
+    return app

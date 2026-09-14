@@ -1,0 +1,33 @@
+name: seq_design_longer
+description: >
+  Longer codon-optimization Thermodynamic Program (SEQ / Extropic class).
+  Same grammar as codon_opt_tiny — host usage unary + adjacent synonym-pair
+  penalties — stretched to EIGHT amino-acid positions with truncated k=3
+  synonym tables. Honest scale-up test: does Z1 still COMPILE when the CDS
+  fragment grows? If compile is too slow or HARDWARE, document and stop;
+  do not invent a receipt.
+variables:
+  p0: {domain: categorical, k: 3}
+  p1: {domain: categorical, k: 3}
+  p2: {domain: categorical, k: 3}
+  p3: {domain: categorical, k: 3}
+  p4: {domain: categorical, k: 3}
+  p5: {domain: categorical, k: 3}
+  p6: {domain: categorical, k: 3}
+  p7: {domain: categorical, k: 3}
+terms:
+  - {kind: linear, form: {"p0=0": 1.0, "p1=0": 1.0, "p2=0": 1.0, "p3=0": 1.0, "p4=0": 1.0, "p5=0": 1.0, "p6=0": 1.0, "p7=0": 1.0}, weight: -0.4}
+  - {kind: linear, form: {"p0=2": 1.0, "p1=2": 1.0, "p2=2": 1.0, "p3=2": 1.0, "p4=2": 1.0, "p5=2": 1.0, "p6=2": 1.0, "p7=2": 1.0}, weight: 0.3}
+  - {kind: product, a: {"p0=2": 1.0}, b: {"p1=2": 1.0}, weight: 0.8}
+  - {kind: product, a: {"p1=2": 1.0}, b: {"p2=2": 1.0}, weight: 0.8}
+  - {kind: product, a: {"p2=2": 1.0}, b: {"p3=2": 1.0}, weight: 0.8}
+  - {kind: product, a: {"p3=2": 1.0}, b: {"p4=2": 1.0}, weight: 0.8}
+  - {kind: product, a: {"p4=2": 1.0}, b: {"p5=2": 1.0}, weight: 0.8}
+  - {kind: product, a: {"p5=2": 1.0}, b: {"p6=2": 1.0}, weight: 0.8}
+  - {kind: product, a: {"p6=2": 1.0}, b: {"p7=2": 1.0}, weight: 0.8}
+  - {kind: product, a: {"p0=1": 1.0}, b: {"p1=1": 1.0}, weight: 0.35}
+  - {kind: product, a: {"p2=1": 1.0}, b: {"p3=1": 1.0}, weight: 0.35}
+  - {kind: product, a: {"p4=1": 1.0}, b: {"p5=1": 1.0}, weight: 0.35}
+  - {kind: product, a: {"p6=1": 1.0}, b: {"p7=1": 1.0}, weight: 0.35}
+contract:
+  validate: []

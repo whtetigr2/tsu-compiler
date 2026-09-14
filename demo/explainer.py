@@ -284,7 +284,7 @@ def explainer_sections() -> list[tuple[str, str]]:
          "their couplings baked in at ONE specific beta -- so the "
          "temperature control you see is FIXED, not merely defaulted: "
          "sampling this exact program at a different beta would silently "
-         "invalidate the energy it encodes (tsu.passes.route's own "
+         "invalidate the energy it encodes (tsu_compiler.passes.route's own "
          "beta-consistency gate refuses it), so the app shows FIXED and "
          "states why rather than offering a control that would just error."),
 

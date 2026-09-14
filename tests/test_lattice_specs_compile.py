@@ -23,7 +23,7 @@ external review C-4, 2026-09-10; it was never simulated annealing -- budget 6
 restarts x 40,000 iters) is
 a SEPARATE, much harder problem that this task does not attempt to solve,
 and does not finish within that budget for either spec at this scale. This
-is measured, not assumed -- both real `-m tsu compile` invocations below
+is measured, not assumed -- both real `-m tsuc compile` invocations below
 were run to completion.
 
 **Wall-clock cost, and why these tests read a committed receipt instead of
@@ -50,14 +50,14 @@ import json
 
 import pytest
 
-from tsu.gates import check_gates
-from tsu.passes.analyse import analyse
-from tsu.passes.encode import encode, spec_beta
-from tsu.passes.lower import lower
-from tsu.passes.route import insert_mediators
-from tsu.passes.search import compile_spec, compare
-from tsu.spec import load_spec
-from tsu.target import PROFILES, Z1
+from tsu_compiler.gates import check_gates
+from tsu_compiler.passes.analyse import analyse
+from tsu_compiler.passes.encode import encode, spec_beta
+from tsu_compiler.passes.lower import lower
+from tsu_compiler.passes.route import insert_mediators
+from tsu_compiler.passes.search import compile_spec, compare
+from tsu_compiler.spec import load_spec
+from tsu_compiler.target import PROFILES, Z1
 
 L0_SCALE = 0.20     # Task 6: moved from 0.25 -- see the dedicated 0.25 test below
 L1_SCALE = 0.25
@@ -153,7 +153,7 @@ def test_l0_one_hot_fails_the_field_cap_at_0_25_which_is_why_l0_moved_to_0_20():
 #    compile_spec directly) ------------------------------------------------
 
 def test_l0_receipt_at_0_20_neither_encoding_places_within_budget():
-    """`-m tsu compile specs/lattice_l0_16x16.yaml --coefficient-scale 0.20
+    """`-m tsuc compile specs/lattice_l0_16x16.yaml --coefficient-scale 0.20
     --out demo/receipts/l0` (this task's Step 8, run for real). Both
     encodings now clear every GATE (domain_wall as at 0.25; one_hot's own
     field cap now clears too -- |b|max=5.4 < 6.0) and both now MEDIATE
@@ -197,7 +197,7 @@ def test_l0_receipt_at_0_20_neither_encoding_places_within_budget():
 
 
 def test_l1_receipt_at_0_25_domain_wall_fails_degree_one_hot_mediates_but_does_not_place():
-    """`-m tsu compile specs/lattice_l1_16x16.yaml --coefficient-scale 0.25
+    """`-m tsuc compile specs/lattice_l1_16x16.yaml --coefficient-scale 0.25
     --out demo/receipts/l1` (this task's Step 8, run for real). domain_wall
     still fails the DEGREE gate outright (18/16, unchanged by Task 6 --
     mediation never runs for it at all, since it never reaches placement).

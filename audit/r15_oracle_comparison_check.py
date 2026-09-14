@@ -22,7 +22,7 @@ that is ever in doubt):
   that they would occur by chance less than 1% of the time under a
   perfectly correct sampler.
 
-  Sampler configuration: `tsu.backends.thrml_backend.sample` -- the SAME
+  Sampler configuration: `tsu_compiler.backends.thrml_backend.sample` -- the SAME
   function `demo/lattice_app.py` imports as `thrml_sample` and calls from
   its own unclamped-tick worker (see truth_table.md's `sample` row) -- at
   the app's own FIXED constants for that path: n_warmup=300,
@@ -54,11 +54,11 @@ sys.path.insert(0, str(REPO_ROOT / "audit"))
 import numpy as np  # noqa: E402
 from scipy import stats  # noqa: E402
 
-from tsu.ir import Binary, EnergyModel, Linear, LinearForm, Product, Var, VarRef  # noqa: E402
-from tsu.passes.lower import lower  # noqa: E402
-from tsu.passes.analyse import analyse  # noqa: E402
-from tsu.passes.program import build_program  # noqa: E402
-from tsu.backends.thrml_backend import sample as thrml_sample  # noqa: E402
+from tsu_compiler.ir import Binary, EnergyModel, Linear, LinearForm, Product, Var, VarRef  # noqa: E402
+from tsu_compiler.passes.lower import lower  # noqa: E402
+from tsu_compiler.passes.analyse import analyse  # noqa: E402
+from tsu_compiler.passes.program import build_program  # noqa: E402
+from tsu_compiler.backends.thrml_backend import sample as thrml_sample  # noqa: E402
 
 from oracles.exact import exact_boltzmann  # noqa: E402
 
@@ -112,7 +112,7 @@ if expected_min < 5:
         f"approximation. (Not expected to fire for this instance/N; if it does, "
         f"this is reported as-is, not patched after the fact.)")
 
-print(f"\nRunning tsu.backends.thrml_backend.sample (== demo/lattice_app.py's "
+print(f"\nRunning tsu_compiler.backends.thrml_backend.sample (== demo/lattice_app.py's "
       f"thrml_sample) with n_chains={N_CHAINS}, n_samples={N_SAMPLES}, "
       f"n_warmup={N_WARMUP}, steps_per_sample={STEPS_PER_SAMPLE}, seed={SEED} ...")
 draws = thrml_sample(prog, n_chains=N_CHAINS, n_samples=N_SAMPLES,

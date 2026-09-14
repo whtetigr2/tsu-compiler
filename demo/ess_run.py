@@ -8,21 +8,21 @@ The receipt's own verification.json reads:
 
 That was measured at the compiler's own fixed verify parameters
 (n_chains=32, n_samples=200, n_warmup=400, steps_per_sample=2 -- see
-`tsu.passes.search._VERIFY_SAMPLE_PARAMS`). This script asks a narrower
+`tsu_compiler.passes.search._VERIFY_SAMPLE_PARAMS`). This script asks a narrower
 question: starting from that exact same program (the receipt's own
-reconstructed sampling program, never a fresh compile -- `tsu compile` is
+reconstructed sampling program, never a fresh compile -- `tsuc compile` is
 NEVER invoked here), how much LONGER a chain does it actually take, in
 real wall-clock time measured on THIS machine, to clear
-`tsu.ess.RELIABILITY_MIN_N_OVER_TAU` (5000)?
+`tsu_compiler.ess.RELIABILITY_MIN_N_OVER_TAU` (5000)?
 
 It does this the only honest way available: run progressively longer
 chains (n_chains fixed at the receipt's own 32, n_samples increasing),
 computing each draw's energy with the SAME formula
-`tsu.passes.search._from_ising` uses (reimplemented locally below, in
+`tsu_compiler.passes.search._from_ising` uses (reimplemented locally below, in
 `_energy_of`, to avoid importing a leading-underscore name from another
 module -- the identical formula `demo/lattice_app.py`'s `energy_of_draw`
 also carries, for the same reason), and feeding the unflattened
-(n_chains, n_samples) energy array to `tsu.ess.effective_sample_size` --
+(n_chains, n_samples) energy array to `tsu_compiler.ess.effective_sample_size` --
 the SAME function, SAME reliability threshold, the compiler itself uses.
 NOTHING here lowers the threshold or tunes sampling to manufacture a pass;
 every row below is what that exact function returned for that exact run.
@@ -47,9 +47,9 @@ SRC = REPO_ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from tsu.simulate import reconstruct_program  # noqa: E402
-from tsu.backends.thrml_backend import sample_chains  # noqa: E402
-from tsu.ess import (RELIABILITY_MIN_N_OVER_TAU, effective_sample_size,
+from tsu_compiler.simulate import reconstruct_program  # noqa: E402
+from tsu_compiler.backends.thrml_backend import sample_chains  # noqa: E402
+from tsu_compiler.ess import (RELIABILITY_MIN_N_OVER_TAU, effective_sample_size,
                      integrated_autocorrelation_time)  # noqa: E402
 
 RECEIPT_DIR = REPO_ROOT / "demo" / "receipts" / "small"
@@ -82,7 +82,7 @@ TOTAL_WALL_BUDGET_S = 150.0
 def _energy_of(im, row: np.ndarray) -> float:
     """E(x) for one raw {0,1} draw, from IsingModel's own documented sign
     convention (lower.py: 'sum b s + sum J s s == -E(x)', s = 2*occ-1) --
-    the SAME formula `tsu.passes.search._from_ising` and
+    the SAME formula `tsu_compiler.passes.search._from_ising` and
     `demo/lattice_app.py`'s `energy_of_draw` both use."""
     s = 2.0 * row.astype(float) - 1.0
     total = im.offset
@@ -110,7 +110,7 @@ class EssRow:
                                # quantity -- NOT the reliability-gated `ess`.
     reliable: bool
     reason: str
-    ess: float | None         # only set (by tsu.ess itself) once reliable;
+    ess: float | None         # only set (by tsu_compiler.ess itself) once reliable;
                                # this is the number that would actually be
                                # PUBLISHED, never tau_point/n_over_tau_point.
 
@@ -146,7 +146,7 @@ def main() -> None:
     print(f"ESS run -- demo/receipts/small, program reconstructed verbatim "
          f"(never recompiled). n_chains={N_CHAINS}, n_warmup={N_WARMUP}, "
          f"steps_per_sample={STEPS_PER_SAMPLE} held fixed; n_samples grows.")
-    print(f"reliability threshold (tsu.ess.RELIABILITY_MIN_N_OVER_TAU): "
+    print(f"reliability threshold (tsu_compiler.ess.RELIABILITY_MIN_N_OVER_TAU): "
          f"{RELIABILITY_MIN_N_OVER_TAU:.0f}")
     print()
 

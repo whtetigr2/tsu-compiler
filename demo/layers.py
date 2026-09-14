@@ -8,7 +8,7 @@ layers, never from widening one layer past the field gate's k=4 bound.
 
 Why this is legal without a recompile: a term "value v is encouraged or
 discouraged at cell c" is LINEAR in that cell's own physical spins (see
-tsu.passes.encode's domain-wall/one-hot rewrite tables -- a categorical
+tsu_compiler.passes.encode's domain-wall/one-hot rewrite tables -- a categorical
 indicator VarRef(c, v) always rewrites to a LinearForm over ONLY that cell's
 chain). A linear term only ever changes an IsingModel's `biases` array --
 nodes, edges, weights (couplings), and a SamplingProgram's colour `blocks`
@@ -33,7 +33,7 @@ Thermodynamic Models make (chained simple EBM layers instead of one
 monolithic model), and it must be stated plainly, never glossed as "the
 joint distribution."
 
-`FIELD_CAP` (|b| <= 6.0) reads `tsu.target.Z1.max_abs_bias` (F-R2; see
+`FIELD_CAP` (|b| <= 6.0) reads `tsu_compiler.target.Z1.max_abs_bias` (F-R2; see
 demo/frontier.py's module docstring for this same read-from-the-target-
 profile pattern applied to its own |J| cap). `max_abs_bias` is the |b| cap
 specifically -- P-3/F-A5 + I-9a/F-R7 split it from `max_abs_coupling` (the
@@ -55,11 +55,11 @@ from typing import Mapping
 
 import numpy as np
 
-from tsu.ir import LinearForm, VarRef
-from tsu.passes.encode import Encoded, _REWRITE
-from tsu.passes.lower import _affine
-from tsu.passes.program import SamplingProgram
-from tsu.target import Z1
+from tsu_compiler.ir import LinearForm, VarRef
+from tsu_compiler.passes.encode import Encoded, _REWRITE
+from tsu_compiler.passes.lower import _affine
+from tsu_compiler.passes.program import SamplingProgram
+from tsu_compiler.target import Z1
 
 # The |b| cap specifically (F-R2) -- see module docstring. NOT
 # Z1.max_abs_coupling (the |J| cap): the two are separate Sourced fields
@@ -89,18 +89,18 @@ def bias_patch(prog: SamplingProgram, enc: Encoded,
     categorical cell this builds the SAME categorical-indicator LinearForm
     `encode`'s own rewrite tables consume for any ordinary spec term --
     `LinearForm({VarRef(cell, value): 1.0})` -- and rewrites it through
-    `tsu.passes.encode._REWRITE[enc.encoding]` (the exact per-encoding
+    `tsu_compiler.passes.encode._REWRITE[enc.encoding]` (the exact per-encoding
     table `encode()` itself uses; domain-wall or one-hot) to get a
     LinearForm over that cell's OWN physical chain spins, never any other
     cell's. For a BINARY cell there is no chain to rewrite through -- the
-    IR's own convention (`tsu.ir.VarRef`'s docstring: "VarRef('a') -> the
+    IR's own convention (`tsu_compiler.ir.VarRef`'s docstring: "VarRef('a') -> the
     occupancy of binary variable a") is that the cell's physical spin IS
     its own value-1 indicator, so this builds the identical LinearForm
-    `tsu.spec._value_indicator` itself builds for a Binary domain
+    `tsu_compiler.spec._value_indicator` itself builds for a Binary domain
     (`VarRef(cell): 1.0` for value 1, `VarRef(cell): -1.0, const: 1.0` for
     value 0 -- the complement) rather than inventing a second convention.
     Either physical form is then converted to a spin-space
-    (const, {index: coeff}) pair via `tsu.passes.lower._affine` -- the
+    (const, {index: coeff}) pair via `tsu_compiler.passes.lower._affine` -- the
     identical occupancy-to-spin affine map (`n = (s+1)/2`) `lower()` itself
     uses for every Linear term in a spec. Accumulating `weight * coeff`
     into `biases[index]` is then exactly what `lower()` would do for a
@@ -136,7 +136,7 @@ def bias_patch(prog: SamplingProgram, enc: Encoded,
             physical = rewrite(LinearForm({VarRef(cell, value): 1.0}),
                                enc.categorical)
         elif cell in enc.binary_names:
-            # Same construction as tsu.spec._value_indicator for a Binary
+            # Same construction as tsu_compiler.spec._value_indicator for a Binary
             # domain: the cell's own occupancy IS its value-1 indicator, and
             # value-0 is its linear complement. No rewrite table involved --
             # there is no chain to rewrite through for a two-value domain.
@@ -161,7 +161,7 @@ def bias_patch(prog: SamplingProgram, enc: Encoded,
     if bmax > field_cap:
         raise FieldCapExceeded(
             f"patched |b|max = {bmax:.4f} exceeds the target's assumed "
-            f"field cap {field_cap} (tsu.target.Z1.max_abs_bias -- a "
+            f"field cap {field_cap} (tsu_compiler.target.Z1.max_abs_bias -- a "
             f"project working value, NOT a sourced Extropic figure, and a "
             f"separate field from max_abs_coupling even though both "
             f"currently hold 6.0); refusing this patch rather than "

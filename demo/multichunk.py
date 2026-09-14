@@ -60,9 +60,9 @@ sys.path.insert(0, "demo")
 
 from PIL import Image
 
-from tsu.simulate import simulate
-from tsu.spec import load_spec
-from tsu.passes.encode import encode
+from tsu_compiler.simulate import simulate
+from tsu_compiler.spec import load_spec
+from tsu_compiler.passes.encode import encode
 
 R = "demo/receipts/small"
 CHUNK_W = CHUNK_H = 8

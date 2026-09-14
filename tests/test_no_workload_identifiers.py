@@ -3,7 +3,7 @@
 Delete every spec file and the compiler still compiles. This test is the
 enforcement; the rule is not kept by intent (spec section 9).
 
-I4 (final review): `SRC = Path("src/tsu")` was CWD-relative. Run from anywhere
+I4 (final review): `SRC = Path("src/tsu_compiler")` was CWD-relative. Run from anywhere
 other than the repo root (e.g. `pytest` invoked from `tests/`), `rglob` silently
 yields nothing, every `hits`/`offenders` list stays empty, and all three tests
 in this file pass having read ZERO files -- the sole mechanical enforcement of
@@ -12,7 +12,7 @@ the example-independence and backend-isolation rules, passing vacuously.
 import re
 from pathlib import Path
 
-SRC = Path(__file__).resolve().parents[1] / "src" / "tsu"
+SRC = Path(__file__).resolve().parents[1] / "src" / "tsu_compiler"
 FORBIDDEN = ("wfc", "minecraft", "maxcut", "codon", "tile", "voxel",
              "placement_kernel", "exclusion")
 
@@ -66,7 +66,7 @@ def test_every_module_in_the_package_imports_without_any_spec_file_present():
     """Renamed from `test_deleting_every_spec_leaves_the_package_importable`,
     which did not delete any spec file and only imported a hand-picked subset of
     modules -- it tested neither the thing its name claimed nor the full
-    package. This discovers and imports EVERY module actually under src/tsu
+    package. This discovers and imports EVERY module actually under src/tsu_compiler
     (skipping nothing), which is what "the compiler contains no workload-
     specific code path that only spec-driven execution would exercise" (spec
     section 9) actually requires checking."""

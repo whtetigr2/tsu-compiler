@@ -49,11 +49,11 @@ sys.path.insert(0, "src")
 sys.path.insert(0, "demo")
 import numpy as np
 
-from tsu.passes.lower import IsingModel
-from tsu.passes.analyse import analyse
-from tsu.passes.program import build_program
-from tsu.backends.thrml_backend import sample as thrml_sample
-from tsu.target import PROFILES
+from tsu_compiler.passes.lower import IsingModel
+from tsu_compiler.passes.analyse import analyse
+from tsu_compiler.passes.program import build_program
+from tsu_compiler.backends.thrml_backend import sample as thrml_sample
+from tsu_compiler.target import PROFILES
 
 N = 32
 BETA = 1.0

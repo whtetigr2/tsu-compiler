@@ -25,7 +25,7 @@ def main():
     clamp = json.loads(clamp_json)
     params = json.loads(params_json)
 
-    from tsu.simulate import simulate
+    from tsu_compiler.simulate import simulate
     _path, got, _im = simulate(receipt_dir, seed=seed, clamp=clamp, **params)
     doc = json.loads((Path(receipt_dir) / "simulation.json").read_text())
     doc["raw_draws_flat"] = got.tolist()  # independent capture, not re-derived from doc

@@ -1,0 +1,12 @@
+{
+  "energy_tv": 3.552713678800501e-14,
+  "task_validity": 0.76421875,
+  "execution_tv": 0.07478877790102764,
+  "execution_noise_floor": 0.08051632510611739,
+  "cross_check_tv": "unavailable: torx PISING route is exact only for a single-bond model; this has 16 nodes and 24 edges, and composing PISING across edges is a Trotter splitting with its own error (EXP-TX4)",
+  "codeword_violation_rate": 0.0,
+  "ess": "unavailable: N/tau=3865 (N=6400, tau~=1.66) is below the reliability threshold 5000 the AR(1) validation established (see ess-report.md); chain too short/too correlated for a trustworthy estimate",
+  "diversity_distinct": 2,
+  "diversity_valid_samples": 4891,
+  "diversity_reachable": 2
+}

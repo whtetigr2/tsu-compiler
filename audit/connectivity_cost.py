@@ -77,11 +77,11 @@ sys.path.insert(0, "src")
 
 import numpy as np
 
-from tsu.passes.analyse import analyse
-from tsu.gates import gate_checks
-from tsu.passes.route import insert_mediators, mediator_coupling
-from tsu.target import PROFILES
-from tsu.preflight.model import load_model
+from tsu_compiler.passes.analyse import analyse
+from tsu_compiler.gates import gate_checks
+from tsu_compiler.passes.route import insert_mediators, mediator_coupling
+from tsu_compiler.target import PROFILES
+from tsu_compiler.preflight.model import load_model
 
 PACK = Path("out/extropic-verify")
 OUT = Path("out/connectivity-cost")

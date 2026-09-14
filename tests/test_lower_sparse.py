@@ -7,9 +7,9 @@ reachable from `lower()`.
 import numpy as np
 import pytest
 
-from tsu.passes.encode import encode
-from tsu.passes.lower import lower, _lower_dense, _check_pairwise, ThreeBodyError
-from tsu.spec import load_spec
+from tsu_compiler.passes.encode import encode
+from tsu_compiler.passes.lower import lower, _lower_dense, _check_pairwise, ThreeBodyError
+from tsu_compiler.spec import load_spec
 
 SPECS = ["specs/toy.yaml", "specs/edgeless.yaml", "specs/too_strong.yaml",
          "specs/adjacency_2x2_k3.yaml", "specs/adjacency_4x4_k4.yaml"]
@@ -32,7 +32,7 @@ def test_sparse_matches_dense_exactly(path, encoding):
 def test_three_body_still_raises():
     """A Product whose two forms share no variable but together span three
     distinct spins must still be rejected."""
-    from tsu.ir import Binary, EnergyModel, LinearForm, Product, Var, VarRef
+    from tsu_compiler.ir import Binary, EnergyModel, LinearForm, Product, Var, VarRef
     a = LinearForm({VarRef("x"): 1.0})
     b = LinearForm({VarRef("y"): 1.0, VarRef("z"): 1.0})
     inner = Product(a, b, 1.0)
@@ -54,7 +54,7 @@ def test_three_body_still_raises():
 # `grep -rn sympy_expr src tests` turns up `hasattr(term, "sympy_expr")` in
 # `lower.py` itself, plus ad hoc duck-typed test doubles (`Cubic`, `Quartic`,
 # ...) defined LOCALLY inside `tests/test_lower.py` -- not a term type that
-# ships in `src/tsu/ir.py`. So no production term type in the repo carries
+# ships in `src/tsu_compiler/ir.py`. So no production term type in the repo carries
 # `sympy_expr`, and case (a) from Ruling 3 does not apply here: this is case
 # (b), a direct unit test on the guard itself (`_check_pairwise`) with a
 # synthetic accumulator key `(i, j, k)`.

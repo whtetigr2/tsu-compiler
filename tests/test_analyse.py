@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
-from tsu.passes.lower import IsingModel
-from tsu.passes.analyse import analyse, MAXCUT_EXACT_LIMIT
+from tsu_compiler.passes.lower import IsingModel
+from tsu_compiler.passes.analyse import analyse, MAXCUT_EXACT_LIMIT
 
 
 def ising(nodes, edges, w=None, b=None):

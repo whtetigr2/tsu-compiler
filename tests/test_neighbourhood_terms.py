@@ -4,7 +4,7 @@ MATHEMATICS, not a domain: it is the honest EXACT form only for a rule whose
 OWN intent is symmetric ("as close to target as possible"), the identical
 argument `audit/expressibility_matrix.md`'s `neighbourhood` row (#2) makes.
 It is documented as a SHAPE, never a domain rule -- the same distinction
-`product_over_edges`/`conserve_over_edges` already draw in `src/tsu/spec.py`.
+`product_over_edges`/`conserve_over_edges` already draw in `src/tsu_compiler/spec.py`.
 
 Consumes ONLY what Task 3's matrix marked EXACT. `morphology`/`ecological`
 (the one-sided "at least N" classes) are DISTORTED under this exact shape --
@@ -18,10 +18,10 @@ import textwrap
 
 import pytest
 
-from tsu.passes.analyse import analyse
-from tsu.passes.encode import encode
-from tsu.passes.lower import lower
-from tsu.spec import load_spec
+from tsu_compiler.passes.analyse import analyse
+from tsu_compiler.passes.encode import encode
+from tsu_compiler.passes.lower import lower
+from tsu_compiler.spec import load_spec
 
 
 def _write(body: str) -> str:

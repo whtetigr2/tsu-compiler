@@ -1,22 +1,22 @@
 """Task 3 rework: this module now keeps only R-hat and the ESS-based standard
 error. Integrated autocorrelation time and effective sample size come from
-tsu.ess (see src/tsu/preflight/diagnostics.py's module docstring for why --
+tsu_compiler.ess (see src/tsu_compiler/preflight/diagnostics.py's module docstring for why --
 that module has a stronger, cross-validated estimator with a reliability
 floor this one never had). Each remaining estimator here is still checked
 against a value known ANALYTICALLY rather than against our own output, plus
-one test that pins the tau convention tsu.ess publishes, since a silent
+one test that pins the tau convention tsu_compiler.ess publishes, since a silent
 switch there would corrupt every error bar this module computes without ever
 looking wrong.
 """
 import numpy as np
 import pytest
 
-from tsu.ess import effective_sample_size, integrated_autocorrelation_time
-from tsu.preflight.diagnostics import RHAT_THRESHOLD, r_hat, stderr_from_ess
+from tsu_compiler.ess import effective_sample_size, integrated_autocorrelation_time
+from tsu_compiler.preflight.diagnostics import RHAT_THRESHOLD, r_hat, stderr_from_ess
 
 
 def ar1(phi: float, n: int, seed: int = 0) -> np.ndarray:
-    """A first-order autoregressive series. Under tsu.ess's tau_A convention
+    """A first-order autoregressive series. Under tsu_compiler.ess's tau_A convention
     (tau_A = 1 + 2*sum_k rho_k), its integrated autocorrelation time is known
     in closed form: tau_A = (1 + phi) / (1 - phi)."""
     rng = np.random.default_rng(seed)
@@ -29,13 +29,13 @@ def ar1(phi: float, n: int, seed: int = 0) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
-# The convention this module's stderr_from_ess relies on tsu.ess to publish.
-# tsu.ess and this module's old, now-deleted tau disagreed by exactly 2x, so
+# The convention this module's stderr_from_ess relies on tsu_compiler.ess to publish.
+# tsu_compiler.ess and this module's old, now-deleted tau disagreed by exactly 2x, so
 # this is pinned rather than assumed.
 # ---------------------------------------------------------------------------
 
 def test_the_ess_module_uses_the_tau_A_convention_this_module_relies_on():
-    """tsu.ess reports tau_A = 1 + 2*sum(rho), NOT tau_A/2. An AR(1) series has
+    """tsu_compiler.ess reports tau_A = 1 + 2*sum(rho), NOT tau_A/2. An AR(1) series has
     tau_A = (1+phi)/(1-phi) in closed form. If this ever silently switched to the
     half convention, every error bar derived from ESS would be wrong by a factor
     of two while still looking entirely plausible."""
@@ -90,7 +90,7 @@ def test_effective_sample_size_refuses_a_chain_too_short_to_support_an_estimate(
 
 
 # ---------------------------------------------------------------------------
-# r_hat -- unchanged by this rework; tsu.ess has no Gelman-Rubin analogue.
+# r_hat -- unchanged by this rework; tsu_compiler.ess has no Gelman-Rubin analogue.
 # ---------------------------------------------------------------------------
 
 def test_r_hat_of_identical_chains_is_the_bda3_closed_form():

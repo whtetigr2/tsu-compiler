@@ -6,10 +6,10 @@ distinct (a defect in the representation vs. a statement about the substrate).
 Selection order is physical p-bit count, then colour blocks, then |J|max, ties
 broken by declaration order and stated in `ordering_rationale`.
 """
-from tsu.spec import load_spec
-from tsu.target import IDEAL, Z1
-from tsu.passes.search import SLICE_ENCODINGS, compare, compile_spec
-from tsu.states import CandidateState
+from tsu_compiler.spec import load_spec
+from tsu_compiler.target import IDEAL, Z1
+from tsu_compiler.passes.search import SLICE_ENCODINGS, compare, compile_spec
+from tsu_compiler.states import CandidateState
 
 
 def test_both_encodings_are_generated_as_candidates():

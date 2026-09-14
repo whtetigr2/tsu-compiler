@@ -1,0 +1,22 @@
+name: terrain_layout_6x6
+description: >
+  Mid-size landcover / site-layout assignment on a 6x6 grid, k=3 (GIS /
+  generative-layout class). Real problem: assign each cell water/rock/grass
+  (0/1/2) with a hard adjacency forbid (water never against rock) plus soft
+  self-affinity so regions clump — the same rule deck as lattice_small_8x8_k3
+  but at 6x6 so a Z1 owner can iterate faster. Weights 1.0/-0.4 stay out of
+  the measured freeze regime (|b| blowup) documented on the 8x8 sibling.
+generate:
+  kind: grid
+  width: 6
+  height: 6
+  variable_domain: {domain: categorical, k: 3}
+terms:
+  - {kind: product_over_edges, a_value: 0, b_value: 1, weight: 1.0}
+  - {kind: product_over_edges, a_value: 0, b_value: 0, weight: -0.4}
+  - {kind: product_over_edges, a_value: 1, b_value: 1, weight: -0.4}
+  - {kind: product_over_edges, a_value: 2, b_value: 2, weight: -0.4}
+contract:
+  validate:
+    - {rule: forbid_value_pair_over_edges, a_value: 0, b_value: 1,
+       message: "water directly adjacent to rock"}

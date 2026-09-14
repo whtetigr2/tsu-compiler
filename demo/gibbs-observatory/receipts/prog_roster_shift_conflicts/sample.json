@@ -1,0 +1,14 @@
+{
+  "decoded": {
+    "nA_am": 1,
+    "nA_pm": 0,
+    "nB_am": 0,
+    "m1_slot": 0
+  },
+  "is_codeword": true,
+  "task_valid": true,
+  "violations": [],
+  "seed": 0,
+  "clamp": {},
+  "note": ""
+}

@@ -23,7 +23,7 @@ PYTHONIOENCODING=utf-8 "C:/Users/whtet/AppData/Local/Python/pythoncore-3.14-64/p
 | `statistical_8x8` | 64 | 2016 | **63** | False | 0.005 | 0.16 | FAILS: `degree` |
 | `terrain_k5` | 1280 | 8320 | **16** | False | 1.25 | 5.0 | PASSES all gates (boundary case — degree exactly at the cap) |
 
-Gate results are the REAL `src/tsu/gates.py::check_gates` output on these
+Gate results are the REAL `src/tsu_compiler/gates.py::check_gates` output on these
 three lowered models against the `Z1` `TargetProfile`, `allow_assumed=False`
 (so the `field_cap`/`|b|` gate — a project assumption, not Extropic-sourced —
 is not silently downgraded). With `allow_assumed=True` the `field_cap`

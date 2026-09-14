@@ -1,0 +1,16 @@
+{
+  "decoded": {
+    "j0_mA": 1,
+    "j1_mA": 0,
+    "j2_mA": 0,
+    "j0_mB": 0,
+    "j1_mB": 1,
+    "j2_mB": 1
+  },
+  "is_codeword": true,
+  "task_valid": true,
+  "violations": [],
+  "seed": 0,
+  "clamp": {},
+  "note": ""
+}

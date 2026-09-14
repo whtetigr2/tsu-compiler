@@ -1,18 +1,18 @@
-"""audit/oracles/exact.py -- brute-force Boltzmann oracle, independent of src/tsu.
+"""audit/oracles/exact.py -- brute-force Boltzmann oracle, independent of src/tsu_compiler.
 
 Plan Task A4: "Write the energy from the physics ... and do NOT import
-src/tsu to compute it. An oracle sharing code with the thing under test
+src/tsu_compiler to compute it. An oracle sharing code with the thing under test
 verifies nothing." Accordingly this module imports nothing from `tsu` --
 every line below is written from the definition of a classical Ising model,
 not by calling (or copying) the compiler's own `energy_of_draw`,
-`tsu.passes.search._from_ising`, or `tsu.passes.lower`.
+`tsu_compiler.passes.search._from_ising`, or `tsu_compiler.passes.lower`.
 
 Convention (stated once, used consistently throughout this module):
 
     E(s) = -sum_{(i,j)} J_ij * s_i * s_j  -  sum_i b_i * s_i,   s_i in {-1, +1}
     p(s) ∝ exp(-beta * E(s))
 
-This is the same sign convention `src/tsu/passes/lower.py`'s own module
+This is the same sign convention `src/tsu_compiler/passes/lower.py`'s own module
 docstring states ("sum b s + sum J s s == -E(x)") -- confirmed by reading
 that file, not by importing it. Any state may be handed in as a {0,1}
 occupancy vector (the compiler's own convention, spin = 2*occupancy - 1) or
@@ -44,7 +44,7 @@ def _to_spins(state: Sequence[int]) -> list[int]:
 
 
 def exact_energy(state: Sequence[int], J: Coupling, b: Sequence[float]) -> float:
-    """E(s) = -sum J_ij*s_i*s_j - sum b_i*s_i, independent of src/tsu.
+    """E(s) = -sum J_ij*s_i*s_j - sum b_i*s_i, independent of src/tsu_compiler.
 
     `J` maps an (i, j) index pair to its coupling strength; only pairs
     present in `J` contribute (an absent pair is treated as J_ij=0, not an
@@ -69,7 +69,7 @@ def exact_boltzmann(J: Coupling, b: Sequence[float], beta: float
     enumeration order, and `probs` sums to 1 to floating-point precision
     (normalised by the partition function Z = sum_s exp(-beta*E(s))).
 
-    Exact and independent of src/tsu -- suitable only for n small enough to
+    Exact and independent of src/tsu_compiler -- suitable only for n small enough to
     enumerate (a handful of spins); this is a verification oracle, not a
     sampler.
     """

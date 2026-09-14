@@ -35,10 +35,10 @@ import numpy as np
 from PIL import Image
 from scipy import ndimage
 
-from tsu.spec import load_spec
-from tsu.passes.encode import encode
-from tsu.simulate import reconstruct_program, _selected_encoding
-from tsu.backends.thrml_backend import sample as thrml_sample
+from tsu_compiler.spec import load_spec
+from tsu_compiler.passes.encode import encode
+from tsu_compiler.simulate import reconstruct_program, _selected_encoding
+from tsu_compiler.backends.thrml_backend import sample as thrml_sample
 
 from layers import FIELD_CAP, FieldCapExceeded, bias_patch
 

@@ -1,0 +1,259 @@
+name: ebm_bars_stripes
+description: >
+  Trained Restricted Boltzmann Machine on classic bars-and-stripes (4×4).
+  Visible 16 (4×4 image) + hidden 12; couplings ONLY V↔H.
+  Pairwise-visible Ising failed this dataset (bars vs stripes conflict → blobs).
+  Bipartite V–H graph → deg(v)=n_h≤12, deg(h)=16 → under Z1 cap 16; 0 mediators.
+  THRML/JAX software sim — not Extropic silicon — not Z1T.
+variables:
+  v0: {domain: binary}
+  v1: {domain: binary}
+  v2: {domain: binary}
+  v3: {domain: binary}
+  v4: {domain: binary}
+  v5: {domain: binary}
+  v6: {domain: binary}
+  v7: {domain: binary}
+  v8: {domain: binary}
+  v9: {domain: binary}
+  v10: {domain: binary}
+  v11: {domain: binary}
+  v12: {domain: binary}
+  v13: {domain: binary}
+  v14: {domain: binary}
+  v15: {domain: binary}
+  h0: {domain: binary}
+  h1: {domain: binary}
+  h2: {domain: binary}
+  h3: {domain: binary}
+  h4: {domain: binary}
+  h5: {domain: binary}
+  h6: {domain: binary}
+  h7: {domain: binary}
+  h8: {domain: binary}
+  h9: {domain: binary}
+  h10: {domain: binary}
+  h11: {domain: binary}
+terms:
+  - {kind: product, a: {v0: 1.0}, b: {h0: 1.0}, weight: -2.28987982}
+  - {kind: product, a: {v0: 1.0}, b: {h1: 1.0}, weight: -0.04465852}
+  - {kind: product, a: {v0: 1.0}, b: {h2: 1.0}, weight: 4.62260229}
+  - {kind: product, a: {v0: 1.0}, b: {h3: 1.0}, weight: 1.50410267}
+  - {kind: product, a: {v0: 1.0}, b: {h4: 1.0}, weight: 8.12414966}
+  - {kind: product, a: {v0: 1.0}, b: {h5: 1.0}, weight: -3.62237681}
+  - {kind: product, a: {v0: 1.0}, b: {h6: 1.0}, weight: 0.40828702}
+  - {kind: product, a: {v0: 1.0}, b: {h7: 1.0}, weight: 2.26412010}
+  - {kind: product, a: {v0: 1.0}, b: {h8: 1.0}, weight: -0.20621637}
+  - {kind: product, a: {v0: 1.0}, b: {h9: 1.0}, weight: 4.52398319}
+  - {kind: product, a: {v0: 1.0}, b: {h10: 1.0}, weight: -1.00996346}
+  - {kind: product, a: {v0: 1.0}, b: {h11: 1.0}, weight: -2.67570908}
+  - {kind: product, a: {v1: 1.0}, b: {h0: 1.0}, weight: 2.16175529}
+  - {kind: product, a: {v1: 1.0}, b: {h1: 1.0}, weight: 2.22270326}
+  - {kind: product, a: {v1: 1.0}, b: {h2: 1.0}, weight: -0.87217037}
+  - {kind: product, a: {v1: 1.0}, b: {h3: 1.0}, weight: 7.91616219}
+  - {kind: product, a: {v1: 1.0}, b: {h4: 1.0}, weight: 4.40068284}
+  - {kind: product, a: {v1: 1.0}, b: {h5: 1.0}, weight: -6.43370093}
+  - {kind: product, a: {v1: 1.0}, b: {h6: 1.0}, weight: -3.70883738}
+  - {kind: product, a: {v1: 1.0}, b: {h7: 1.0}, weight: 2.27136140}
+  - {kind: product, a: {v1: 1.0}, b: {h8: 1.0}, weight: -5.79182092}
+  - {kind: product, a: {v1: 1.0}, b: {h9: 1.0}, weight: -2.17216825}
+  - {kind: product, a: {v1: 1.0}, b: {h10: 1.0}, weight: -0.70730817}
+  - {kind: product, a: {v1: 1.0}, b: {h11: 1.0}, weight: -1.31437043}
+  - {kind: product, a: {v2: 1.0}, b: {h0: 1.0}, weight: 2.85192542}
+  - {kind: product, a: {v2: 1.0}, b: {h1: 1.0}, weight: -5.23893477}
+  - {kind: product, a: {v2: 1.0}, b: {h2: 1.0}, weight: -0.21498967}
+  - {kind: product, a: {v2: 1.0}, b: {h3: 1.0}, weight: 2.11738473}
+  - {kind: product, a: {v2: 1.0}, b: {h4: 1.0}, weight: 5.30478627}
+  - {kind: product, a: {v2: 1.0}, b: {h5: 1.0}, weight: -1.81537719}
+  - {kind: product, a: {v2: 1.0}, b: {h6: 1.0}, weight: -2.51054815}
+  - {kind: product, a: {v2: 1.0}, b: {h7: 1.0}, weight: 0.93063031}
+  - {kind: product, a: {v2: 1.0}, b: {h8: 1.0}, weight: 1.14520701}
+  - {kind: product, a: {v2: 1.0}, b: {h9: 1.0}, weight: -1.00036075}
+  - {kind: product, a: {v2: 1.0}, b: {h10: 1.0}, weight: 5.01677294}
+  - {kind: product, a: {v2: 1.0}, b: {h11: 1.0}, weight: -4.49531461}
+  - {kind: product, a: {v3: 1.0}, b: {h0: 1.0}, weight: -0.00406434}
+  - {kind: product, a: {v3: 1.0}, b: {h1: 1.0}, weight: 2.07260928}
+  - {kind: product, a: {v3: 1.0}, b: {h2: 1.0}, weight: -0.36221995}
+  - {kind: product, a: {v3: 1.0}, b: {h3: 1.0}, weight: 1.44210285}
+  - {kind: product, a: {v3: 1.0}, b: {h4: 1.0}, weight: 3.57976839}
+  - {kind: product, a: {v3: 1.0}, b: {h5: 1.0}, weight: -8.36180811}
+  - {kind: product, a: {v3: 1.0}, b: {h6: 1.0}, weight: 1.93133558}
+  - {kind: product, a: {v3: 1.0}, b: {h7: 1.0}, weight: -4.87716105}
+  - {kind: product, a: {v3: 1.0}, b: {h8: 1.0}, weight: 0.82598458}
+  - {kind: product, a: {v3: 1.0}, b: {h9: 1.0}, weight: -0.83191277}
+  - {kind: product, a: {v3: 1.0}, b: {h10: 1.0}, weight: -1.75093162}
+  - {kind: product, a: {v3: 1.0}, b: {h11: 1.0}, weight: -2.20483548}
+  - {kind: product, a: {v4: 1.0}, b: {h0: 1.0}, weight: -1.98367901}
+  - {kind: product, a: {v4: 1.0}, b: {h1: 1.0}, weight: -0.19811700}
+  - {kind: product, a: {v4: 1.0}, b: {h2: 1.0}, weight: -1.40981118}
+  - {kind: product, a: {v4: 1.0}, b: {h3: 1.0}, weight: 2.16226311}
+  - {kind: product, a: {v4: 1.0}, b: {h4: 1.0}, weight: 2.04940425}
+  - {kind: product, a: {v4: 1.0}, b: {h5: 1.0}, weight: 2.24751492}
+  - {kind: product, a: {v4: 1.0}, b: {h6: 1.0}, weight: -3.55707215}
+  - {kind: product, a: {v4: 1.0}, b: {h7: 1.0}, weight: -4.53935473}
+  - {kind: product, a: {v4: 1.0}, b: {h8: 1.0}, weight: 0.13928086}
+  - {kind: product, a: {v4: 1.0}, b: {h9: 1.0}, weight: 7.58297217}
+  - {kind: product, a: {v4: 1.0}, b: {h10: 1.0}, weight: -0.90270411}
+  - {kind: product, a: {v4: 1.0}, b: {h11: 1.0}, weight: -0.06613616}
+  - {kind: product, a: {v5: 1.0}, b: {h0: 1.0}, weight: 1.37331758}
+  - {kind: product, a: {v5: 1.0}, b: {h1: 1.0}, weight: 0.59222725}
+  - {kind: product, a: {v5: 1.0}, b: {h2: 1.0}, weight: -2.30145951}
+  - {kind: product, a: {v5: 1.0}, b: {h3: 1.0}, weight: 6.14870834}
+  - {kind: product, a: {v5: 1.0}, b: {h4: 1.0}, weight: -1.27143519}
+  - {kind: product, a: {v5: 1.0}, b: {h5: 1.0}, weight: 0.02986355}
+  - {kind: product, a: {v5: 1.0}, b: {h6: 1.0}, weight: -0.22054040}
+  - {kind: product, a: {v5: 1.0}, b: {h7: 1.0}, weight: -4.08027463}
+  - {kind: product, a: {v5: 1.0}, b: {h8: 1.0}, weight: -4.62025416}
+  - {kind: product, a: {v5: 1.0}, b: {h9: 1.0}, weight: 3.14438846}
+  - {kind: product, a: {v5: 1.0}, b: {h10: 1.0}, weight: -1.95432134}
+  - {kind: product, a: {v5: 1.0}, b: {h11: 1.0}, weight: 2.54426549}
+  - {kind: product, a: {v6: 1.0}, b: {h0: 1.0}, weight: 2.35538891}
+  - {kind: product, a: {v6: 1.0}, b: {h1: 1.0}, weight: -5.44460138}
+  - {kind: product, a: {v6: 1.0}, b: {h2: 1.0}, weight: -4.40569764}
+  - {kind: product, a: {v6: 1.0}, b: {h3: 1.0}, weight: 2.29097895}
+  - {kind: product, a: {v6: 1.0}, b: {h4: 1.0}, weight: -1.52347256}
+  - {kind: product, a: {v6: 1.0}, b: {h5: 1.0}, weight: 2.71176613}
+  - {kind: product, a: {v6: 1.0}, b: {h6: 1.0}, weight: -3.22048338}
+  - {kind: product, a: {v6: 1.0}, b: {h7: 1.0}, weight: -3.47334662}
+  - {kind: product, a: {v6: 1.0}, b: {h8: 1.0}, weight: 0.16857038}
+  - {kind: product, a: {v6: 1.0}, b: {h9: 1.0}, weight: 4.51833604}
+  - {kind: product, a: {v6: 1.0}, b: {h10: 1.0}, weight: 4.43856635}
+  - {kind: product, a: {v6: 1.0}, b: {h11: 1.0}, weight: -3.55689189}
+  - {kind: product, a: {v7: 1.0}, b: {h0: 1.0}, weight: -0.42287222}
+  - {kind: product, a: {v7: 1.0}, b: {h1: 1.0}, weight: -0.94121702}
+  - {kind: product, a: {v7: 1.0}, b: {h2: 1.0}, weight: -4.14700368}
+  - {kind: product, a: {v7: 1.0}, b: {h3: 1.0}, weight: 0.15581202}
+  - {kind: product, a: {v7: 1.0}, b: {h4: 1.0}, weight: -1.30626271}
+  - {kind: product, a: {v7: 1.0}, b: {h5: 1.0}, weight: -5.11350988}
+  - {kind: product, a: {v7: 1.0}, b: {h6: 1.0}, weight: 4.21228261}
+  - {kind: product, a: {v7: 1.0}, b: {h7: 1.0}, weight: -7.47346879}
+  - {kind: product, a: {v7: 1.0}, b: {h8: 1.0}, weight: 0.35992244}
+  - {kind: product, a: {v7: 1.0}, b: {h9: 1.0}, weight: 4.44021194}
+  - {kind: product, a: {v7: 1.0}, b: {h10: 1.0}, weight: -2.56137126}
+  - {kind: product, a: {v7: 1.0}, b: {h11: 1.0}, weight: -1.09341954}
+  - {kind: product, a: {v8: 1.0}, b: {h0: 1.0}, weight: -2.21329516}
+  - {kind: product, a: {v8: 1.0}, b: {h1: 1.0}, weight: -4.26082384}
+  - {kind: product, a: {v8: 1.0}, b: {h2: 1.0}, weight: 4.20834219}
+  - {kind: product, a: {v8: 1.0}, b: {h3: 1.0}, weight: -2.23217854}
+  - {kind: product, a: {v8: 1.0}, b: {h4: 1.0}, weight: 5.04319033}
+  - {kind: product, a: {v8: 1.0}, b: {h5: 1.0}, weight: 1.21892318}
+  - {kind: product, a: {v8: 1.0}, b: {h6: 1.0}, weight: 5.32135902}
+  - {kind: product, a: {v8: 1.0}, b: {h7: 1.0}, weight: 1.08747489}
+  - {kind: product, a: {v8: 1.0}, b: {h8: 1.0}, weight: -4.19799630}
+  - {kind: product, a: {v8: 1.0}, b: {h9: 1.0}, weight: 5.79481579}
+  - {kind: product, a: {v8: 1.0}, b: {h10: 1.0}, weight: -1.44281496}
+  - {kind: product, a: {v8: 1.0}, b: {h11: 1.0}, weight: 1.99690034}
+  - {kind: product, a: {v9: 1.0}, b: {h0: 1.0}, weight: 1.57899293}
+  - {kind: product, a: {v9: 1.0}, b: {h1: 1.0}, weight: -3.05185736}
+  - {kind: product, a: {v9: 1.0}, b: {h2: 1.0}, weight: 0.27571364}
+  - {kind: product, a: {v9: 1.0}, b: {h3: 1.0}, weight: 4.53655327}
+  - {kind: product, a: {v9: 1.0}, b: {h4: 1.0}, weight: 1.50633918}
+  - {kind: product, a: {v9: 1.0}, b: {h5: 1.0}, weight: 2.98070714}
+  - {kind: product, a: {v9: 1.0}, b: {h6: 1.0}, weight: 6.15470498}
+  - {kind: product, a: {v9: 1.0}, b: {h7: 1.0}, weight: 4.04827704}
+  - {kind: product, a: {v9: 1.0}, b: {h8: 1.0}, weight: -6.94712548}
+  - {kind: product, a: {v9: 1.0}, b: {h9: 1.0}, weight: -0.74866826}
+  - {kind: product, a: {v9: 1.0}, b: {h10: 1.0}, weight: -3.01612924}
+  - {kind: product, a: {v9: 1.0}, b: {h11: 1.0}, weight: 2.73907135}
+  - {kind: product, a: {v10: 1.0}, b: {h0: 1.0}, weight: 4.00958686}
+  - {kind: product, a: {v10: 1.0}, b: {h1: 1.0}, weight: -6.19216697}
+  - {kind: product, a: {v10: 1.0}, b: {h2: 1.0}, weight: 1.70810817}
+  - {kind: product, a: {v10: 1.0}, b: {h3: 1.0}, weight: -1.58751428}
+  - {kind: product, a: {v10: 1.0}, b: {h4: 1.0}, weight: -1.29232017}
+  - {kind: product, a: {v10: 1.0}, b: {h5: 1.0}, weight: 0.84760234}
+  - {kind: product, a: {v10: 1.0}, b: {h6: 1.0}, weight: 2.24347155}
+  - {kind: product, a: {v10: 1.0}, b: {h7: 1.0}, weight: 0.72715550}
+  - {kind: product, a: {v10: 1.0}, b: {h8: 1.0}, weight: -3.98802029}
+  - {kind: product, a: {v10: 1.0}, b: {h9: 1.0}, weight: -1.61449527}
+  - {kind: product, a: {v10: 1.0}, b: {h10: 1.0}, weight: 2.94724430}
+  - {kind: product, a: {v10: 1.0}, b: {h11: 1.0}, weight: -3.67618982}
+  - {kind: product, a: {v11: 1.0}, b: {h0: 1.0}, weight: 1.01242920}
+  - {kind: product, a: {v11: 1.0}, b: {h1: 1.0}, weight: -1.52018895}
+  - {kind: product, a: {v11: 1.0}, b: {h2: 1.0}, weight: -0.07836006}
+  - {kind: product, a: {v11: 1.0}, b: {h3: 1.0}, weight: -1.17727352}
+  - {kind: product, a: {v11: 1.0}, b: {h4: 1.0}, weight: -0.27820792}
+  - {kind: product, a: {v11: 1.0}, b: {h5: 1.0}, weight: -4.16090065}
+  - {kind: product, a: {v11: 1.0}, b: {h6: 1.0}, weight: 5.90509544}
+  - {kind: product, a: {v11: 1.0}, b: {h7: 1.0}, weight: -3.19045416}
+  - {kind: product, a: {v11: 1.0}, b: {h8: 1.0}, weight: -2.40831695}
+  - {kind: product, a: {v11: 1.0}, b: {h9: 1.0}, weight: -3.18265673}
+  - {kind: product, a: {v11: 1.0}, b: {h10: 1.0}, weight: 0.28047529}
+  - {kind: product, a: {v11: 1.0}, b: {h11: 1.0}, weight: 0.62250839}
+  - {kind: product, a: {v12: 1.0}, b: {h0: 1.0}, weight: -6.31495150}
+  - {kind: product, a: {v12: 1.0}, b: {h1: 1.0}, weight: -0.31429683}
+  - {kind: product, a: {v12: 1.0}, b: {h2: 1.0}, weight: 4.32503221}
+  - {kind: product, a: {v12: 1.0}, b: {h3: 1.0}, weight: 1.62857126}
+  - {kind: product, a: {v12: 1.0}, b: {h4: 1.0}, weight: 4.16332791}
+  - {kind: product, a: {v12: 1.0}, b: {h5: 1.0}, weight: 0.80961835}
+  - {kind: product, a: {v12: 1.0}, b: {h6: 1.0}, weight: -0.80657219}
+  - {kind: product, a: {v12: 1.0}, b: {h7: 1.0}, weight: 0.93803394}
+  - {kind: product, a: {v12: 1.0}, b: {h8: 1.0}, weight: 1.26945174}
+  - {kind: product, a: {v12: 1.0}, b: {h9: 1.0}, weight: 5.88651195}
+  - {kind: product, a: {v12: 1.0}, b: {h10: 1.0}, weight: 6.51626032}
+  - {kind: product, a: {v12: 1.0}, b: {h11: 1.0}, weight: 4.20917478}
+  - {kind: product, a: {v13: 1.0}, b: {h0: 1.0}, weight: -2.78176035}
+  - {kind: product, a: {v13: 1.0}, b: {h1: 1.0}, weight: 2.10435827}
+  - {kind: product, a: {v13: 1.0}, b: {h2: 1.0}, weight: -1.24593953}
+  - {kind: product, a: {v13: 1.0}, b: {h3: 1.0}, weight: 7.71104799}
+  - {kind: product, a: {v13: 1.0}, b: {h4: 1.0}, weight: -1.67986462}
+  - {kind: product, a: {v13: 1.0}, b: {h5: 1.0}, weight: -0.36843296}
+  - {kind: product, a: {v13: 1.0}, b: {h6: 1.0}, weight: -4.16440865}
+  - {kind: product, a: {v13: 1.0}, b: {h7: 1.0}, weight: 0.48540608}
+  - {kind: product, a: {v13: 1.0}, b: {h8: 1.0}, weight: -4.25449488}
+  - {kind: product, a: {v13: 1.0}, b: {h9: 1.0}, weight: -2.42793518}
+  - {kind: product, a: {v13: 1.0}, b: {h10: 1.0}, weight: 6.16837432}
+  - {kind: product, a: {v13: 1.0}, b: {h11: 1.0}, weight: 1.85215821}
+  - {kind: product, a: {v14: 1.0}, b: {h0: 1.0}, weight: -4.14416234}
+  - {kind: product, a: {v14: 1.0}, b: {h1: 1.0}, weight: -5.02908949}
+  - {kind: product, a: {v14: 1.0}, b: {h2: 1.0}, weight: -0.91840080}
+  - {kind: product, a: {v14: 1.0}, b: {h3: 1.0}, weight: 0.30136361}
+  - {kind: product, a: {v14: 1.0}, b: {h4: 1.0}, weight: -1.46123866}
+  - {kind: product, a: {v14: 1.0}, b: {h5: 1.0}, weight: -1.68299772}
+  - {kind: product, a: {v14: 1.0}, b: {h6: 1.0}, weight: -0.53996159}
+  - {kind: product, a: {v14: 1.0}, b: {h7: 1.0}, weight: 0.49820145}
+  - {kind: product, a: {v14: 1.0}, b: {h8: 1.0}, weight: 1.07912878}
+  - {kind: product, a: {v14: 1.0}, b: {h9: 1.0}, weight: -2.01836813}
+  - {kind: product, a: {v14: 1.0}, b: {h10: 1.0}, weight: 6.35242251}
+  - {kind: product, a: {v14: 1.0}, b: {h11: 1.0}, weight: -3.82419341}
+  - {kind: product, a: {v15: 1.0}, b: {h0: 1.0}, weight: -4.58855289}
+  - {kind: product, a: {v15: 1.0}, b: {h1: 1.0}, weight: -0.60771122}
+  - {kind: product, a: {v15: 1.0}, b: {h2: 1.0}, weight: 1.94206255}
+  - {kind: product, a: {v15: 1.0}, b: {h3: 1.0}, weight: 1.55272158}
+  - {kind: product, a: {v15: 1.0}, b: {h4: 1.0}, weight: -5.01745717}
+  - {kind: product, a: {v15: 1.0}, b: {h5: 1.0}, weight: -4.41301787}
+  - {kind: product, a: {v15: 1.0}, b: {h6: 1.0}, weight: 3.55275704}
+  - {kind: product, a: {v15: 1.0}, b: {h7: 1.0}, weight: -3.95315986}
+  - {kind: product, a: {v15: 1.0}, b: {h8: 1.0}, weight: 0.48520582}
+  - {kind: product, a: {v15: 1.0}, b: {h9: 1.0}, weight: -4.08109984}
+  - {kind: product, a: {v15: 1.0}, b: {h10: 1.0}, weight: 4.57665882}
+  - {kind: product, a: {v15: 1.0}, b: {h11: 1.0}, weight: 2.41010304}
+  - {kind: linear, form: {v0: 1.0}, weight: -7.15065552}
+  - {kind: linear, form: {v1: 1.0}, weight: 1.85509433}
+  - {kind: linear, form: {v2: 1.0}, weight: -2.05690138}
+  - {kind: linear, form: {v3: 1.0}, weight: 4.46543180}
+  - {kind: linear, form: {v4: 1.0}, weight: -2.73058636}
+  - {kind: linear, form: {v5: 1.0}, weight: 0.03875471}
+  - {kind: linear, form: {v6: 1.0}, weight: 2.13999037}
+  - {kind: linear, form: {v7: 1.0}, weight: 7.00950171}
+  - {kind: linear, form: {v8: 1.0}, weight: -5.87495321}
+  - {kind: linear, form: {v9: 1.0}, weight: -3.83666580}
+  - {kind: linear, form: {v10: 1.0}, weight: 3.17425714}
+  - {kind: linear, form: {v11: 1.0}, weight: 5.56461319}
+  - {kind: linear, form: {v12: 1.0}, weight: -11.55619024}
+  - {kind: linear, form: {v13: 1.0}, weight: -1.39024721}
+  - {kind: linear, form: {v14: 1.0}, weight: 5.02795538}
+  - {kind: linear, form: {v15: 1.0}, weight: 3.53796814}
+  - {kind: linear, form: {h0: 1.0}, weight: 5.78425458}
+  - {kind: linear, form: {h1: 1.0}, weight: 12.80273598}
+  - {kind: linear, form: {h2: 1.0}, weight: -0.79490090}
+  - {kind: linear, form: {h3: 1.0}, weight: -16.84568553}
+  - {kind: linear, form: {h4: 1.0}, weight: -9.12491562}
+  - {kind: linear, form: {h5: 1.0}, weight: 11.76508198}
+  - {kind: linear, form: {h6: 1.0}, weight: -4.83092766}
+  - {kind: linear, form: {h7: 1.0}, weight: 8.07506819}
+  - {kind: linear, form: {h8: 1.0}, weight: 13.54659265}
+  - {kind: linear, form: {h9: 1.0}, weight: -9.40925488}
+  - {kind: linear, form: {h10: 1.0}, weight: -13.16946740}
+  - {kind: linear, form: {h11: 1.0}, weight: 5.38901126}
+contract:
+  validate: []

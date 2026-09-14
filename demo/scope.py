@@ -14,17 +14,17 @@ distribution the rest of this app treats as physical.
 
 TASK 6 -- the SCOPE panel's four readouts:
 
-  autocorrelation(series, max_lag): reuses `tsu.ess.autocorrelation` (the
+  autocorrelation(series, max_lag): reuses `tsu_compiler.ess.autocorrelation` (the
   compiler's own Sokal/FFT-based estimator, already validated in
   tests/test_ess.py against an AR(1) known-answer sweep -- see that
   module's docstring) rather than reimplementing a second, unvalidated
-  copy. A single series is passed through `tsu.ess`'s (n_chains,
+  copy. A single series is passed through `tsu_compiler.ess`'s (n_chains,
   n_samples) contract as one chain (shape (1, n)); this file only adds
   the max_lag truncation and the list[float] return shape the demo needs.
 
   magnetization(draws): the standard Ising order parameter, mean spin per
   draw. Draws are 0/1 OCCUPANCY (thrml's own encoding, see the thrml
-  skill / tsu.passes.lower's own "spins s = 2*occupancy - 1" convention,
+  skill / tsu_compiler.passes.lower's own "spins s = 2*occupancy - 1" convention,
   the SAME mapping demo/lattice_app.py's energy_of_draw already uses) --
   so a draw is mapped s = 2*n - 1 before averaging. [1,0,1,0] -> spins
   [1,-1,1,-1] -> mean 0.0, not 0.5 (which would be the raw occupancy mean,
@@ -40,7 +40,7 @@ TASK 6 -- the SCOPE panel's four readouts:
   against bias voltage as an S-curve. THRML's chromatic block Gibbs
   conditional sampler for a spin site i is exactly P(s_i=1 | neighbours)
   = sigmoid(2*gamma_i), where gamma_i is the LOCAL FIELD (see the thrml
-  skill's "How the API composes" table and `tsu.passes.lower`'s own sign
+  skill's "How the API composes" table and `tsu_compiler.passes.lower`'s own sign
   convention, restated here since this file computes gamma independently
   rather than importing a private thrml/tsu symbol):
 
@@ -100,7 +100,7 @@ from typing import Sequence
 
 import numpy as np
 
-from tsu.ess import autocorrelation as _chain_autocorrelation
+from tsu_compiler.ess import autocorrelation as _chain_autocorrelation
 
 MIN_LOCAL_FIELD_BIN_COUNT = 30
 
@@ -118,7 +118,7 @@ def beta_to_temperature(beta: float) -> float:
 def temperature_control_state(ising) -> tuple[str, str | None]:
     """Task 8: the temperature control's two explicit states --
     ("adjustable", None) or ("fixed", reason) -- keyed on EXACTLY the fact
-    `tsu.passes.route.assert_beta_consistent` gates sampling on: whether
+    `tsu_compiler.passes.route.assert_beta_consistent` gates sampling on: whether
     `ising.mediator_nodes` is empty. That function is a no-op (accepts ANY
     requested beta) iff mediator_nodes is empty; this returns "adjustable"
     under precisely that condition, so the two can never silently drift
@@ -146,7 +146,7 @@ def temperature_control_state(ising) -> tuple[str, str | None]:
 
 def autocorrelation(series: Sequence[float], max_lag: int) -> list[float]:
     """Normalised autocorrelation of ONE series, lags 0..max_lag inclusive
-    (acf[0] == 1.0 always). Delegates to `tsu.ess.autocorrelation` -- see
+    (acf[0] == 1.0 always). Delegates to `tsu_compiler.ess.autocorrelation` -- see
     module docstring for why this is a reuse, not a reimplementation."""
     if max_lag < 0:
         raise ValueError(f"max_lag must be >= 0, got {max_lag}")
@@ -243,7 +243,7 @@ def local_field_response(draws: Sequence[Sequence[int]], ising, bins: int
     docstring for the gamma = beta*(b_i + sum J_ij*s_j) convention and the
     MIN_LOCAL_FIELD_BIN_COUNT honesty rule. `ising` needs only `.biases`,
     `.weights`, `.edges`, `.beta` (duck-typed against
-    tsu.passes.lower.IsingModel -- see tests/test_scope.py's _FakeIsing
+    tsu_compiler.passes.lower.IsingModel -- see tests/test_scope.py's _FakeIsing
     for the minimal shape). `draws` is (n_draws, n_spins) of 0/1
     occupancy, one row per raw physical sample (valid or not -- the field
     is a property of the raw chain, the same convention

@@ -1,0 +1,12 @@
+{
+  "energy_tv": "unavailable: 2^108 too large to enumerate",
+  "task_validity": 0.41265625,
+  "execution_tv": "unavailable: no exact reference",
+  "execution_noise_floor": "unavailable: no exact reference",
+  "cross_check_tv": "unavailable: model too large",
+  "codeword_violation_rate": 0.00734375,
+  "ess": "unavailable: N/tau=884 (N=6400, tau~=7.24) is below the reliability threshold 5000 the AR(1) validation established (see ess-report.md); chain too short/too correlated for a trustworthy estimate",
+  "diversity_distinct": 2566,
+  "diversity_valid_samples": 2641,
+  "diversity_reachable": "unavailable: 2^108 too large to enumerate"
+}

@@ -1,0 +1,12 @@
+{
+  "energy_scale": 4.0,
+  "coupling_utilisation": 0.75,
+  "precision_headroom": 8.0,
+  "beta_recommendation": [
+    0.25,
+    2.5
+  ],
+  "mixing_indicator": 0.9217827673235606,
+  "regime": "feasible",
+  "basis": "within cap; mixing not measured"
+}

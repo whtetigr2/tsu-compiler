@@ -1,0 +1,62 @@
+{
+  "verdict": "HARDWARE",
+  "ideal_passed": true,
+  "hardware_evaluated": true,
+  "allow_assumed": false,
+  "candidates": [
+    {
+      "encoding": "domain_wall",
+      "state": "HARDWARE_INFEASIBLE",
+      "reason": "a node requires 19 ports; target z1 provides 16",
+      "failure": {
+        "measured": 19,
+        "limit": 16,
+        "assumed": false,
+        "remediations": [
+          {
+            "action": "change encoding",
+            "detail": "a denser encoding may lower per-node degree"
+          },
+          {
+            "action": "relax target",
+            "detail": "target.degree >= 19"
+          }
+        ],
+        "gate": "degree",
+        "cause": "a node requires 19 ports; target z1 provides 16"
+      }
+    },
+    {
+      "encoding": "one_hot",
+      "state": "HARDWARE_INFEASIBLE",
+      "reason": "a node requires 19 ports; target z1 provides 16",
+      "failure": {
+        "measured": 19,
+        "limit": 16,
+        "assumed": false,
+        "remediations": [
+          {
+            "action": "change encoding",
+            "detail": "a denser encoding may lower per-node degree"
+          },
+          {
+            "action": "relax target",
+            "detail": "target.degree >= 19"
+          }
+        ],
+        "gate": "degree",
+        "cause": "a node requires 19 ports; target z1 provides 16"
+      }
+    }
+  ],
+  "ordering_rationale": "no candidate was hardware-feasible",
+  "pass_durations": {
+    "encode": 0.0008962100000644568,
+    "lower": 0.0007733339989499655,
+    "analyse": 14.042099546000827,
+    "gate_checks": 0.0001921479997690767
+  },
+  "coefficient_scale": 1.0,
+  "scaled_beta": 1.0,
+  "mediation": null
+}

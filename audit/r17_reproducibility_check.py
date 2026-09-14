@@ -2,7 +2,7 @@
 it should work. Two independent tests, both against the SAME real receipt
 (demo/receipts/small) this whole audit has used throughout:
 
-  TEST A: call tsu.simulate.simulate(..., seed=999, clamp={"g0_0": 0}) with
+  TEST A: call tsu_compiler.simulate.simulate(..., seed=999, clamp={"g0_0": 0}) with
   IDENTICAL arguments twice IN THE SAME PROCESS and diff the raw returned
   array + every field of the written simulation.json except the wall-clock
   timing field (which is expected to differ run to run and carries no
@@ -17,7 +17,7 @@ it should work. Two independent tests, both against the SAME real receipt
   scheduling affecting JAX's own internal dispatch order, etc.) that a
   same-process double-call could not.
 
-Never runs `tsu compile`. Foreground, one-shot.
+Never runs `tsuc compile`. Foreground, one-shot.
 
 Run with:
     PYTHONIOENCODING=utf-8 "C:/Users/whtet/AppData/Local/Python/pythoncore-3.14-64/python.exe" audit/r17_reproducibility_check.py
@@ -45,7 +45,7 @@ PARAMS = dict(n_chains=6, n_samples=3, n_warmup=600, steps_per_sample=4)
 
 
 def run_test_a():
-    from tsu.simulate import simulate
+    from tsu_compiler.simulate import simulate
     print("[TEST A] same-process double call, identical seed ...")
     _p1, got1, im1 = simulate(str(RECEIPT_DIR), seed=SEED, clamp=CLAMP, **PARAMS)
     doc1 = json.loads((RECEIPT_DIR / "simulation.json").read_text())

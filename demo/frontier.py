@@ -34,9 +34,9 @@ number back -- `verify_increment` below. Predicted and observed are always
 shown side by side; a mismatch is reported as a mismatch, not smoothed over.
 
 |J| <= 6.0 (this module reads it from the receipt's own gates.json / from
-`tsu.target.Z1.max_abs_coupling`, never hardcodes it) is an Extropic-documented
+`tsu_compiler.target.Z1.max_abs_coupling`, never hardcodes it) is an Extropic-documented
 Z1 hardware cap (Thermalizers paper, Fig. 12 cap-sweep axis annotated
-"6 (Z1)"). `tsu.target.Z1.max_abs_bias`, the |b| <= 6.0 cap, remains an
+"6 (Z1)"). `tsu_compiler.target.Z1.max_abs_bias`, the |b| <= 6.0 cap, remains an
 ASSUMED project value, not a sourced Extropic figure -- every display below
 says which is which.
 """
@@ -58,11 +58,11 @@ SRC = REPO_ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from tsu.spec import WorkloadSpec, load_spec  # noqa: E402
-from tsu.passes.encode import ONE_HOT_PENALTY, encode  # noqa: E402
-from tsu.passes.lower import lower  # noqa: E402
-from tsu.passes.analyse import GraphReport, analyse  # noqa: E402
-from tsu.target import Z1  # noqa: E402
+from tsu_compiler.spec import WorkloadSpec, load_spec  # noqa: E402
+from tsu_compiler.passes.encode import ONE_HOT_PENALTY, encode  # noqa: E402
+from tsu_compiler.passes.lower import lower  # noqa: E402
+from tsu_compiler.passes.analyse import GraphReport, analyse  # noqa: E402
+from tsu_compiler.target import Z1  # noqa: E402
 
 DEFAULT_RECEIPT_DIR = REPO_ROOT / "demo" / "receipts" / "small"
 

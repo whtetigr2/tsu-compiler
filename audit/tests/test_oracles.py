@@ -6,9 +6,9 @@ Run with the project's pinned Python 3.14 interpreter, from the repo root:
 
 These tests exercise the INDEPENDENT oracles under audit/oracles/. Per plan
 Task A4 ("The independence is the entire point"), audit/oracles/exact.py
-writes the physics from scratch and does NOT import src/tsu -- an oracle
+writes the physics from scratch and does NOT import src/tsu_compiler -- an oracle
 sharing code with the thing under test verifies nothing. This test file
-itself also never imports src/tsu.
+itself also never imports src/tsu_compiler.
 """
 from __future__ import annotations
 
@@ -70,7 +70,7 @@ def test_exact_energy_matches_hand_computation_for_aligned_and_antialigned():
 def test_exact_energy_accepts_spin_valued_state_as_well_as_occupancy():
     """The plan's convention is s in {-1,+1}; callers commonly hold a
     {0,1} occupancy vector instead (the compiler's own convention -- see
-    src/tsu/passes/lower.py's docstring, read but not imported here).
+    src/tsu_compiler/passes/lower.py's docstring, read but not imported here).
     exact_energy must treat (1, 0) [occupancy] and (1, -1) [spin] as the
     SAME physical state."""
     e_from_occupancy = exact_energy((1, 0), {(0, 1): 1.0}, [0.0, 0.0])

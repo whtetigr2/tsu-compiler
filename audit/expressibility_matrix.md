@@ -2,7 +2,7 @@
 
 Plan: `2026-09-04-lattice-rule-taxonomy.md`, Tasks 3-4. This is the plan's
 **primary output** — knowledge, not a feature. It answers, per rule class,
-"can the pairwise IR (`Linear`/`Product` only, per `src/tsu/ir.py`) express
+"can the pairwise IR (`Linear`/`Product` only, per `src/tsu_compiler/ir.py`) express
 this rule's own stated meaning, and at what cost?" — and, for the classes
 that cannot, whether an auxiliary variable rescues them.
 
@@ -41,8 +41,8 @@ workload rather than measured in isolation).
 
 **A distinction load-bearing for the whole table.** "EXACT" means the IR
 form changes no *meaning*. It does **not** mean the resulting `IsingModel`
-fits Z1's `degree <= 16` / `|J| <= 6.0` / `|b| <= 6.0` gates (`src/tsu/gates.py`,
-`src/tsu/target.py`) at whatever scale a workload happens to use, and it
+fits Z1's `degree <= 16` / `|J| <= 6.0` / `|b| <= 6.0` gates (`src/tsu_compiler/gates.py`,
+`src/tsu_compiler/target.py`) at whatever scale a workload happens to use, and it
 does **not** mean an auxiliary construction that is EXACT and gate-passing
 in ISOLATION stays gate-passing once the same construction is applied at
 every site of a real grid (see the Task 4 section's grid-scale
@@ -165,7 +165,7 @@ matching `4-N` on `{0,1,2,3}` — so no polynomial of any degree equals
 
 **Distortion, named:** N=6 is penalised exactly as hard as N=2 — "at least
 4" became "exactly 4," forbidding N=5,6,7,8 which the original rule
-permitted for free. `src/tsu/passes/expressibility.py`'s
+permitted for free. `src/tsu_compiler/passes/expressibility.py`'s
 `_one_sided_threshold` already carries this exact reasoning (Task 2); this
 row is the from-scratch re-derivation at the plan's own worked scale.
 
@@ -219,7 +219,7 @@ every other commodity's (separate `flow_prefix`), so adding a cluster
 member grows **node count** linearly (176 → 288) but leaves **max_degree
 unchanged** (6 → 6). Cluster size is therefore not a degree-gate risk on
 this substrate — it is a node-budget risk (Z1's `node_budget` gate,
-250,000, per `src/tsu/target.py`), which a modest cluster is nowhere near.
+250,000, per `src/tsu_compiler/target.py`), which a modest cluster is nowhere near.
 
 **Re: the brief's "collided with the penalty-dominance guard, capped at
 weight ≤0.2 vs. a 4.0 adjacency penalty" (corrected under I6, code
@@ -426,7 +426,7 @@ compiler's own one-hot exactly-one penalty shape.
 **Measured:** `n_nodes=3, n_edges=3, max_degree=2, bipartite=False,
 mediators=1, |J|max=2.5, |b|max=2.5`. 3+ mutually-exclusive candidates form
 a clique (K3 here) — non-bipartite, 1 mediator, the identical structural
-cost `src/tsu/passes/encode.py`'s own one-hot encoder already documents and
+cost `src/tsu_compiler/passes/encode.py`'s own one-hot encoder already documents and
 pays for a k=3 categorical.
 
 ---
@@ -495,7 +495,7 @@ recorded here explicitly so it is never later mistaken for a general proof.
 **Smallest GENERIC instance (3 edges, 4 cells, target=1):** built via a
 hand-rolled `sympy_expr` term (the same duck-typing extension point
 `tsu.passes.lower._accumulate_symbolic` already supports, used only to
-probe — not to modify `src/tsu`). `lower()` — the compiler's **own**
+probe — not to modify `src/tsu_compiler`). `lower()` — the compiler's **own**
 pairwise-degree checker — raises:
 
 ```
@@ -564,7 +564,7 @@ found, by grid search, to work on this instance; `P=5.0` used below for
 margin). This is instance-dependent — re-checked at (5 cells, target=2)
 and (6 cells, target=3): `P=4.0`–`6.0` sufficed at 5 cells, but 6 cells
 needed `P` between 6 and 8 — the same kind of dominance bound
-`src/tsu/passes/encode.py`'s own `MONOTONE_PENALTY`/`ONE_HOT_PENALTY`
+`src/tsu_compiler/passes/encode.py`'s own `MONOTONE_PENALTY`/`ONE_HOT_PENALTY`
 guards already compute for their own structural penalties, not a fixed
 constant that trivially generalises to every scale.
 
@@ -818,14 +818,14 @@ construction in a way impossibility findings cannot.
 
 **Step 4 — distribution-level cross-check against the independent oracle**
 (`audit/oracles/exact.py`'s `exact_boltzmann`/`exact_energy`, which does
-not import `src/tsu`). Both models' `(J,b)` were built via
+not import `src/tsu_compiler`). Both models' `(J,b)` were built via
 `tsu.passes.lower.lower` — already independently validated exact by Task
 3's brute-force checks (§§1,7,8,10) — and cross-checked against
 `model.energy()` before being handed to the oracle, so nothing here depends
 on trusting `lower()` blindly. (An earlier version of this check
 hand-derived `(J,b)` directly and silently mis-collected a same-spin square
 `s_i^2` as a linear bias term — exactly the "second, weaker computation"
-class of bug `src/tsu/passes/encode.py`'s own docstrings warn against. The
+class of bug `src/tsu_compiler/passes/encode.py`'s own docstrings warn against. The
 bug was caught by the same-style sanity check now baked into the script,
 not by inspection, and the script has been corrected accordingly.)
 
@@ -914,7 +914,7 @@ wanting, in the same subsection.
    share one flow-conservation-plus-capacity-gate mechanism at different
    scale; `gradient` and `climate` share one value-pair-over-an-edge
    mechanism (binary vs. categorical). This is not a flaw in the taxonomy —
-   `src/tsu/rules.py`'s own docstring is explicit that class labels are
+   `src/tsu_compiler/rules.py`'s own docstring is explicit that class labels are
    data, for human classification, and the pairwise substrate "does not
    care what a rule is called, only what its measurement computes"
    (`expressibility.py`'s docstring). It is, however, a genuine finding:

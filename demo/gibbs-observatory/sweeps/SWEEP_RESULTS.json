@@ -1,0 +1,761 @@
+{
+  "workloads": [
+    {
+      "id": "codon_opt_tiny",
+      "name": "codon_opt_tiny",
+      "yaml": "/workspace/gibbs-observatory/sweeps/workloads/codon_opt_tiny.yaml",
+      "receipt_id": "sweep_codon_opt_tiny",
+      "verdict": "COMPILED",
+      "encoding": "domain_wall",
+      "n_nodes": 18,
+      "n_mediators": 6,
+      "n_edges": 26,
+      "max_degree": 4,
+      "bipartite": true,
+      "gates_summary": "all_pass",
+      "gates": [
+        {
+          "gate": "degree",
+          "passed": true,
+          "measured": 4,
+          "limit": 16,
+          "assumed": false,
+          "downgraded": false
+        },
+        {
+          "gate": "coupling_cap",
+          "passed": true,
+          "measured": 2.8465679151921335,
+          "limit": 6.0,
+          "assumed": false,
+          "downgraded": false
+        },
+        {
+          "gate": "field_cap",
+          "passed": true,
+          "measured": 3.05,
+          "limit": 6.0,
+          "assumed": true,
+          "downgraded": false
+        },
+        {
+          "gate": "node_budget",
+          "passed": true,
+          "measured": 18,
+          "limit": 269568,
+          "assumed": false,
+          "downgraded": false
+        },
+        {
+          "gate": "colouring",
+          "passed": true,
+          "measured": null,
+          "limit": "distinct",
+          "assumed": false,
+          "downgraded": false
+        }
+      ],
+      "elapsed_s": 17.1909,
+      "errors": [],
+      "discovery_note": "Tiny codon optimization (usage + adjacent repeat); Extropic/THRML class. \u2014 COMPILED encoding=domain_wall nodes=18 mediators=6 edges=26 max_degree=4 bipartite=True",
+      "ideal_passed": true,
+      "receipt_path": "/workspace/gibbs-observatory/receipts/sweep_codon_opt_tiny",
+      "mediator_names": [
+        "__mediator_0",
+        "__mediator_1",
+        "__mediator_2",
+        "__mediator_3",
+        "__mediator_4",
+        "__mediator_5"
+      ]
+    },
+    {
+      "id": "placement_8x8_exclusion",
+      "name": "placement_8x8_exclusion",
+      "yaml": "/workspace/gibbs-observatory/sweeps/workloads/placement_8x8_exclusion.yaml",
+      "receipt_id": "sweep_placement_8x8_exclusion",
+      "verdict": "COMPILED",
+      "encoding": "domain_wall",
+      "n_nodes": 64,
+      "n_mediators": 0,
+      "n_edges": 112,
+      "max_degree": 4,
+      "bipartite": true,
+      "gates_summary": "all_pass",
+      "gates": [
+        {
+          "gate": "degree",
+          "passed": true,
+          "measured": 4,
+          "limit": 16,
+          "assumed": false,
+          "downgraded": false
+        },
+        {
+          "gate": "coupling_cap",
+          "passed": true,
+          "measured": 0.5,
+          "limit": 6.0,
+          "assumed": false,
+          "downgraded": false
+        },
+        {
+          "gate": "field_cap",
+          "passed": true,
+          "measured": 2.0,
+          "limit": 6.0,
+          "assumed": true,
+          "downgraded": false
+        },
+        {
+          "gate": "node_budget",
+          "passed": true,
+          "measured": 64,
+          "limit": 269568,
+          "assumed": false,
+          "downgraded": false
+        },
+        {
+          "gate": "colouring",
+          "passed": true,
+          "measured": null,
+          "limit": "distinct",
+          "assumed": false,
+          "downgraded": false
+        }
+      ],
+      "elapsed_s": 1.6947,
+      "errors": [],
+      "discovery_note": "Hard-core placement / keep-out on 8x8 grid. \u2014 COMPILED encoding=domain_wall nodes=64 mediators=0 edges=112 max_degree=4 bipartite=True",
+      "ideal_passed": true,
+      "receipt_path": "/workspace/gibbs-observatory/receipts/sweep_placement_8x8_exclusion",
+      "mediator_names": []
+    },
+    {
+      "id": "ilt_mask_adjacency_2x2",
+      "name": "ilt_mask_adjacency_2x2",
+      "yaml": "/workspace/gibbs-observatory/sweeps/workloads/ilt_mask_adjacency_2x2.yaml",
+      "receipt_id": "sweep_ilt_mask_adjacency_2x2",
+      "verdict": "COMPILED",
+      "encoding": "domain_wall",
+      "n_nodes": 8,
+      "n_mediators": 0,
+      "n_edges": 12,
+      "max_degree": 3,
+      "bipartite": true,
+      "gates_summary": "all_pass",
+      "gates": [
+        {
+          "gate": "degree",
+          "passed": true,
+          "measured": 3,
+          "limit": 16,
+          "assumed": false,
+          "downgraded": false
+        },
+        {
+          "gate": "coupling_cap",
+          "passed": true,
+          "measured": 2.5,
+          "limit": 6.0,
+          "assumed": false,
+          "downgraded": false
+        },
+        {
+          "gate": "field_cap",
+          "passed": true,
+          "measured": 4.5,
+          "limit": 6.0,
+          "assumed": true,
+          "downgraded": false
+        },
+        {
+          "gate": "node_budget",
+          "passed": true,
+          "measured": 8,
+          "limit": 269568,
+          "assumed": false,
+          "downgraded": false
+        },
+        {
+          "gate": "colouring",
+          "passed": true,
+          "measured": null,
+          "limit": "distinct",
+          "assumed": false,
+          "downgraded": false
+        }
+      ],
+      "elapsed_s": 1.4596,
+      "errors": [
+        "one_hot/HARDWARE_INFEASIBLE: |b|max = 7.0 exceeds 6.0 (source=assumed)"
+      ],
+      "discovery_note": "ILT/mask forbidden feature adjacency on 2x2. \u2014 COMPILED encoding=domain_wall nodes=8 mediators=0 edges=12 max_degree=3 bipartite=True",
+      "ideal_passed": true,
+      "receipt_path": "/workspace/gibbs-observatory/receipts/sweep_ilt_mask_adjacency_2x2",
+      "mediator_names": []
+    },
+    {
+      "id": "roster_shift_conflicts",
+      "name": "roster_shift_conflicts",
+      "yaml": "/workspace/gibbs-observatory/sweeps/workloads/roster_shift_conflicts.yaml",
+      "receipt_id": "sweep_roster_shift_conflicts",
+      "verdict": "COMPILED",
+      "encoding": "domain_wall",
+      "n_nodes": 5,
+      "n_mediators": 1,
+      "n_edges": 5,
+      "max_degree": 3,
+      "bipartite": true,
+      "gates_summary": "all_pass",
+      "gates": [
+        {
+          "gate": "degree",
+          "passed": true,
+          "measured": 3,
+          "limit": 16,
+          "assumed": false,
+          "downgraded": false
+        },
+        {
+          "gate": "coupling_cap",
+          "passed": true,
+          "measured": 0.8287272270765386,
+          "limit": 6.0,
+          "assumed": false,
+          "downgraded": false
+        },
+        {
+          "gate": "field_cap",
+          "passed": true,
+          "measured": 1.25,
+          "limit": 6.0,
+          "assumed": true,
+          "downgraded": false
+        },
+        {
+          "gate": "node_budget",
+          "passed": true,
+          "measured": 5,
+          "limit": 269568,
+          "assumed": false,
+          "downgraded": false
+        },
+        {
+          "gate": "colouring",
+          "passed": true,
+          "measured": null,
+          "limit": "distinct",
+          "assumed": false,
+          "downgraded": false
+        }
+      ],
+      "elapsed_s": 1.5702,
+      "errors": [],
+      "discovery_note": "Nurse/machine roster with pairwise shift conflicts. \u2014 COMPILED encoding=domain_wall nodes=5 mediators=1 edges=5 max_degree=3 bipartite=True",
+      "ideal_passed": true,
+      "receipt_path": "/workspace/gibbs-observatory/receipts/sweep_roster_shift_conflicts",
+      "mediator_names": [
+        "__mediator_0"
+      ]
+    },
+    {
+      "id": "maxcut_cycle7",
+      "name": "maxcut_cycle7",
+      "yaml": "/workspace/gibbs-observatory/sweeps/workloads/maxcut_cycle7.yaml",
+      "receipt_id": "sweep_maxcut_cycle7",
+      "verdict": "COMPILED",
+      "encoding": "domain_wall",
+      "n_nodes": 8,
+      "n_mediators": 1,
+      "n_edges": 8,
+      "max_degree": 2,
+      "bipartite": true,
+      "gates_summary": "all_pass",
+      "gates": [
+        {
+          "gate": "degree",
+          "passed": true,
+          "measured": 2,
+          "limit": 16,
+          "assumed": false,
+          "downgraded": false
+        },
+        {
+          "gate": "coupling_cap",
+          "passed": true,
+          "measured": 0.5425192509741938,
+          "limit": 6.0,
+          "assumed": false,
+          "downgraded": false
+        },
+        {
+          "gate": "field_cap",
+          "passed": true,
+          "measured": 0.5,
+          "limit": 6.0,
+          "assumed": true,
+          "downgraded": false
+        },
+        {
+          "gate": "node_budget",
+          "passed": true,
+          "measured": 8,
+          "limit": 269568,
+          "assumed": false,
+          "downgraded": false
+        },
+        {
+          "gate": "colouring",
+          "passed": true,
+          "measured": null,
+          "limit": "distinct",
+          "assumed": false,
+          "downgraded": false
+        }
+      ],
+      "elapsed_s": 0.8998,
+      "errors": [],
+      "discovery_note": "Max-Cut / network partition on odd cycle C7. \u2014 COMPILED encoding=domain_wall nodes=8 mediators=1 edges=8 max_degree=2 bipartite=True",
+      "ideal_passed": true,
+      "receipt_path": "/workspace/gibbs-observatory/receipts/sweep_maxcut_cycle7",
+      "mediator_names": [
+        "__mediator_0"
+      ]
+    },
+    {
+      "id": "mimo_detect_4",
+      "name": "mimo_detect_4",
+      "yaml": "/workspace/gibbs-observatory/sweeps/workloads/mimo_detect_4.yaml",
+      "receipt_id": "sweep_mimo_detect_4",
+      "verdict": "COMPILED",
+      "encoding": "domain_wall",
+      "n_nodes": 6,
+      "n_mediators": 2,
+      "n_edges": 8,
+      "max_degree": 3,
+      "bipartite": true,
+      "gates_summary": "all_pass",
+      "gates": [
+        {
+          "gate": "degree",
+          "passed": true,
+          "measured": 3,
+          "limit": 16,
+          "assumed": false,
+          "downgraded": false
+        },
+        {
+          "gate": "coupling_cap",
+          "passed": true,
+          "measured": 0.40692220035596194,
+          "limit": 6.0,
+          "assumed": false,
+          "downgraded": false
+        },
+        {
+          "gate": "field_cap",
+          "passed": true,
+          "measured": 0.175,
+          "limit": 6.0,
+          "assumed": true,
+          "downgraded": false
+        },
+        {
+          "gate": "node_budget",
+          "passed": true,
+          "measured": 6,
+          "limit": 269568,
+          "assumed": false,
+          "downgraded": false
+        },
+        {
+          "gate": "colouring",
+          "passed": true,
+          "measured": null,
+          "limit": "distinct",
+          "assumed": false,
+          "downgraded": false
+        }
+      ],
+      "elapsed_s": 1.1408,
+      "errors": [],
+      "discovery_note": "Tiny 4-bit MIMO ML-detection QUBO. \u2014 COMPILED encoding=domain_wall nodes=6 mediators=2 edges=8 max_degree=3 bipartite=True",
+      "ideal_passed": true,
+      "receipt_path": "/workspace/gibbs-observatory/receipts/sweep_mimo_detect_4",
+      "mediator_names": [
+        "__mediator_0",
+        "__mediator_1"
+      ]
+    },
+    {
+      "id": "floorplan_4zone",
+      "name": "floorplan_4zone",
+      "yaml": "/workspace/gibbs-observatory/sweeps/workloads/floorplan_4zone.yaml",
+      "receipt_id": "sweep_floorplan_4zone",
+      "verdict": "COMPILED",
+      "encoding": "domain_wall",
+      "n_nodes": 12,
+      "n_mediators": 4,
+      "n_edges": 20,
+      "max_degree": 5,
+      "bipartite": true,
+      "gates_summary": "all_pass",
+      "gates": [
+        {
+          "gate": "degree",
+          "passed": true,
+          "measured": 5,
+          "limit": 16,
+          "assumed": false,
+          "downgraded": false
+        },
+        {
+          "gate": "coupling_cap",
+          "passed": true,
+          "measured": 2.5,
+          "limit": 6.0,
+          "assumed": false,
+          "downgraded": false
+        },
+        {
+          "gate": "field_cap",
+          "passed": true,
+          "measured": 3.35,
+          "limit": 6.0,
+          "assumed": true,
+          "downgraded": false
+        },
+        {
+          "gate": "node_budget",
+          "passed": true,
+          "measured": 12,
+          "limit": 269568,
+          "assumed": false,
+          "downgraded": false
+        },
+        {
+          "gate": "colouring",
+          "passed": true,
+          "measured": null,
+          "limit": "distinct",
+          "assumed": false,
+          "downgraded": false
+        }
+      ],
+      "elapsed_s": 1.8212,
+      "errors": [],
+      "discovery_note": "Facility floorplan zone adjacency (4 rooms, k=3). \u2014 COMPILED encoding=domain_wall nodes=12 mediators=4 edges=20 max_degree=5 bipartite=True",
+      "ideal_passed": true,
+      "receipt_path": "/workspace/gibbs-observatory/receipts/sweep_floorplan_4zone",
+      "mediator_names": [
+        "__mediator_0",
+        "__mediator_1",
+        "__mediator_2",
+        "__mediator_3"
+      ]
+    },
+    {
+      "id": "mrf_denoise_8x8",
+      "name": "mrf_denoise_8x8",
+      "yaml": "/workspace/gibbs-observatory/sweeps/workloads/mrf_denoise_8x8.yaml",
+      "receipt_id": "sweep_mrf_denoise_8x8",
+      "verdict": "COMPILED",
+      "encoding": "domain_wall",
+      "n_nodes": 64,
+      "n_mediators": 0,
+      "n_edges": 112,
+      "max_degree": 4,
+      "bipartite": true,
+      "gates_summary": "all_pass",
+      "gates": [
+        {
+          "gate": "degree",
+          "passed": true,
+          "measured": 4,
+          "limit": 16,
+          "assumed": false,
+          "downgraded": false
+        },
+        {
+          "gate": "coupling_cap",
+          "passed": true,
+          "measured": 0.2,
+          "limit": 6.0,
+          "assumed": false,
+          "downgraded": false
+        },
+        {
+          "gate": "field_cap",
+          "passed": true,
+          "measured": 0.7999999999999999,
+          "limit": 6.0,
+          "assumed": true,
+          "downgraded": false
+        },
+        {
+          "gate": "node_budget",
+          "passed": true,
+          "measured": 64,
+          "limit": 269568,
+          "assumed": false,
+          "downgraded": false
+        },
+        {
+          "gate": "colouring",
+          "passed": true,
+          "measured": null,
+          "limit": "distinct",
+          "assumed": false,
+          "downgraded": false
+        }
+      ],
+      "elapsed_s": 1.4081,
+      "errors": [],
+      "discovery_note": "Image MRF pairwise smoothness prior 8x8. \u2014 COMPILED encoding=domain_wall nodes=64 mediators=0 edges=112 max_degree=4 bipartite=True",
+      "ideal_passed": true,
+      "receipt_path": "/workspace/gibbs-observatory/receipts/sweep_mrf_denoise_8x8",
+      "mediator_names": []
+    },
+    {
+      "id": "terrain_layout_6x6",
+      "name": "terrain_layout_6x6",
+      "yaml": "/workspace/gibbs-observatory/sweeps/workloads/terrain_layout_6x6.yaml",
+      "receipt_id": "sweep_terrain_layout_6x6",
+      "verdict": "COMPILED",
+      "encoding": "domain_wall",
+      "n_nodes": 108,
+      "n_mediators": 36,
+      "n_edges": 312,
+      "max_degree": 9,
+      "bipartite": true,
+      "gates_summary": "all_pass",
+      "gates": [
+        {
+          "gate": "degree",
+          "passed": true,
+          "measured": 9,
+          "limit": 16,
+          "assumed": false,
+          "downgraded": false
+        },
+        {
+          "gate": "coupling_cap",
+          "passed": true,
+          "measured": 2.8465679151921335,
+          "limit": 6.0,
+          "assumed": false,
+          "downgraded": false
+        },
+        {
+          "gate": "field_cap",
+          "passed": true,
+          "measured": 1.6,
+          "limit": 6.0,
+          "assumed": true,
+          "downgraded": false
+        },
+        {
+          "gate": "node_budget",
+          "passed": true,
+          "measured": 108,
+          "limit": 269568,
+          "assumed": false,
+          "downgraded": false
+        },
+        {
+          "gate": "colouring",
+          "passed": true,
+          "measured": null,
+          "limit": "distinct",
+          "assumed": false,
+          "downgraded": false
+        }
+      ],
+      "elapsed_s": 37.8426,
+      "errors": [
+        "one_hot/HARDWARE_INFEASIBLE: placement failed: placement effort exhausted"
+      ],
+      "discovery_note": "Mid-size landcover layout 6x6 k=3 (non-freeze weights). \u2014 COMPILED encoding=domain_wall nodes=108 mediators=36 edges=312 max_degree=9 bipartite=True",
+      "ideal_passed": true,
+      "receipt_path": "/workspace/gibbs-observatory/receipts/sweep_terrain_layout_6x6",
+      "mediator_names": [
+        "__mediator_0",
+        "__mediator_1",
+        "__mediator_2",
+        "__mediator_3",
+        "__mediator_4",
+        "__mediator_5",
+        "__mediator_6",
+        "__mediator_7",
+        "__mediator_8",
+        "__mediator_9",
+        "__mediator_10",
+        "__mediator_11",
+        "__mediator_12",
+        "__mediator_13",
+        "__mediator_14",
+        "__mediator_15",
+        "__mediator_16",
+        "__mediator_17",
+        "__mediator_18",
+        "__mediator_19",
+        "__mediator_20",
+        "__mediator_21",
+        "__mediator_22",
+        "__mediator_23",
+        "__mediator_24",
+        "__mediator_25",
+        "__mediator_26",
+        "__mediator_27",
+        "__mediator_28",
+        "__mediator_29",
+        "__mediator_30",
+        "__mediator_31",
+        "__mediator_32",
+        "__mediator_33",
+        "__mediator_34",
+        "__mediator_35"
+      ]
+    },
+    {
+      "id": "dense_qubo_clique20",
+      "name": "dense_qubo_clique20",
+      "yaml": "/workspace/gibbs-observatory/sweeps/workloads/dense_qubo_clique20.yaml",
+      "receipt_id": "sweep_dense_qubo_clique20",
+      "verdict": "HARDWARE",
+      "encoding": null,
+      "n_nodes": 20,
+      "n_mediators": null,
+      "n_edges": null,
+      "max_degree": 19,
+      "bipartite": null,
+      "gates_summary": "degree: measured=19 limit=16",
+      "gates": [
+        {
+          "gate": "degree",
+          "passed": false,
+          "measured": 19,
+          "limit": 16,
+          "assumed": false,
+          "downgraded": false
+        },
+        {
+          "gate": "coupling_cap",
+          "passed": true,
+          "measured": 0.25,
+          "limit": 6.0,
+          "assumed": false,
+          "downgraded": false
+        },
+        {
+          "gate": "field_cap",
+          "passed": true,
+          "measured": 4.75,
+          "limit": 6.0,
+          "assumed": true,
+          "downgraded": false
+        },
+        {
+          "gate": "node_budget",
+          "passed": true,
+          "measured": 20,
+          "limit": 269568,
+          "assumed": false,
+          "downgraded": false
+        },
+        {
+          "gate": "colouring",
+          "passed": true,
+          "measured": null,
+          "limit": "distinct",
+          "assumed": false,
+          "downgraded": false
+        }
+      ],
+      "elapsed_s": 40.4598,
+      "errors": [
+        "domain_wall/HARDWARE_INFEASIBLE: a node requires 19 ports; target z1 provides 16",
+        "one_hot/HARDWARE_INFEASIBLE: a node requires 19 ports; target z1 provides 16"
+      ],
+      "discovery_note": "Dense all-pairs QUBO \u2014 verdict=HARDWARE; gates=degree: measured=19 limit=16",
+      "ideal_passed": true,
+      "receipt_path": "/workspace/gibbs-observatory/receipts/sweep_dense_qubo_clique20",
+      "mediator_names": []
+    },
+    {
+      "id": "highk_biome_infeasible",
+      "name": "highk_biome_infeasible",
+      "yaml": "/workspace/gibbs-observatory/sweeps/workloads/highk_biome_infeasible.yaml",
+      "receipt_id": "sweep_highk_biome_infeasible",
+      "verdict": "HARDWARE",
+      "encoding": null,
+      "n_nodes": 1024,
+      "n_mediators": null,
+      "n_edges": null,
+      "max_degree": 18,
+      "bipartite": null,
+      "gates_summary": "degree: measured=18 limit=16; field_cap: measured=8.0 limit=6.0",
+      "gates": [
+        {
+          "gate": "degree",
+          "passed": false,
+          "measured": 18,
+          "limit": 16,
+          "assumed": false,
+          "downgraded": false
+        },
+        {
+          "gate": "coupling_cap",
+          "passed": true,
+          "measured": 3.5,
+          "limit": 6.0,
+          "assumed": false,
+          "downgraded": false
+        },
+        {
+          "gate": "field_cap",
+          "passed": false,
+          "measured": 8.0,
+          "limit": 6.0,
+          "assumed": true,
+          "downgraded": false
+        },
+        {
+          "gate": "node_budget",
+          "passed": true,
+          "measured": 1024,
+          "limit": 269568,
+          "assumed": false,
+          "downgraded": false
+        },
+        {
+          "gate": "colouring",
+          "passed": true,
+          "measured": null,
+          "limit": "distinct",
+          "assumed": false,
+          "downgraded": false
+        }
+      ],
+      "elapsed_s": 3.0435,
+      "errors": [
+        "domain_wall/HARDWARE_INFEASIBLE: a node requires 18 ports; target z1 provides 16",
+        "one_hot/HARDWARE_INFEASIBLE: a node requires 20 ports; target z1 provides 16"
+      ],
+      "discovery_note": "k=5 16x16 biome with over-budget partners \u2014 verdict=HARDWARE; gates=degree: measured=18 limit=16; field_cap: measured=8.0 limit=6.0",
+      "ideal_passed": true,
+      "receipt_path": "/workspace/gibbs-observatory/receipts/sweep_highk_biome_infeasible",
+      "mediator_names": []
+    }
+  ],
+  "target": "z1",
+  "honesty": "software compile only \u2014 not Extropic silicon",
+  "updated": "2026-09-14T01:04:48Z",
+  "summary": {
+    "compiled": 9,
+    "hardware_fail": 2,
+    "error": 0,
+    "total": 11
+  }
+}

@@ -11,9 +11,9 @@ trusting the existing test"):
       "codeword" (monotone non-increasing chain), not against the
       compiler's own internal logic restated.
   (3) Mediator insertion preserves the marginal: a frustrated (odd-cycle)
-      3-spin triangle, mediated via `tsu.passes.route.insert_mediators`,
+      3-spin triangle, mediated via `tsu_compiler.passes.route.insert_mediators`,
       its EXACT distribution computed via `audit.oracles.exact.
-      exact_boltzmann` (independent of src/tsu), the mediator spin summed
+      exact_boltzmann` (independent of src/tsu_compiler), the mediator spin summed
       out, and the result compared numerically against the oracle's own
       exact distribution of the UNMEDIATED 3-spin model. Two frustration
       signs (J<0 valley used by route.py's own docstring worked example,
@@ -31,11 +31,11 @@ sys.path.insert(0, str(REPO_ROOT / "audit"))
 
 import numpy as np  # noqa: E402
 
-from tsu.passes.encode import encode, _chain_names_domain_wall  # noqa: E402
-from tsu.spec import WorkloadSpec, TaskContract, Var as SpecVar, Categorical  # noqa: E402
-from tsu.passes.lower import IsingModel  # noqa: E402
-from tsu.passes.analyse import analyse  # noqa: E402
-from tsu.passes.route import insert_mediators, assert_beta_consistent, BetaMismatchError  # noqa: E402
+from tsu_compiler.passes.encode import encode, _chain_names_domain_wall  # noqa: E402
+from tsu_compiler.spec import WorkloadSpec, TaskContract, Var as SpecVar, Categorical  # noqa: E402
+from tsu_compiler.passes.lower import IsingModel  # noqa: E402
+from tsu_compiler.passes.analyse import analyse  # noqa: E402
+from tsu_compiler.passes.route import insert_mediators, assert_beta_consistent, BetaMismatchError  # noqa: E402
 
 from oracles.exact import exact_boltzmann  # noqa: E402
 

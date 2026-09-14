@@ -1,5 +1,5 @@
 import pytest
-from tsu.ir import Binary, Categorical, Var, VarRef, LinearForm, Linear, Product, EnergyModel
+from tsu_compiler.ir import Binary, Categorical, Var, VarRef, LinearForm, Linear, Product, EnergyModel
 
 
 def toy_model():

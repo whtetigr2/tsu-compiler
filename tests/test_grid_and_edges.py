@@ -10,8 +10,8 @@ import textwrap
 
 import pytest
 
-from tsu.ir import Binary, Categorical, LinearForm, Product, VarRef
-from tsu.spec import load_spec
+from tsu_compiler.ir import Binary, Categorical, LinearForm, Product, VarRef
+from tsu_compiler.spec import load_spec
 
 
 def _write(body: str) -> str:

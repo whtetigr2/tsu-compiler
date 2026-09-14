@@ -69,8 +69,8 @@ def flat_world(n: int, seed: int) -> dict:
     NO conditioning patch at all. This is the control -- same rules, same
     sampler, same size, no scale separation."""
     spec, enc, prog, report = _compile_fine_layer(n)
-    from tsu.passes.lower import lower
-    from tsu.backends.thrml_backend import sample as thrml_sample
+    from tsu_compiler.passes.lower import lower
+    from tsu_compiler.backends.thrml_backend import sample as thrml_sample
     im = lower(enc.model)
     rows = thrml_sample(prog, n_chains=6, n_samples=40, n_warmup=600,
                         steps_per_sample=4, seed=seed)

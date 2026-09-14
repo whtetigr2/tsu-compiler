@@ -1,0 +1,9 @@
+{
+  "energy_scale": "unavailable: no physical state violates the task contract",
+  "coupling_utilisation": 0.6177622347188442,
+  "precision_headroom": 0.15936876765866645,
+  "beta_recommendation": null,
+  "mixing_indicator": 1.0999240352960484,
+  "regime": "precision_limited",
+  "basis": "two distinct |J| values are closer together than one quantisation step and may become indistinguishable"
+}

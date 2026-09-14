@@ -1,0 +1,9 @@
+[
+  {
+    "construct": "clique",
+    "ir_shape": "Product per edge (direct product of the two endpoints' own occupancy indicators)",
+    "count": 190,
+    "scope": "the generated 20-node clique's 190-edge set",
+    "reason": "a clique pairs every two nodes directly, so each edge becomes one Product between their two occupancy indicators -- a single pairwise interaction needs no chain or auxiliary variable"
+  }
+]

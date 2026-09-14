@@ -1,0 +1,21 @@
+{
+  "peak_memory_bytes": null,
+  "sampler": {
+    "wall_time_s": 1.0505458869993163,
+    "samples_per_second": 6092.070874010442,
+    "params": {
+      "n_chains": 32,
+      "n_samples": 200,
+      "n_warmup": 400,
+      "steps_per_sample": 2,
+      "seed": 0
+    }
+  },
+  "baseline": {
+    "available": true,
+    "note": "",
+    "exact_wall_time_s": 0.25533390499913367,
+    "sampler_wall_time_s": 1.0505458869993163,
+    "disclaimer": "a correctness-and-cost REFERENCE only; no speed or hardware claim -- neither wall time is evidence that either approach is faster than the other"
+  }
+}

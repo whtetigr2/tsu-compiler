@@ -1,6 +1,6 @@
 # demo — a worked example, and the receipts it produced
 
-**The compiler is in [`src/tsu`](../src/tsu).** This directory is the workload
+**The compiler is in [`src/tsu_compiler`](../src/tsu_compiler).** This directory is the workload
 that was used to exercise it end to end, and the evidence that run produced.
 
 ## Why a world generator

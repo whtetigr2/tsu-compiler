@@ -5,12 +5,12 @@ import numpy as np
 import networkx as nx
 import pytest
 
-from tsu.passes.lower import IsingModel
-from tsu.passes.analyse import analyse
-from tsu.passes.program import build_program
-from tsu.passes.route import (BetaMismatchError, assert_beta_consistent,
+from tsu_compiler.passes.lower import IsingModel
+from tsu_compiler.passes.analyse import analyse
+from tsu_compiler.passes.program import build_program
+from tsu_compiler.passes.route import (BetaMismatchError, assert_beta_consistent,
                               insert_mediators)
-from tsu.backends.thrml_backend import exact_distribution
+from tsu_compiler.backends.thrml_backend import exact_distribution
 
 
 def _marginal(states, probs, keep):
@@ -92,9 +92,9 @@ def test_mediator_couplings_stay_within_the_target_cap():
 def test_mediator_coupling_is_the_one_function_insert_mediators_itself_calls():
     """WHAT THIS PINS (A-1 refactor, external review 2026-09-09): the gadget
     formula A = arccosh(exp(2*beta*|J|))/(2*beta) now lives in exactly ONE
-    place -- `tsu.passes.route.mediator_coupling` -- and `insert_mediators`
+    place -- `tsu_compiler.passes.route.mediator_coupling` -- and `insert_mediators`
     calls it rather than re-deriving the expression inline a second time.
-    `tsu.preflight.check.preflight` also calls this SAME function (see
+    `tsu_compiler.preflight.check.preflight` also calls this SAME function (see
     tests/test_preflight_check.py) to predict a non-bipartite model's
     post-mediation coupling before ever placing anything -- this project
     has been bitten before by a constant re-derived in a second place and
@@ -111,7 +111,7 @@ def test_mediator_coupling_is_the_one_function_insert_mediators_itself_calls():
     `mediator_coupling` directly on the same inputs the fixture also feeds
     `insert_mediators`, which a future accidental divergence in either
     implementation would break."""
-    from tsu.passes.route import mediator_coupling
+    from tsu_compiler.passes.route import mediator_coupling
     orig = _triangle(beta=4.0, J_value=-1.25)
     med, rep = insert_mediators(orig, analyse(orig))
     mediator_weights = [abs(w) for (u, v), w in zip(med.edges, med.weights)

@@ -5,12 +5,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from tsu.cli import main
-from tsu.spec import load_spec
-from tsu.target import Z1
-from tsu.passes.search import compile_spec
-from tsu.passes.encode import encode
-from tsu.receipt import replay, write_receipt
+from tsu_compiler.cli import main
+from tsu_compiler.spec import load_spec
+from tsu_compiler.target import Z1
+from tsu_compiler.passes.search import compile_spec
+from tsu_compiler.passes.encode import encode
+from tsu_compiler.receipt import replay, write_receipt
 
 
 def test_1_compile_produces_a_receipt(tmp_path):
@@ -32,8 +32,8 @@ def test_3_both_stacks_are_exercised_separately(tmp_path):
     handed a torx number it did not produce. torx is instead exercised directly
     on a two-node single-edge model, which IS the case the route is exact for --
     that is what proves both stacks are used, separately."""
-    from tsu.backends.torx_backend import torx_cross_check
-    from tsu.passes.lower import IsingModel
+    from tsu_compiler.backends.torx_backend import torx_cross_check
+    from tsu_compiler.passes.lower import IsingModel
 
     c = compile_spec(load_spec("specs/toy.yaml"), Z1)
     assert c.verification.energy_tv is not None, "thrml IsingEBM.energy reference missing"
@@ -73,9 +73,9 @@ def test_6c_decode_round_trips_all_twelve_states_and_validate_names_violations()
 
 
 def test_6d_regime_report_populated_and_honest_about_what_it_did_not_measure(tmp_path):
-    """toy.yaml's chain mixes fast enough (see tsu.ess/test_ess.py and
+    """toy.yaml's chain mixes fast enough (see tsu_compiler.ess/test_ess.py and
     test_verify.py) that mixing_indicator is now a REAL number, not the old
-    permanent "unmeasured" -- tsu.ess wiring means this compiler can actually
+    permanent "unmeasured" -- tsu_compiler.ess wiring means this compiler can actually
     measure it here. `energy_scale` (item 2) is likewise now a REAL number
     for a model this small: the gap between the best physical state that
     decodes to a=0,b=1,c=0 (task-valid, energy -0.5) and the best one that

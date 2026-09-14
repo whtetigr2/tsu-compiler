@@ -1,6 +1,6 @@
 from dataclasses import fields
 
-from tsu.target import Z1, IDEAL, Sourced, TargetProfile
+from tsu_compiler.target import Z1, IDEAL, Sourced, TargetProfile
 
 
 def test_z1_degree_is_sixteen_and_sourced_to_a_fact_id():

@@ -400,7 +400,7 @@ def test_worker_request_step_sets_the_event():
 
 # ---------------------------------------------------------------------------
 # RP-1: SampleWorker._run_clamped_batch is the ONLY live code path that
-# calls tsu.simulate.simulate() -- once per pin change -- against
+# calls tsu_compiler.simulate.simulate() -- once per pin change -- against
 # self.receipt.path, which in the real app is demo/receipts/small, a
 # git-tracked, frozen compile-time evidence directory. This is the
 # CALLER, not simulate() itself: it must never leave a mark on the
@@ -442,7 +442,7 @@ def test_run_clamped_batch_never_writes_inside_the_receipt_directory(tmp_path):
 # ---------------------------------------------------------------------------
 # I-2/F-R6 + F1/F-R10: the continuity-implying polyline, root cause. A
 # clamped batch flattens CLAMP_N_CHAINS independent parallel chains
-# chain-major (tsu.simulate.simulate -> sample_chains(...).reshape(-1,
+# chain-major (tsu_compiler.simulate.simulate -> sample_chains(...).reshape(-1,
 # ...)): row i belongs to chain i // n_samples, so only row i where
 # i % n_samples == 0 genuinely starts a new chain relative to the row
 # pushed immediately before it. An unclamped tick is even stricter --
@@ -600,7 +600,7 @@ def test_scope_panel_magnetization_render_call_passes_chain_breaks():
 # only possible input (self.energy_trace) is never a single Markov chain's
 # own successive draws -- it is either independent restarts (unclamped,
 # one sample per chain per tick) or independent parallel chains flattened
-# chain-major (clamped batches). tsu.ess's own module contract says a
+# chain-major (clamped batches). tsu_compiler.ess's own module contract says a
 # caller "must NOT flatten multiple chains into one series" before calling
 # its single-chain estimator. R19 found NO test anywhere calls
 # render_acf_plot with data shaped like the live app's real energy_trace --
@@ -614,12 +614,12 @@ def _app_realistic_chain_concatenated_series(tmp_path, n_ticks=30, n_chains=4):
     SampleWorker._run_unclamped_tick: N independent restarts (fresh seed,
     short warmup, one sample per chain each), concatenated end to end in
     arrival order -- never one chain's own successive draws."""
-    from tsu.passes.search import compile_spec
-    from tsu.receipt import write_receipt
-    from tsu.spec import load_spec
-    from tsu.target import Z1
-    from tsu.simulate import reconstruct_program
-    from tsu.backends.thrml_backend import sample_chains
+    from tsu_compiler.passes.search import compile_spec
+    from tsu_compiler.receipt import write_receipt
+    from tsu_compiler.spec import load_spec
+    from tsu_compiler.target import Z1
+    from tsu_compiler.simulate import reconstruct_program
+    from tsu_compiler.backends.thrml_backend import sample_chains
 
     c = compile_spec(load_spec(str(REPO_ROOT / "specs" / "toy.yaml")), Z1)
     d = write_receipt(c, tmp_path / "r")
@@ -644,9 +644,9 @@ def _app_realistic_chain_concatenated_series(tmp_path, n_ticks=30, n_chains=4):
 
 
 def test_render_acf_plot_never_calls_the_single_chain_estimator(tmp_path, monkeypatch):
-    """Before the fix, render_acf_plot called tsu.ess's single-chain
+    """Before the fix, render_acf_plot called tsu_compiler.ess's single-chain
     estimator (integrated_autocorrelation_time, and demo.scope's own
-    autocorrelation wrapper around tsu.ess.autocorrelation) directly on
+    autocorrelation wrapper around tsu_compiler.ess.autocorrelation) directly on
     this exact shape of series -- that IS finding C-1: a confident tau/ACF
     claim computed on data the estimator's own contract rules out, with
     effective_sample_size's reliability gate unreachable from this call
@@ -657,7 +657,7 @@ def test_render_acf_plot_never_calls_the_single_chain_estimator(tmp_path, monkey
 
     def _boom(*a, **k):
         raise AssertionError(
-            "render_acf_plot called tsu.ess's single-chain estimator on a "
+            "render_acf_plot called tsu_compiler.ess's single-chain estimator on a "
             "chain-concatenated series -- C-1 regression")
 
     # raising=False: the fix removes these as lattice_app-level imports
@@ -1242,7 +1242,7 @@ def test_verification_panel_receipts_mark_coupling_cap_sourced_not_assumed():
     measured/limit values (neither of which changes). field_cap stays
     assumed=true in every receipt -- it is still a genuine assumption."""
     import json
-    from tsu.target import Z1
+    from tsu_compiler.target import Z1
 
     assert Z1.is_assumed("max_abs_coupling") is False
     assert Z1.is_assumed("max_abs_bias") is True

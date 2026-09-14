@@ -1,0 +1,22 @@
+name: mimo_detect_4
+description: >
+  Tiny MIMO / multiuser detection Ising (comms class). Real problem: recover
+  a 4-bit BPSK transmit vector under a small dense channel Gram — classic
+  ML detection QUBO. Diagonal (linear) terms are matched-filter biases;
+  off-diagonal products are interference couplings. Scale kept tiny so Z1
+  compile is the question, not gigabit throughput.
+variables:
+  b0: {domain: binary}
+  b1: {domain: binary}
+  b2: {domain: binary}
+  b3: {domain: binary}
+terms:
+  - {kind: linear, form: {b0: 1.0, b1: 1.0, b2: 1.0, b3: 1.0}, weight: -0.4}
+  - {kind: product, a: {b0: 1.0}, b: {b1: 1.0}, weight: 0.6}
+  - {kind: product, a: {b0: 1.0}, b: {b2: 1.0}, weight: 0.45}
+  - {kind: product, a: {b0: 1.0}, b: {b3: 1.0}, weight: 0.25}
+  - {kind: product, a: {b1: 1.0}, b: {b2: 1.0}, weight: 0.5}
+  - {kind: product, a: {b1: 1.0}, b: {b3: 1.0}, weight: 0.35}
+  - {kind: product, a: {b2: 1.0}, b: {b3: 1.0}, weight: 0.55}
+contract:
+  validate: []

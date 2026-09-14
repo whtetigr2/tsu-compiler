@@ -1,15 +1,15 @@
 import numpy as np
 import pytest
-from tsu.spec import load_spec
-from tsu.target import Z1
-from tsu.failures import CompileError, GateFailure, PlacementFailure
-from tsu.passes import search as search_mod
-from tsu.passes.analyse import analyse
-from tsu.passes.lower import IsingModel
-from tsu.passes.place import place as real_place
-from tsu.passes.route import insert_mediators
-from tsu.passes.search import compile_spec
-from tsu.states import CandidateState
+from tsu_compiler.spec import load_spec
+from tsu_compiler.target import Z1
+from tsu_compiler.failures import CompileError, GateFailure, PlacementFailure
+from tsu_compiler.passes import search as search_mod
+from tsu_compiler.passes.analyse import analyse
+from tsu_compiler.passes.lower import IsingModel
+from tsu_compiler.passes.place import place as real_place
+from tsu_compiler.passes.route import insert_mediators
+from tsu_compiler.passes.search import compile_spec
+from tsu_compiler.states import CandidateState
 
 
 def test_toy_compiles_on_z1():
@@ -142,7 +142,7 @@ def _over_cap_mediated_placement():
                           beta=1.0, offset=0.0)
     triangle_report = analyse(triangle)
     assert not triangle_report.bipartite, "fixture assumption: a triangle is an odd cycle"
-    from tsu.gates import check_gates as _check_gates
+    from tsu_compiler.gates import check_gates as _check_gates
     assert _check_gates(triangle, triangle_report, Z1, False) == (), \
         "fixture assumption: |J|=6.0 must clear coupling_cap PRE-mediation"
     placement = real_place(triangle, triangle_report, Z1)
@@ -371,9 +371,9 @@ def test_a_genuine_gate_failure_is_still_HARDWARE_INFEASIBLE_not_COMPILER_ERROR(
     sourced Extropic figure (target.py max_abs_coupling), so a model above it
     is infeasible by a documented fact, with no exception involved anywhere."""
     import numpy as np
-    from tsu.passes.lower import IsingModel
-    from tsu.passes.analyse import analyse
-    from tsu.gates import check_gates
+    from tsu_compiler.passes.lower import IsingModel
+    from tsu_compiler.passes.analyse import analyse
+    from tsu_compiler.gates import check_gates
 
     over = IsingModel(nodes=("a", "b"), edges=((0, 1),),
                       weights=np.array([99.0]), biases=np.zeros(2),

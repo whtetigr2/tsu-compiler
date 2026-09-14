@@ -1,0 +1,15 @@
+{
+  "decoded": {
+    "item0": 1,
+    "item1": 0,
+    "item2": 1,
+    "item3": 0,
+    "item4": 1
+  },
+  "is_codeword": true,
+  "task_valid": true,
+  "violations": [],
+  "seed": 0,
+  "clamp": {},
+  "note": ""
+}

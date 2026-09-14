@@ -10,7 +10,7 @@ import sys, numpy as np
 sys.path.insert(0, "src")
 from scipy import ndimage
 from PIL import Image
-from tsu.simulate import simulate
+from tsu_compiler.simulate import simulate
 
 W = H = 8
 WATER, ROCK, GRASS = 0, 1, 2
@@ -20,10 +20,10 @@ PAL = np.array([[46, 92, 132], [124, 116, 106], [126, 158, 84]], float)
 # Reuse the compiler's OWN decode/validate path -- is_codeword, decode, and
 # contract.validate all come from tsu, not reimplemented here.
 from pathlib import Path
-from tsu.spec import load_spec
-from tsu.passes.encode import encode
-from tsu.simulate import reconstruct_program, _selected_encoding
-from tsu.backends.thrml_backend import sample as thrml_sample
+from tsu_compiler.spec import load_spec
+from tsu_compiler.passes.encode import encode
+from tsu_compiler.simulate import reconstruct_program, _selected_encoding
+from tsu_compiler.backends.thrml_backend import sample as thrml_sample
 
 R = "demo/receipts/small"
 spec = load_spec(str(Path(R) / "spec.yaml"))

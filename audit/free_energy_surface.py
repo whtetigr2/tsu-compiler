@@ -40,7 +40,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from world.fields import compile_layer
-from tsu.backends.thrml_backend import sample as thrml_sample
+from tsu_compiler.backends.thrml_backend import sample as thrml_sample
 from world.studio import KC
 
 N = 24

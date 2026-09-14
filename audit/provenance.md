@@ -60,13 +60,13 @@ confirming the three things it told me to expect (degree, `|J|` cap, `|b|` cap).
 | 25 | `n_nodes` / `n_edges` (this receipt) | 192 / 576 | **MEASURED IN SIMULATION** | `demo/receipts/small/metrics.json` |
 | 26 | compile-pass timings (`place=201.351s` etc.) | see Part 3 | **MEASURED IN SIMULATION** (this machine, this run -- explicitly NOT a hardware timing claim) | `demo/receipts/small/passes.json` |
 | 27 | `precision_headroom` / `coupling_utilisation` (regime.json) | 0.267 / 0.474 | **DERIVED FROM a PROJECT ASSUMPTION** (`coupling_bits=6`) | `demo/receipts/small/regime.json`; zero display sites (Finding P-4) |
-| 28 | domain-wall mediator gadget coupling `A = arccosh(exp(2*beta*|J|))/(2*beta)` | formula, not a single number | **DERIVED** (mathematics of the encoding, not a hardware fact) | `src/tsu/passes/lower.py:34-36` (comment) |
+| 28 | domain-wall mediator gadget coupling `A = arccosh(exp(2*beta*|J|))/(2*beta)` | formula, not a single number | **DERIVED** (mathematics of the encoding, not a hardware fact) | `src/tsu_compiler/passes/lower.py:34-36` (comment) |
 
 ---
 
 ## Part 2 -- Facts verified against primary sources, in detail
 
-### 1-4 & 7. `degree`, `offsets`, `bipartite`, `schedule`, `node_budget` -- `src/tsu/target.py:51-65`
+### 1-4 & 7. `degree`, `offsets`, `bipartite`, `schedule`, `node_budget` -- `src/tsu_compiler/target.py:51-65`
 
 ```python
 Z1 = TargetProfile(
@@ -169,7 +169,7 @@ are genuine primary sources, and I have no basis to declare one more authoritati
 the other from the documents alone (Finding P-1 states this precisely; it is a real,
 unresolved cross-document discrepancy, not a defect in this project's citation).
 
-### 5 & 6. The caps -- `src/tsu/target.py:60,62` and `src/tsu/gates.py:94-116`
+### 5 & 6. The caps -- `src/tsu_compiler/target.py:60,62` and `src/tsu_compiler/gates.py:94-116`
 
 ```python
 max_abs_coupling=Sourced(6.0, "assumed",
@@ -357,7 +357,7 @@ quantisation, not parameter *sharing*). Parked for R9, per plan.
 
 **P-1: `node_budget=250,000` is a real Extropic quote, but from a different, less precise
 document than the one carrying the die's exact pbit count, and the discrepancy is invisible
-everywhere the number is displayed.** `src/tsu/target.py:64` cites the value to `"F-15"`
+everywhere the number is displayed.** `src/tsu_compiler/target.py:64` cites the value to `"F-15"`
 with quote *"the entire chip has ~250,000 nodes"* -- I verified this is a verbatim,
 character-for-character match to `thermalizers` p.5. Separately, `billion` p.7's Fig. 05
 caption states *"The Z1 die: eight cores, 269,568 pbits, 215,904 coupling parameters..."*
@@ -383,7 +383,7 @@ which number is correct.
 **P-2: The `"F-14"`-style fact ids that back five `TargetProfile` fields are not citable
 from anywhere in this repository, even though (as verified independently in Part 2) their
 content is accurate.** `grep -rn "F-1[4-9]"` across the whole tree returns only
-`src/tsu/target.py` itself and files that echo its output (`tests/test_target.py`,
+`src/tsu_compiler/target.py` itself and files that echo its output (`tests/test_target.py`,
 `demo/receipts/*/target.json`) -- there is no `FACTS.md`, registry, comment block, or
 docstring anywhere resolving `"F-14"` to a document, page, or URL. **Concrete failure
 scenario:** a future engineer (or auditor, before this task) reading `target.py:53-64`
@@ -419,7 +419,7 @@ everywhere -- that claim about the app's own consistency was true when both caps
 equally unsourced and is now false in the specific direction of UNDERCLAIMING `\|J\|`'s
 provenance (disclaiming a fact as an assumption), which the plan calls out as the newly-
 important failure direction, the converse of every previous overclaiming finding in this
-project. **Why this cannot be a one-string fix:** `src/tsu/target.py:36-38` has exactly one
+project. **Why this cannot be a one-string fix:** `src/tsu_compiler/target.py:36-38` has exactly one
 `Sourced` field, `max_abs_coupling`, feeding BOTH `gates.py:104`'s `coupling_cap` check and
 `gates.py:112`'s `field_cap` check (`gates.py:94-96`, `cap`/`cap_assumed`/`cap_source` are
 each read once and reused for both `_magnitude_gate` calls) -- splitting the disclaimer
@@ -495,7 +495,7 @@ independently verified," per the plan's own provenance framing. Full detail (TDD
 watched failure, implementation) is in `audit/oracles/`; the numeric result of the A4
 Step 6 cross-check is:
 
-- **Local** (`audit/oracles/exact.py`, `exact_boltzmann`, independent of `src/tsu`): two
+- **Local** (`audit/oracles/exact.py`, `exact_boltzmann`, independent of `src/tsu_compiler`): two
   spins, `J={(0,1): 1.0}`, `b=[0,0]`, `beta=1.0` -- aligned/anti-aligned probability ratio
   = **`7.3890560989306495`**.
 - **Wolfram|Alpha** (`audit/oracles/wolfram.py`, `wolfram_query("N[exp(2), 12]")`, the AppID
@@ -507,4 +507,4 @@ Step 6 cross-check is:
 This is the strongest kind of confirmation available to this audit: a hand-derivable
 physical quantity (`exp(2)`, from the plan's own worked example), computed by two
 completely independent code paths -- one written from the physics with no import of
-`src/tsu`, one evaluated by a third party's own servers -- agreeing to machine precision.
+`src/tsu_compiler`, one evaluated by a third party's own servers -- agreeing to machine precision.

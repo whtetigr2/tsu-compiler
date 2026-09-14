@@ -6,9 +6,9 @@ import pytest
 
 sys.path.insert(0, "src")
 
-from tsu.passes.lower import IsingModel
-from tsu.preflight.check import Gate, PreflightReport, preflight, WARN_FRACTION
-from tsu.target import PROFILES
+from tsu_compiler.passes.lower import IsingModel
+from tsu_compiler.preflight.check import Gate, PreflightReport, preflight, WARN_FRACTION
+from tsu_compiler.target import PROFILES
 
 
 def grid(n: int, j: float = 0.4, b: float = 0.0) -> IsingModel:
@@ -111,7 +111,7 @@ def test_every_gate_carries_its_limit_and_a_note():
 
     UPDATED (F2, branch review): `limit > 0` loosened to `limit >= 0` --
     preflight now carries a delegated `colouring` gate (sourced from
-    tsu.gates.gate_checks(), which the review's own comparison table found
+    tsu_compiler.gates.gate_checks(), which the review's own comparison table found
     missing from preflight entirely), a structural binary check ("any
     violation at all fails") whose natural limit is 0, not some positive
     threshold. `limit == 0` is still fully actionable (a reader knows
@@ -133,7 +133,11 @@ def test_preflight_imports_no_sampler_at_all():
     audit/findings/R1.md."""
     import ast
     from pathlib import Path
-    tree = ast.parse(Path("src/tsu/preflight/check.py").read_text(encoding="utf-8"))
+    # Resolved from this file, not the CWD: a string path that only works
+    # from the repo root is how a package rename silently disarms a guard.
+    src = (Path(__file__).resolve().parents[1]
+           / "src" / "tsu_compiler" / "preflight" / "check.py")
+    tree = ast.parse(src.read_text(encoding="utf-8"))
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for a in node.names:
@@ -198,7 +202,7 @@ def test_a_placement_failure_carries_the_compiler_s_own_remediations():
 
 
 # ---------------------------------------------------------------------------
-# F2 (branch review): preflight's gates now DELEGATE to tsu.gates.gate_checks()
+# F2 (branch review): preflight's gates now DELEGATE to tsu_compiler.gates.gate_checks()
 # -- the same evaluation the real compile pipeline (passes/search.py) uses --
 # instead of an independent reimplementation that (a) never carried
 # target.py's `assumed` provenance, so an Extropic-documented fact
@@ -269,7 +273,7 @@ def test_a_bigbias_model_fails_on_the_assumed_bias_cap_not_a_hardware_fact():
 
 def test_preflight_gates_agree_with_gates_gate_checks_for_degree_coupling_and_bias():
     """WHAT THIS PINS: preflight's degree/max_abs_coupling/max_abs_bias
-    gates are SOURCED from tsu.gates.gate_checks() -- the same evaluation
+    gates are SOURCED from tsu_compiler.gates.gate_checks() -- the same evaluation
     the real compile pipeline uses -- not a second, independently-computed
     set of numbers that could silently drift from it (the branch review's
     own comparison table found exactly this kind of drift for
@@ -280,8 +284,8 @@ def test_preflight_gates_agree_with_gates_gate_checks_for_degree_coupling_and_bi
     exercises a FAILING gate) and checks every field gate_checks()
     computes -- measured, limit, assumed -- not just the pass/fail
     outcome."""
-    from tsu.gates import gate_checks
-    from tsu.passes.analyse import analyse
+    from tsu_compiler.gates import gate_checks
+    from tsu_compiler.passes.analyse import analyse
     model = _bigbias()
     rep = analyse(model)
     delegated = {gc.gate: gc for gc in gate_checks(model, rep, PROFILES["z1"], False)}
@@ -428,7 +432,7 @@ def test_the_predicted_mediated_coupling_gate_uses_the_models_own_beta():
 
 
 def test_the_predicted_mediated_coupling_gate_matches_route_mediator_coupling_exactly():
-    """WHAT THIS PINS: preflight DELEGATES to `tsu.passes.route.
+    """WHAT THIS PINS: preflight DELEGATES to `tsu_compiler.passes.route.
     mediator_coupling` -- the SAME function `insert_mediators` itself
     calls (see test_mediator_insertion.py) -- rather than re-deriving the
     formula a second time. Checked with bit-for-bit `==`, not
@@ -440,7 +444,7 @@ def test_the_predicted_mediated_coupling_gate_matches_route_mediator_coupling_ex
     result (e.g. a different but equivalent grouping of the same ops, which
     floating point does not guarantee agrees bit-for-bit) fails `==` even
     though it would pass a tolerance-based check."""
-    from tsu.passes.route import mediator_coupling
+    from tsu_compiler.passes.route import mediator_coupling
     model = _near_cap_triangle(j=6.0, beta=1.0)
     r = preflight(model)
     g = {x.name: x for x in r.gates}["mediated_coupling_cap"]
@@ -510,8 +514,8 @@ def test_predicted_mediated_coupling_gate_needs_no_placement_to_compute():
     `placement.mediated_ising` (rather than independently, from `ising`
     itself, before `place()` ever runs), it would be missing entirely here
     (`r.placed is False`) -- `by_gate` would KeyError."""
-    from tsu.passes.analyse import analyse
-    from tsu.passes.route import mediator_coupling
+    from tsu_compiler.passes.analyse import analyse
+    from tsu_compiler.passes.route import mediator_coupling
     n = 20
     e = [(i, j) for i in range(n) for j in range(i + 1, n)]
     im = IsingModel(nodes=tuple(f"n{i}" for i in range(n)), edges=tuple(e),
@@ -534,7 +538,7 @@ def test_a_small_model_says_nothing_about_the_connected_fabric_assumption():
     fires on every 4-spin fixture in the suite.
     PROVENANCE: Z1 is documented as 269,568 pbits in 8 cores (billion, Fig.
     05), so one core is 33,696 -- computed here from the profile, not pasted."""
-    from tsu.preflight.check import _core_nodes
+    from tsu_compiler.preflight.check import _core_nodes
     r = preflight(grid(4))
     assert r.n_spins < _core_nodes(PROFILES["z1"])
     assert r.fabric_note is None
@@ -551,7 +555,7 @@ def test_a_model_larger_than_one_core_says_its_placement_rests_on_an_assumption(
     assumption's status comes from `target.is_assumed`, not from a literal
     here. Exercised through the helper rather than by compiling a 33,697-node
     model, which would cost minutes for no extra coverage."""
-    from tsu.preflight.check import _core_nodes, _fabric_note
+    from tsu_compiler.preflight.check import _core_nodes, _fabric_note
     z1 = PROFILES["z1"]
     core = _core_nodes(z1)
     assert _fabric_note(core, z1) is None, "at exactly one core, still silent"
@@ -574,7 +578,7 @@ def test_the_coupling_note_reports_distinct_values_not_edge_count():
 
     PROVENANCE: target.coupling_parameters, sourced to the Z1T die callout;
     the edge figure to the same page's body prose. See audit/findings/R2.md."""
-    from tsu.preflight.check import _coupling_note
+    from tsu_compiler.preflight.check import _coupling_note
     im = IsingModel(nodes=("a", "b", "c", "d"), edges=((0, 1), (1, 2), (2, 3)),
                     weights=np.full(3, 0.4), biases=np.zeros(4),
                     beta=1.0, offset=0.0)
@@ -593,7 +597,7 @@ def test_the_coupling_note_is_absent_when_the_target_has_no_parameter_budget():
 
     PROVENANCE: PROFILES['ideal'].coupling_parameters is `inf`, sourced
     'control'."""
-    from tsu.preflight.check import _coupling_note
+    from tsu_compiler.preflight.check import _coupling_note
     im = IsingModel(nodes=("a", "b"), edges=((0, 1),), weights=np.array([0.4]),
                     biases=np.zeros(2), beta=1.0, offset=0.0)
     assert _coupling_note(im, PROFILES["ideal"]) == (None, None)

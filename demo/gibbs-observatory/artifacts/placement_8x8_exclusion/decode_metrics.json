@@ -1,0 +1,118 @@
+{
+  "receipt_id": "prog_placement_8x8_exclusion",
+  "honesty": "JAX/THRML software sim \u2014 not Extropic silicon. No energy/watt claims.",
+  "n_samples": 64,
+  "beta": 1.0,
+  "warmup": 120,
+  "steps_per_sample": 4,
+  "seed": 0,
+  "decode": {
+    "valid_hardcore_rate": 0.1875,
+    "exclusion_violation_rate": 0.8125,
+    "mean_edge_violations": 1.453125,
+    "mean_occupancy": 16.375,
+    "n_valid": 12,
+    "n_invalid": 52,
+    "definition": "valid iff no occupied-occupied nearest-neighbour edge (hard-core exclusion / keep-out)"
+  },
+  "receipt_sample_decode": {
+    "valid": true,
+    "n_violations": 0,
+    "occupancy": 16,
+    "density": 0.25,
+    "grid": [
+      [
+        1,
+        0,
+        0,
+        0,
+        1,
+        0,
+        1,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        1
+      ],
+      [
+        0,
+        1,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0
+      ],
+      [
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1
+      ],
+      [
+        1,
+        0,
+        1,
+        0,
+        0,
+        0,
+        1,
+        0
+      ],
+      [
+        0,
+        1,
+        0,
+        0,
+        0,
+        1,
+        0,
+        1
+      ]
+    ]
+  },
+  "compile_note": {
+    "n_nodes": 64,
+    "mediators": 0,
+    "bipartite": true,
+    "max_degree": 4,
+    "verdict": "COMPILED",
+    "fabric_tax": 1.0
+  },
+  "verification_shelf": {
+    "task_validity": 0.25296875,
+    "note": "shelf verification.json task_validity \u2248 fraction of valid hard-core layouts under longer chain"
+  }
+}

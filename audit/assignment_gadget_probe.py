@@ -57,15 +57,15 @@ Verification performed here, honestly labelled by method:
      carries the claim at this scale; the checks here corroborate it rather
      than substitute for it.
   3. The plan's own morphology scale (target=4, Moore-8 neighbourhood,
-     n=8) run through the REAL `tsu.passes.lower.lower` /
-     `tsu.passes.analyse.analyse` pipeline (not hand-rolled), measuring
+     n=8) run through the REAL `tsu_compiler.passes.lower.lower` /
+     `tsu_compiler.passes.analyse.analyse` pipeline (not hand-rolled), measuring
      n_nodes, max_degree, |J|max, |b|max against the Z1 gates.
   4. A finite-beta distribution comparison at a small tractable scale
      (target=2, n=3): the INTENDED distribution (built directly from
      max(0,target-N), no pairwise form at all), the assignment-gadget's
      marginal (aux variables summed out), and the (target-N)^2 reference's
      marginal, all via the independent oracle
-     (`audit/oracles/exact.py`, does not import `src/tsu`) -- reporting
+     (`audit/oracles/exact.py`, does not import `src/tsu_compiler`) -- reporting
      total variation distance of each against the intended distribution.
 
 Run with the project's pinned interpreter, from the repo root:
@@ -84,9 +84,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 sys.path.insert(0, str(REPO_ROOT / "audit"))
 
-from tsu.ir import Binary, EnergyModel, LinearForm, Product, Var, VarRef  # noqa: E402
-from tsu.passes.lower import lower  # noqa: E402
-from tsu.passes.analyse import analyse  # noqa: E402
+from tsu_compiler.ir import Binary, EnergyModel, LinearForm, Product, Var, VarRef  # noqa: E402
+from tsu_compiler.passes.lower import lower  # noqa: E402
+from tsu_compiler.passes.analyse import analyse  # noqa: E402
 from oracles.exact import exact_boltzmann, exact_energy  # noqa: E402
 
 P = 1.5  # penalty weight; see module docstring for why P > 1 suffices
@@ -261,7 +261,7 @@ def step3_morphology_scale_through_real_pipeline():
           f"mediators={report.mediators}")
     print(f"    max_abs_J={report.max_abs_J}  max_abs_b={report.max_abs_b}")
 
-    from tsu.target import Z1
+    from tsu_compiler.target import Z1
     gates = {
         "degree <= 16": (report.max_degree, 16, report.max_degree <= 16),
         "|J| <= 6.0": (report.max_abs_J, 6.0, report.max_abs_J <= 6.0),
@@ -441,7 +441,7 @@ def step5_grid_scale_ceiling():
           f"max_degree={report.max_degree}  bipartite={report.bipartite}")
     print(f"    max_abs_J={report.max_abs_J}  max_abs_b={report.max_abs_b}")
 
-    from tsu.target import Z1
+    from tsu_compiler.target import Z1
     gates = {
         "degree <= 16": (report.max_degree, 16, report.max_degree <= 16),
         "|J| <= 6.0": (report.max_abs_J, 6.0, report.max_abs_J <= 6.0),

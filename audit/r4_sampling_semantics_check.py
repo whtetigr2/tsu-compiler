@@ -1,6 +1,6 @@
 """R4 -- sampling semantics (plan Wave 2). Independent, EMPIRICAL
 re-verification of R-Wave 1's Critical finding C-1 (truth_table.md: the
-live SCOPE panel's tau/ACF plot runs tsu.ess's Sokal estimator over a flat
+live SCOPE panel's tau/ACF plot runs tsu_compiler.ess's Sokal estimator over a flat
 series that is not a Markov-chain trajectory), plus direct checks of the
 other named items: n_chains/n_warmup/steps_per_sample, chain persistence
 between calls, and whether successive draws are independent.
@@ -8,7 +8,7 @@ between calls, and whether successive draws are independent.
 This script does not re-read lattice_app.py's source a third time to
 reconfirm C-1 -- that was already done directly (see R4.md's own
 narrative) -- it instead REPRODUCES THE DEFECT NUMERICALLY, on real
-sampler output from the real code path (`tsu.backends.thrml_backend.
+sampler output from the real code path (`tsu_compiler.backends.thrml_backend.
 sample`/`sample_chains`, the exact functions `demo/lattice_app.py` calls
 as `thrml_sample`), so the finding rests on a live number, not just a
 reading of two docstrings.
@@ -23,12 +23,12 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 import numpy as np  # noqa: E402
 
-from tsu.ir import Binary, EnergyModel, Linear, LinearForm, Product, Var, VarRef  # noqa: E402
-from tsu.passes.lower import lower  # noqa: E402
-from tsu.passes.analyse import analyse  # noqa: E402
-from tsu.passes.program import build_program  # noqa: E402
-from tsu.backends.thrml_backend import sample as thrml_sample, sample_chains  # noqa: E402
-from tsu import ess  # noqa: E402
+from tsu_compiler.ir import Binary, EnergyModel, Linear, LinearForm, Product, Var, VarRef  # noqa: E402
+from tsu_compiler.passes.lower import lower  # noqa: E402
+from tsu_compiler.passes.analyse import analyse  # noqa: E402
+from tsu_compiler.passes.program import build_program  # noqa: E402
+from tsu_compiler.backends.thrml_backend import sample as thrml_sample, sample_chains  # noqa: E402
+from tsu_compiler import ess  # noqa: E402
 
 # A slightly bigger instance than R3/R7/R15's 3-spin one, so there is
 # enough per-chain autocorrelation structure for tau to be a meaningful
@@ -94,7 +94,7 @@ print("Each of the 6 rows came from an INDEPENDENT parallel chain (separate "
 print("\n" + "=" * 78)
 print("3. REPRODUCING C-1 NUMERICALLY: Sokal tau on a CHAIN-MAJOR-FLATTENED")
 print("   multi-chain series (what render_acf_plot actually computes) vs.")
-print("   the SAME data correctly shaped and gated (what tsu.ess demands)")
+print("   the SAME data correctly shaped and gated (what tsu_compiler.ess demands)")
 print("=" * 78)
 energy_biases = np.asarray(im.biases)
 energy_weights = np.asarray(im.weights)
@@ -114,11 +114,11 @@ chains = sample_chains(prog, n_chains=N_CHAINS, n_samples=N_SAMPLES, n_warmup=N_
 energy_per_chain = np.array([[energy_of_row(chains[c, t]) for t in range(N_SAMPLES)]
                              for c in range(N_CHAINS)])   # shape (n_chains, n_samples)
 
-# (A) CORRECT shape, exactly as tsu.ess's own contract demands and
+# (A) CORRECT shape, exactly as tsu_compiler.ess's own contract demands and
 #     demo/ess_run.py already does elsewhere in this codebase.
 correct_result = ess.effective_sample_size(energy_per_chain)
 print(f"(A) CORRECT (n_chains={N_CHAINS}, n_samples={N_SAMPLES}) shape, "
-      f"tsu.ess.effective_sample_size: reliable={correct_result.reliable} "
+      f"tsu_compiler.ess.effective_sample_size: reliable={correct_result.reliable} "
       f"ess={correct_result.ess} iat={correct_result.iat} reason={correct_result.reason!r}")
 
 # (B) render_acf_plot's OWN actual computation: chain-major-flattened into
@@ -130,13 +130,13 @@ flattened_series = energy_per_chain.reshape(-1)   # chain 0's N_SAMPLES, then ch
 iat_flat = ess.integrated_autocorrelation_time(flattened_series)
 print(f"(B) FLATTENED (chain-major, as render_acf_plot/energy_trace.ys actually "
       f"receives it) shape (1, {flattened_series.shape[0]}), "
-      f"tsu.ess.integrated_autocorrelation_time (render_acf_plot's own entry "
+      f"tsu_compiler.ess.integrated_autocorrelation_time (render_acf_plot's own entry "
       f"point -- NOT effective_sample_size, no reliability gate at all): "
       f"tau={iat_flat.tau:.4f} window={iat_flat.window} "
       f"window_saturated={iat_flat.window_saturated}")
 print(f"    render_acf_plot would print exactly this on screen: 'tau~{iat_flat.tau:.1f}' "
       f"-- a specific, confident-looking number, computed over data "
-      f"tsu.ess's own module docstring says autocorrelation is undefined for "
+      f"tsu_compiler.ess's own module docstring says autocorrelation is undefined for "
       f"(N_CHAINS={N_CHAINS} mutually independent chains concatenated end to end).")
 
 # (C) Sanity: what tau does (A)'s CORRECTLY-shaped data actually have,
@@ -195,7 +195,7 @@ print(f"  sample_chains() is a pure function of its arguments (no persisted chai
 print(f"  C-1 reproduced numerically: chain-major-flattened series yields a "
       f"specific displayed tau={iat_flat.tau:.4f} (window_saturated="
       f"{iat_flat.window_saturated}) with NO reliability gate, on data "
-      f"tsu.ess's own effective_sample_size (the gated, correct entry point) "
+      f"tsu_compiler.ess's own effective_sample_size (the gated, correct entry point) "
       f"says: reliable={correct_result.reliable}, reason={correct_result.reason!r}")
 print(f"  magnetization()/energy_histogram() independently confirmed order-invariant "
       f"(no C-1-style defect): {mag_order_independent and hist_order_independent}")

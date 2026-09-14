@@ -1,0 +1,17 @@
+{
+  "decoded": {
+    "v0": 1,
+    "v1": 0,
+    "v2": 0,
+    "v3": 0,
+    "v4": 0,
+    "v5": 1,
+    "v6": 0
+  },
+  "is_codeword": true,
+  "task_valid": true,
+  "violations": [],
+  "seed": 0,
+  "clamp": {},
+  "note": ""
+}

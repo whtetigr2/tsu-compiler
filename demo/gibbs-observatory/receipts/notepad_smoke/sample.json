@@ -1,0 +1,16 @@
+{
+  "decoded": {
+    "p0": 1,
+    "p1": 2,
+    "p2": 0,
+    "p3": 0,
+    "p4": 0,
+    "p5": 1
+  },
+  "is_codeword": true,
+  "task_valid": true,
+  "violations": [],
+  "seed": 0,
+  "clamp": {},
+  "note": ""
+}

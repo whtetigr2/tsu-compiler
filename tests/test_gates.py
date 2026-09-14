@@ -1,10 +1,10 @@
 import numpy as np
 import pytest
 
-from tsu.target import Z1, IDEAL
-from tsu.passes.lower import IsingModel
-from tsu.passes.analyse import analyse
-from tsu.gates import check_gates, gate_checks
+from tsu_compiler.target import Z1, IDEAL
+from tsu_compiler.passes.lower import IsingModel
+from tsu_compiler.passes.analyse import analyse
+from tsu_compiler.gates import check_gates, gate_checks
 
 
 def ising(n_nodes, edges, w, b=None):

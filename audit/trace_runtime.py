@@ -4,7 +4,7 @@ Import graphs lie: a module can be imported and never called, or reached only
 through a branch nobody takes. This script does NOT read the code and infer
 the call path -- it INSTRUMENTS it, using `sys.settrace`, while the app does
 exactly what a user does: one UNCLAMPED draw, then one CLAMPED draw, both
-starting from `demo.lattice_app.SampleWorker` (never `tsu compile` -- the
+starting from `demo.lattice_app.SampleWorker` (never `tsuc compile` -- the
 receipt at demo/receipts/small is loaded exactly the way `demo/lattice_app.
 main()` loads it, read-only, and the SampleWorker's own `_run_unclamped_tick`
 / `_run_clamped_batch` methods are called directly, off the Tk event loop,

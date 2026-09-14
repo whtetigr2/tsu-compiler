@@ -1,0 +1,16 @@
+[
+  {
+    "construct": "linear",
+    "ir_shape": "Linear",
+    "count": 28,
+    "scope": "",
+    "reason": ""
+  },
+  {
+    "construct": "product",
+    "ir_shape": "Product",
+    "count": 192,
+    "scope": "",
+    "reason": ""
+  }
+]

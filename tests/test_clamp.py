@@ -11,15 +11,15 @@ anywhere here -- clamping serves any spec, generic over what "variable X" means.
 import numpy as np
 import pytest
 
-from tsu.ir import Binary, Categorical, EnergyModel, Linear, LinearForm, Product, Var, VarRef
-from tsu.passes.encode import encode
-from tsu.passes.lower import lower
-from tsu.passes.analyse import analyse
-from tsu.passes.program import build_program
-from tsu.backends.thrml_backend import sample, sample_chains
-from tsu.spec import load_spec, TaskContract, WorkloadSpec
-from tsu.target import IDEAL, Z1
-from tsu.passes.search import compile_spec
+from tsu_compiler.ir import Binary, Categorical, EnergyModel, Linear, LinearForm, Product, Var, VarRef
+from tsu_compiler.passes.encode import encode
+from tsu_compiler.passes.lower import lower
+from tsu_compiler.passes.analyse import analyse
+from tsu_compiler.passes.program import build_program
+from tsu_compiler.backends.thrml_backend import sample, sample_chains
+from tsu_compiler.spec import load_spec, TaskContract, WorkloadSpec
+from tsu_compiler.target import IDEAL, Z1
+from tsu_compiler.passes.search import compile_spec
 
 
 # --------------------------------------------------------------------------
@@ -256,7 +256,7 @@ def test_compile_spec_clamp_produces_samples_that_all_honour_it():
 
 
 def test_receipt_records_which_variables_were_clamped_and_to_what(tmp_path):
-    from tsu.receipt import write_receipt
+    from tsu_compiler.receipt import write_receipt
     import json
     c = compile_spec(load_spec("specs/toy.yaml"), Z1, clamp={"a": 1})
     d = write_receipt(c, tmp_path / "r")
@@ -296,7 +296,7 @@ def test_receipt_of_an_unclamped_compile_records_an_empty_clamp(tmp_path):
     """A sample obtained under a clamp must never be mistakable for an
     unconditioned one -- the converse must hold too: an unclamped receipt must
     visibly record that NOTHING was clamped, not omit the field."""
-    from tsu.receipt import write_receipt
+    from tsu_compiler.receipt import write_receipt
     import json
     c = compile_spec(load_spec("specs/toy.yaml"), Z1)
     d = write_receipt(c, tmp_path / "r")

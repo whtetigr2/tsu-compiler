@@ -96,7 +96,7 @@ contract logic is reimplemented here."`
 
 **Actual behaviour:** confirmed live. `classify_draw`
 (`demo/lattice_app.py:1238`) calls `receipt.enc.is_codeword(bits)`
-(`src/tsu/passes/encode.py:163`), and iff that passes,
+(`src/tsu_compiler/passes/encode.py:163`), and iff that passes,
 `receipt.enc.decode(bits)` (`encode.py:131`) -- both traced exactly once
 per row processed (`audit/traces/clamped_trace.json`'s
 `in_scope_call_edges`: `classify_draw -> is_codeword` count=18,
@@ -137,7 +137,7 @@ times, and never reconciled on screen. (1) is written ONCE, by
 once, from `__init__` at `:2168` -- confirmed by `grep`: no second call
 site anywhere in the file), from `verification.json`, itself produced
 ONCE at compile time by `_verify`/`_measure_mixing`
-(`src/tsu/passes/search.py:517,494`) using FIXED
+(`src/tsu_compiler/passes/search.py:517,494`) using FIXED
 `_VERIFY_SAMPLE_PARAMS=dict(n_chains=32, n_samples=200, n_warmup=400,
 steps_per_sample=2, seed=0)` (`search.py:513-514`) -- a completely
 different sampler configuration than either live draw type uses (compare:
@@ -145,7 +145,7 @@ live unpinned `n_warmup=300`, live pinned `n_warmup=600`, both
 `steps_per_sample=4`). This panel NEVER updates again for the life of the
 session, however many draws occur. (2) is recomputed on every single
 `_handle_msg` call (`demo/lattice_app.py:3449-3511`), from `spec.contract.
-validate` (`src/tsu/spec.py:38`) run fresh on that draw's own decode --
+validate` (`src/tsu_compiler/spec.py:38`) run fresh on that draw's own decode --
 confirmed live: A1's clamped trace shows `classify_draw -> validate`
 called 16 times, once per codeword row (`audit/traces/clamped_trace.json`).
 Sanity cross-check, not a discrepancy: the receipt's frozen
@@ -178,11 +178,11 @@ but it displays beta as FIXED and states why."`
 of every `simulate(...)` call site in `demo/lattice_app.py`
 (`_run_clamped_batch:1435-1440`, `_regenerate_band_async` and the
 elevation-band paths) confirms none pass `beta=`; `simulate`'s own
-signature (`src/tsu/simulate.py:89-91`) defaults `beta: float | None =
+signature (`src/tsu_compiler/simulate.py:89-91`) defaults `beta: float | None =
 None`, and only calls `assert_beta_consistent` `if beta is not None`
 (`simulate.py:123-124`) -- so the docstring's claim that this app "never
 exercises that refusal path directly" is exactly right, and confirmed
-live: `assert_beta_consistent` (`src/tsu/passes/route.py:82`) appears 0
+live: `assert_beta_consistent` (`src/tsu_compiler/passes/route.py:82`) appears 0
 times in either trace. (b) `temperature_control_state`
 (`demo/scope.py:118-144`) returns `("fixed", reason)` iff
 `ising.mediator_nodes` is non-empty, keyed on the SAME fact
@@ -218,7 +218,7 @@ the FULL mediated model's `|J|max=2.8467` (`np.abs(program.json
 ["weights"]).max()`, verified independently) -- **2.85x larger** than the
 workload's own declared coupling, because the domain-wall mediator gadget
 coupling `A = arccosh(exp(2*beta*|J|))/(2*beta)`
-(`src/tsu/passes/lower.py`'s own comment, `:34-36`) is not bounded by the
+(`src/tsu_compiler/passes/lower.py`'s own comment, `:34-36`) is not bounded by the
 workload's own term weights. `|b|` similarly ranges `0.0..1.6`
 (`np.abs(program.json["biases"])`, mean `0.617`) over 192 world+mediator
 biases.
@@ -249,7 +249,7 @@ verified hardest, and it does NOT hold up.** `render_acf_plot` calls
 `autocorrelation(list(series), max_lag=lag_cap)`
 (`demo/lattice_app.py:1538`) and `integrated_autocorrelation_time(np.
 asarray(series, dtype=float))` (`:1539`), both of which pass straight to
-`tsu.ess`'s `_as_chains` (`src/tsu/ess.py:65-71`), which treats a 1-D
+`tsu.ess`'s `_as_chains` (`src/tsu_compiler/ess.py:65-71`), which treats a 1-D
 input as a SINGLE chain of shape `(1, N)`. But `energy_trace.ys` is NOT
 one chain's trajectory -- it is the concatenation, in arrival order, of
 draws from a sequence of INDEPENDENT restarts:
@@ -258,7 +258,7 @@ draws from a sequence of INDEPENDENT restarts:
   tick calls `thrml_sample(..., n_warmup=N_WARMUP=300, seed=self.
   seed_base + self.draw_counter)` -- a FRESH 300-step warmup from a FRESH
   `jax.random.bernoulli(0.5, ...)` uniform-random initial state
-  (`src/tsu/backends/thrml_backend.py:222-225`, "uniform-random init, NOT
+  (`src/tsu_compiler/backends/thrml_backend.py:222-225`, "uniform-random init, NOT
   hinton_init"), with a NEW seed every tick. Nothing in `thrml_backend.
   sample`/`sample_chains` persists chain state between calls -- each tick
   is a from-scratch restart, not a continuation of the previous tick's
@@ -290,7 +290,7 @@ draws from a sequence of INDEPENDENT restarts:
 `tsu.ess`'s OWN module docstring states the rule this violates in as many
 words: `"callers hand this module a plain (n_chains, n_samples) array ...
 autocorrelation is only meaningful within a chain"`
-(`src/tsu/ess.py:4-6`), and `thrml_backend.sample_chains`'s docstring
+(`src/tsu_compiler/ess.py:4-6`), and `thrml_backend.sample_chains`'s docstring
 says the same thing from the producer side: `"autocorrelation/
 effective-sample-size (tsu.ess) is meaningless across that [chain]
 boundary"` (`thrml_backend.py:187-189`). `render_acf_plot` calls the
@@ -324,10 +324,10 @@ that module's own words. See Finding C-1.
 reliability threshold 5000 the AR(1) validation established (see
 ess-report.md); chain too short/too correlated for a trustworthy
 estimate"` -- computed ONCE, at compile time, by `_measure_mixing`
-(`src/tsu/passes/search.py:494-507`) on a GENUINE unflattened `(n_chains=
+(`src/tsu_compiler/passes/search.py:494-507`) on a GENUINE unflattened `(n_chains=
 32, n_samples=200, n_spins)` array from `sample_chains`
 (`_VERIFY_SAMPLE_PARAMS`, `search.py:513-514`), through `tsu.ess.
-effective_sample_size` (`src/tsu/ess.py:189-242`) exactly as that
+effective_sample_size` (`src/tsu_compiler/ess.py:189-242`) exactly as that
 module's own docstring requires. This is the CORRECT, contract-respecting
 use of `tsu.ess` in this codebase, and it is honestly reported as
 `unavailable` rather than a manufactured number, per this project's own
@@ -444,10 +444,10 @@ leading-underscore name from another module."`
 **Actual behaviour:** `energy_of_draw(im, row)` computes `s = 2*row - 1;
 total = im.offset; total -= sum(biases[i]*s[i]); total -=
 sum(weights[k]*s[u]*s[v] for edges)` (`:1080-1086`) -- algebraically
-`E = offset - b.s - s^T J s`, matching `src/tsu/passes/lower.py:8-9`'s
+`E = offset - b.s - s^T J s`, matching `src/tsu_compiler/passes/lower.py:8-9`'s
 stated convention `"sum b s + sum J s s == -E(x)"` (i.e.
 `E = -(b.s + s^T J s) + offset`, the SAME expression). `tsu.passes.
-search._from_ising` (`src/tsu/passes/search.py`, used by `_measure_mixing`
+search._from_ising` (`src/tsu_compiler/passes/search.py`, used by `_measure_mixing`
 for the receipt's OWN frozen `ess`/mixing diagnostic) and
 `demo/ess_run.py`'s own `_energy_of` (`:83-91`) are both independently
 confirmed, by direct reading, to compute the identical arithmetic. This
@@ -524,13 +524,13 @@ classify_draw the unclamped path uses."`
 
 **Actual behaviour:** confirmed exactly by the trace.
 `_run_clamped_batch` (`demo/lattice_app.py:1426-1454`) calls `simulate()`
-(`src/tsu/simulate.py:89`) exactly once per batch
+(`src/tsu_compiler/simulate.py:89`) exactly once per batch
 (`audit/traces/clamped_trace.json`: `_run_clamped_batch -> simulate`
 count=1) with `clamp=self.clamp` (the workload-level `{"g0_0": 0}` dict
 used for this trace); `simulate()` internally calls `enc.encode_clamp`
 (via `_physical_clamp`, `simulate.py:84-86,139`), `analyse`
-(`src/tsu/passes/analyse.py:43`, count=1) and `build_program`
-(`src/tsu/passes/program.py:43`, count=1) ONLY because `clamp is not None`
+(`src/tsu_compiler/passes/analyse.py:43`, count=1) and `build_program`
+(`src/tsu_compiler/passes/program.py:43`, count=1) ONLY because `clamp is not None`
 (`simulate.py:131-141`'s branch) -- confirmed these two passes are ABSENT
 from the unclamped trace entirely (0 occurrences), matching "this worker
 never touches that machinery itself." Every clamped row IS honoured:
@@ -560,7 +560,7 @@ confident-looking `tau~X.X` number regardless.** `demo/lattice_app.py:
 `:3354`) feeds `energy_trace.ys` -- a flat history built by appending
 `energy_of_draw` once per `_handle_msg` call, `:3458` -- to `tsu.ess.
 autocorrelation`/`integrated_autocorrelation_time`
-(`src/tsu/ess.py:96-145`), both of which treat a 1-D input as ONE chain
+(`src/tsu_compiler/ess.py:96-145`), both of which treat a 1-D input as ONE chain
 (`_as_chains`, `ess.py:65-71`). This series interleaves: (a) on the
 unclamped path, draws from a NEW, independently-seeded, freshly-`n_warmup`
 -ed chain every single tick (`_run_unclamped_tick`, `:1401-1412`, fresh

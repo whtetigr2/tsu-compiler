@@ -1,17 +1,17 @@
-"""C3: `tsu explain` -- the fuller, teaching-trace rendering, one section per
-layer, kept SEPARATE from `tsu report` (which stays the terse form). Same
+"""C3: `tsuc explain` -- the fuller, teaching-trace rendering, one section per
+layer, kept SEPARATE from `tsuc report` (which stays the terse form). Same
 honesty rules as report.py: rendered from receipt data alone, never
 recomputed, never hardcoded; a field the receipt lacks prints
 `unavailable: <reason>`, never a blank/None/invented value.
 """
 import json
 
-from tsu.cli import main
-from tsu.passes.search import compile_spec
-from tsu.receipt import write_receipt
-from tsu.report import render_explain
-from tsu.spec import load_spec
-from tsu.target import IDEAL, Z1
+from tsu_compiler.cli import main
+from tsu_compiler.passes.search import compile_spec
+from tsu_compiler.receipt import write_receipt
+from tsu_compiler.report import render_explain
+from tsu_compiler.spec import load_spec
+from tsu_compiler.target import IDEAL, Z1
 
 _LAYERS = ("APPLICATION", "FORMULATION", "REPRESENTATION", "ENERGY",
           "TOPOLOGY", "PHYSICAL MAPPING", "SAMPLER", "VERIFICATION")
@@ -172,8 +172,8 @@ def test_explain_final_application_layer_shows_a_failing_sample_honestly(tmp_pat
     """When no drawn sample is both a valid codeword and task-valid, the
     layer must show the FAILING sample and its violations, not hide the
     field or fabricate a passing one."""
-    from tsu.spec import TaskContract, WorkloadSpec
-    from tsu.ir import Binary, Linear, LinearForm, Var, VarRef
+    from tsu_compiler.spec import TaskContract, WorkloadSpec
+    from tsu_compiler.ir import Binary, Linear, LinearForm, Var, VarRef
 
     a = Var("a", Binary())
     term = Linear(LinearForm({VarRef("a"): 1.0}), weight=-50.0)
@@ -217,7 +217,7 @@ def test_explain_shows_no_codeword_honestly_when_none_was_ever_drawn(tmp_path):
 def test_explain_on_a_logical_failure_reports_unavailable_layers(tmp_path):
     """broken.yaml fails the ideal control -- REPRESENTATION/ENERGY/TOPOLOGY/
     PHYSICAL MAPPING/SAMPLER/VERIFICATION must all read unavailable, never a
-    fabricated value, exactly like `tsu report`'s own LOGICAL-verdict test."""
+    fabricated value, exactly like `tsuc report`'s own LOGICAL-verdict test."""
     c = compile_spec(load_spec("specs/broken.yaml"), Z1)
     assert c.verdict == "LOGICAL"
     d = write_receipt(c, tmp_path / "r")
@@ -237,8 +237,8 @@ def test_cli_explain_subcommand_prints_the_render(tmp_path, capsys):
 
 
 def test_tsu_report_still_works_unchanged_alongside_explain(tmp_path):
-    """`tsu report` stays the terse form -- explain is additive."""
-    from tsu.report import render_report
+    """`tsuc report` stays the terse form -- explain is additive."""
+    from tsu_compiler.report import render_report
     c = compile_spec(load_spec("specs/toy.yaml"), Z1)
     d = write_receipt(c, tmp_path / "r")
     report_text = render_report(d)

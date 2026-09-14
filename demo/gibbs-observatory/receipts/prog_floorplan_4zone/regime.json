@@ -1,0 +1,12 @@
+{
+  "energy_scale": 10.0,
+  "coupling_utilisation": 0.5583333333333333,
+  "precision_headroom": 0.024012469728000124,
+  "beta_recommendation": [
+    0.1,
+    1.0
+  ],
+  "mixing_indicator": 0.9788412184519684,
+  "regime": "precision_limited",
+  "basis": "two distinct |J| values are closer together than one quantisation step and may become indistinguishable"
+}

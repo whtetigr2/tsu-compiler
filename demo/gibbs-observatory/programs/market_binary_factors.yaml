@@ -1,0 +1,44 @@
+name: market_binary_factors
+description: >
+  Small factor-graph style correlated binary assets (markets / risk class).
+  Real problem: ten binary long/short (or in/out) asset factors on a BANDED
+  correlation graph — lag-1 path plus lag-2 skips — so max degree stays ≤4
+  (well under Z1's degree-16 gate). NOT a fully connected K20 (that fails
+  HARDWARE; see dense_qubo_clique20). Mild negative linear drift + sparse
+  ferromagnetic/antiferromagnetic products encode a tiny factor model a
+  desk might hand a sampler before scaling.
+variables:
+  a0: {domain: binary}
+  a1: {domain: binary}
+  a2: {domain: binary}
+  a3: {domain: binary}
+  a4: {domain: binary}
+  a5: {domain: binary}
+  a6: {domain: binary}
+  a7: {domain: binary}
+  a8: {domain: binary}
+  a9: {domain: binary}
+terms:
+  # mild long bias
+  - {kind: linear, form: {a0: 1.0, a1: 1.0, a2: 1.0, a3: 1.0, a4: 1.0, a5: 1.0, a6: 1.0, a7: 1.0, a8: 1.0, a9: 1.0}, weight: -0.2}
+  # lag-1 band (path)
+  - {kind: product, a: {a0: 1.0}, b: {a1: 1.0}, weight: 0.55}
+  - {kind: product, a: {a1: 1.0}, b: {a2: 1.0}, weight: -0.4}
+  - {kind: product, a: {a2: 1.0}, b: {a3: 1.0}, weight: 0.5}
+  - {kind: product, a: {a3: 1.0}, b: {a4: 1.0}, weight: -0.35}
+  - {kind: product, a: {a4: 1.0}, b: {a5: 1.0}, weight: 0.45}
+  - {kind: product, a: {a5: 1.0}, b: {a6: 1.0}, weight: -0.4}
+  - {kind: product, a: {a6: 1.0}, b: {a7: 1.0}, weight: 0.5}
+  - {kind: product, a: {a7: 1.0}, b: {a8: 1.0}, weight: -0.35}
+  - {kind: product, a: {a8: 1.0}, b: {a9: 1.0}, weight: 0.45}
+  # lag-2 skips (still sparse)
+  - {kind: product, a: {a0: 1.0}, b: {a2: 1.0}, weight: 0.25}
+  - {kind: product, a: {a2: 1.0}, b: {a4: 1.0}, weight: 0.25}
+  - {kind: product, a: {a4: 1.0}, b: {a6: 1.0}, weight: 0.25}
+  - {kind: product, a: {a6: 1.0}, b: {a8: 1.0}, weight: 0.25}
+  - {kind: product, a: {a1: 1.0}, b: {a3: 1.0}, weight: -0.2}
+  - {kind: product, a: {a3: 1.0}, b: {a5: 1.0}, weight: -0.2}
+  - {kind: product, a: {a5: 1.0}, b: {a7: 1.0}, weight: -0.2}
+  - {kind: product, a: {a7: 1.0}, b: {a9: 1.0}, weight: -0.2}
+contract:
+  validate: []

@@ -39,13 +39,13 @@ sys.path.insert(0, "src")
 
 import networkx as nx
 
-from tsu.failures import CompileError
-from tsu.passes.analyse import analyse
-from tsu.passes.encode import encode
-from tsu.passes.lower import lower
-from tsu.passes.place import _try_grid_embed, place
-from tsu.spec import load_spec
-from tsu.target import PROFILES
+from tsu_compiler.failures import CompileError
+from tsu_compiler.passes.analyse import analyse
+from tsu_compiler.passes.encode import encode
+from tsu_compiler.passes.lower import lower
+from tsu_compiler.passes.place import _try_grid_embed, place
+from tsu_compiler.spec import load_spec
+from tsu_compiler.target import PROFILES
 
 # Same spec shape audit/placement_curve.py's OVL already uses: one binary
 # variable per grid cell, a single self-rule (a_value == b_value == 1) at

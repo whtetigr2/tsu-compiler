@@ -7,8 +7,8 @@ purpose: `validate_coefficient_scale` (called by `encode()`) already
 guards `coefficient_scale` (hence, transitively, the ONLY beta value the
 real `compile_spec()` pipeline can ever produce: `beta = 1.0 /
 coefficient_scale`, always finite and > 0 -- see search.py:161,391) --
-but `lower()`, `tsu.passes.route.insert_mediators`,
-`tsu.backends.thrml_backend.*`, `tsu.ess.*`, `demo.lattice_app.
+but `lower()`, `tsu_compiler.passes.route.insert_mediators`,
+`tsu_compiler.backends.thrml_backend.*`, `tsu_compiler.ess.*`, `demo.lattice_app.
 energy_of_draw` and `audit.oracles.exact.*` are ALL independently
 importable and callable with values the front door's own guard never
 reaches (a hand-edited receipt JSON, a future caller, a test, a REPL) --
@@ -37,14 +37,14 @@ sys.path.insert(0, str(REPO_ROOT / "demo"))
 
 import numpy as np  # noqa: E402
 
-from tsu.ir import Binary, EnergyModel, Linear, LinearForm, Product, Var, VarRef  # noqa: E402
-from tsu.passes.lower import lower, IsingModel  # noqa: E402
-from tsu.passes.analyse import analyse  # noqa: E402
-from tsu.passes.program import build_program  # noqa: E402
-from tsu.passes.route import insert_mediators, assert_beta_consistent, BetaMismatchError  # noqa: E402
-from tsu.backends.thrml_backend import (  # noqa: E402
+from tsu_compiler.ir import Binary, EnergyModel, Linear, LinearForm, Product, Var, VarRef  # noqa: E402
+from tsu_compiler.passes.lower import lower, IsingModel  # noqa: E402
+from tsu_compiler.passes.analyse import analyse  # noqa: E402
+from tsu_compiler.passes.program import build_program  # noqa: E402
+from tsu_compiler.passes.route import insert_mediators, assert_beta_consistent, BetaMismatchError  # noqa: E402
+from tsu_compiler.backends.thrml_backend import (  # noqa: E402
     exact_distribution, exact_conditional_distribution, sample_chains, sample)
-from tsu import ess  # noqa: E402
+from tsu_compiler import ess  # noqa: E402
 
 from oracles.exact import exact_boltzmann, exact_energy  # noqa: E402
 
@@ -85,14 +85,14 @@ print("=" * 78)
 #     distribution smoothly. thrml_backend.exact_distribution and
 #     oracle.exact_boltzmann are tried SEPARATELY (not in one combined
 #     try/except) specifically so a crash in one is never misattributed to
-#     the other -- src/tsu's own path (jax.nn.softmax, internally
+#     the other -- src/tsu_compiler's own path (jax.nn.softmax, internally
 #     max-shifted) and the audit's own oracle (bare math.exp, NOT
 #     max-shifted -- see oracles/exact.py) have materially different
 #     numerical behaviour at extreme beta, and conflating them would be
 #     exactly the kind of misattributed finding this audit exists to avoid.
 for beta in (1e-12, 1e-6, 1e6, 1e12, 1e300):
     im = simple_ising(J={(0, 1): 1.3}, b=[0.4, -0.7], beta=beta)
-    thrml_label = f"src/tsu exact_distribution (thrml/jax.nn.softmax path), beta={beta:g}"
+    thrml_label = f"src/tsu_compiler exact_distribution (thrml/jax.nn.softmax path), beta={beta:g}"
     oracle_label = f"AUDIT ORACLE exact_boltzmann (bare math.exp, no shift), beta={beta:g}"
     thrml_probs = None
     try:
@@ -112,11 +112,11 @@ for beta in (1e-12, 1e-6, 1e6, 1e12, 1e300):
         if thrml_probs is not None:
             idx = {tuple(int(x) for x in s): i for i, s in enumerate(thrml_states)}
             max_dev = max(abs(thrml_probs[idx[s]] - p) for s, p in zip(o_states, o_probs))
-            record(oracle_label, OK, f"sum(probs)={sum(o_probs):.6f}, max_dev vs src/tsu = {max_dev:.3e}")
+            record(oracle_label, OK, f"sum(probs)={sum(o_probs):.6f}, max_dev vs src/tsu_compiler = {max_dev:.3e}")
         else:
-            record(oracle_label, OK, f"sum(probs)={sum(o_probs):.6f} (src/tsu path crashed above, no cross-check possible)")
+            record(oracle_label, OK, f"sum(probs)={sum(o_probs):.6f} (src/tsu_compiler path crashed above, no cross-check possible)")
     except OverflowError as exc:
-        record(oracle_label, CRASH, f"OverflowError IN THE AUDIT'S OWN ORACLE (not src/tsu): {exc}")
+        record(oracle_label, CRASH, f"OverflowError IN THE AUDIT'S OWN ORACLE (not src/tsu_compiler): {exc}")
     except Exception as exc:
         record(oracle_label, CRASH, f"{type(exc).__name__}: {exc}")
 

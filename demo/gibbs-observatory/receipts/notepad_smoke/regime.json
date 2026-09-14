@@ -1,0 +1,12 @@
+{
+  "energy_scale": 10.993135830384269,
+  "coupling_utilisation": 0.5083333333333333,
+  "precision_headroom": 0.4666666666666665,
+  "beta_recommendation": [
+    0.09096585500527238,
+    0.9096585500527239
+  ],
+  "mixing_indicator": "unavailable: N/tau=3990 (N=6400, tau~=1.60) is below the reliability threshold 5000 the AR(1) validation established (see ess-report.md); chain too short/too correlated for a trustworthy estimate",
+  "regime": "precision_limited",
+  "basis": "two distinct |J| values are closer together than one quantisation step and may become indistinguishable"
+}

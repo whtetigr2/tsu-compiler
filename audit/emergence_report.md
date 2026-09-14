@@ -48,10 +48,10 @@ they read as smaller in scope than GRADIENT/NEIGHBOURHOOD but are no less
 honest instances of their own matrix rows.
 
 **Structural pre-check** (via `tsu.passes.analyse.analyse` on the real
-lowered model -- NOT `tsu compile`, which this task may run only once):
+lowered model -- NOT `tsuc compile`, which this task may run only once):
 n_nodes=64, n_edges=307, max_degree=12 (Z1 cap 16, margin 4), bipartite=
 False, max_abs_J=0.35 (cap 6.0), max_abs_b=0.90 (cap 6.0). Confirmed
-directly against the committed spec file by both `tsu inspect
+directly against the committed spec file by both `tsuc inspect
 specs/emergence_8x8.yaml` and a standalone `encode`/`lower`/`analyse` call
 -- both agree exactly.
 
@@ -59,7 +59,7 @@ specs/emergence_8x8.yaml` and a standalone `encode`/`lower`/`analyse` call
 
 ## Step 2 -- prediction, written BEFORE compiling
 
-Written before `tsu compile` was run. This is the pre-registration; Step 5
+Written before `tsuc compile` was run. This is the pre-registration; Step 5
 judges the actual result against this, not the other way around.
 
 **P1 (GRADIENT produces contiguous patches, not noise).** Raised cells in

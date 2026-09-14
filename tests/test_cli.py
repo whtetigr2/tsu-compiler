@@ -4,11 +4,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from tsu.cli import main, susceptibility_note, sweep_single_model
-from tsu.passes.analyse import analyse
-from tsu.passes.lower import IsingModel
-from tsu.passes.route import BetaMismatchError, insert_mediators
-from tsu.preflight.sweep import RegimeRow
+from tsu_compiler.cli import main, susceptibility_note, sweep_single_model
+from tsu_compiler.passes.analyse import analyse
+from tsu_compiler.passes.lower import IsingModel
+from tsu_compiler.passes.route import BetaMismatchError, insert_mediators
+from tsu_compiler.preflight.sweep import RegimeRow
 
 
 def _chi_row(beta_j, chi, provisional=False):
@@ -24,20 +24,20 @@ def _chi_row(beta_j, chi, provisional=False):
 
 
 def test_preflight_subcommand_writes_its_three_files_and_exits_zero(tmp_path):
-    """WHAT THIS PINS: `tsu preflight --spec ... --out ...` runs end to end
+    """WHAT THIS PINS: `tsuc preflight --spec ... --out ...` runs end to end
     through the real CLI dispatch (not just write_preflight() called
     directly) and exits 0 on a model that compiles clean.
     HOW IT FAILS: task-5-brief.md's own worked CLI example runs
-    `-m tsu.preflight.cli preflight ...` -- a module this task is explicitly
-    told NOT to create (`tsu/preflight/cli.py` would be the second entry
+    `-m tsu_compiler.preflight.cli preflight ...` -- a module this task is explicitly
+    told NOT to create (`tsu_compiler/preflight/cli.py` would be the second entry
     point + second renderer the brief calls out as the exact defect this
     plan already made once). That module does not exist and `python -m
-    tsu.preflight.cli` raises `No module named tsu.preflight.cli`; the real,
-    only entry point is `tsu.cli:main` (see pyproject.toml's console_scripts
-    entry, `tsu = "tsu.cli:main"`), exercised here the same way
+    tsu_compiler.preflight.cli` raises `No module named tsu_compiler.preflight.cli`; the real,
+    only entry point is `tsu_compiler.cli:main` (see pyproject.toml's console_scripts
+    entry, `tsu = "tsu_compiler.cli:main"`), exercised here the same way
     test_compile_then_visualize_produces_all_four_layers already exercises
     `compile`/`visualize` above.
-    PROVENANCE: pyproject.toml's own `tsu = "tsu.cli:main"` entry point."""
+    PROVENANCE: pyproject.toml's own `tsu = "tsu_compiler.cli:main"` entry point."""
     out = tmp_path / "pf"
     rc = main(["preflight", "--spec", "specs/lattice_small_8x8_k3.yaml",
                "--out", str(out)])
@@ -61,10 +61,10 @@ def _write_bigbias_edges(tmp_path):
 
 
 def test_preflight_allow_assumed_flag_downgrades_the_verdict(tmp_path):
-    """WHAT THIS PINS (F2, branch review): `tsu preflight --edges ...
+    """WHAT THIS PINS (F2, branch review): `tsuc preflight --edges ...
     --allow-assumed` downgrades a failing ASSUMED gate (max_abs_bias)
     instead of failing the whole run on it, threaded all the way from the
-    CLI flag through to tsu.gates.gate_checks()'s own `allow_assumed`
+    CLI flag through to tsu_compiler.gates.gate_checks()'s own `allow_assumed`
     parameter -- this branch shipped preflight with no such flag at all
     (compile already has one; preflight's reimplementation dropped it).
     HOW IT FAILS: a CLI with no --allow-assumed argument makes argparse
@@ -112,7 +112,7 @@ def _write_regime_edges(tmp_path, beta=0.2):
 
 
 def test_regime_subcommand_sweeps_a_single_model_and_exits_zero(tmp_path):
-    """WHAT THIS PINS: `tsu regime --edges ... --out ...` actually runs the
+    """WHAT THIS PINS: `tsuc regime --edges ... --out ...` actually runs the
     beta sweep (not the "cannot bridge the gap" placeholder this branch
     previously shipped) and writes all five of write_regime's output files,
     exiting 0. This test supersedes the old
@@ -129,7 +129,7 @@ def test_regime_subcommand_sweeps_a_single_model_and_exits_zero(tmp_path):
     degenerate `--beta-steps` ever produced an empty `couplings` list,
     which would make `sweep` return no rows and `write_regime` operate on
     an empty sequence.
-    PROVENANCE: `write_regime`'s own return value (`tsu/preflight/
+    PROVENANCE: `write_regime`'s own return value (`tsu_compiler/preflight/
     render.py`), `[regime.json, regime.png, diagnostics.png, report.md,
     provenance.json]` -- exactly the five files asserted below."""
     edges = _write_regime_edges(tmp_path)
@@ -147,7 +147,7 @@ def test_regime_subcommand_sweeps_a_single_model_and_exits_zero(tmp_path):
 
 
 def test_regime_subcommand_records_its_own_sweep_configuration(tmp_path):
-    """WHAT THIS PINS (F4, branch review): a real `tsu regime` CLI run
+    """WHAT THIS PINS (F4, branch review): a real `tsuc regime` CLI run
     writes its actual sweep configuration (seed, n_chains, n_samples,
     n_warmup, steps, max_samples, plus beta_min/beta_max/beta_steps) into
     provenance.json -- spec section 7 requires provenance.json to record
@@ -169,7 +169,7 @@ def test_regime_subcommand_records_its_own_sweep_configuration(tmp_path):
     as literals here, matching this project's own
     test_sweep_defaults_clear_the_ess_reliability_floor convention."""
     import inspect
-    from tsu.preflight.sweep import sweep as sweep_fn
+    from tsu_compiler.preflight.sweep import sweep as sweep_fn
     edges = _write_regime_edges(tmp_path)
     out = tmp_path / "rg"
     rc = main(["regime", "--edges", str(edges), "--out", str(out),
@@ -212,12 +212,12 @@ def _write_grid_edges(tmp_path, n=3, j=1.0, beta=0.2):
 
 
 def test_regime_json_onsager_note_applies_on_a_real_uniform_square_lattice(tmp_path):
-    """WHAT THIS PINS (F1, branch review): a real `tsu regime` CLI run on a
+    """WHAT THIS PINS (F1, branch review): a real `tsuc regime` CLI run on a
     3x3 uniform, zero-field, open square lattice -- via the same
-    `--edges`/`load_model` -> `sweep_single_model` path every `tsu regime`
+    `--edges`/`load_model` -> `sweep_single_model` path every `tsuc regime`
     invocation uses -- writes `regime.json["onsager_kc"]` as Onsager's
     exact constant and `onsager_note` stating it applies, NOT the false
-    "not applicable to this graph" every `tsu regime` run printed before
+    "not applicable to this graph" every `tsuc regime` run printed before
     this fix (the branch review's own grep found no test anywhere reading
     this exact field; this is a full CLI-level version of that check,
     complementing test_preflight_regime.py's direct
@@ -267,7 +267,7 @@ def test_regime_refuses_a_mediated_model_without_sampling(tmp_path, monkeypatch)
     frustrated triangle `tests/test_mediator_insertion.py` already uses to
     verify mediation is exact -- reused here rather than hand-constructing
     a `mediator_nodes` tuple, per the task brief's own instruction."""
-    import tsu.preflight.sweep as sweep_mod
+    import tsu_compiler.preflight.sweep as sweep_mod
 
     def boom(*a, **k):
         raise AssertionError(
@@ -295,7 +295,7 @@ def test_regime_report_explains_why_no_binder_crossing_was_computed(tmp_path):
     -- it requires a size family, which a single `--spec`/`--edges` model
     cannot provide -- not just that `binder_crossing` is null. It also ties
     the ABSENT usable band to that same fact (the band's lower edge IS the
-    crossing -- see `tsu.preflight.sweep.usable_band`), rather than
+    crossing -- see `tsu_compiler.preflight.sweep.usable_band`), rather than
     reporting "no crossing" and "no usable band" as two apparently
     independent, contradictory-looking limitations a few lines apart. This
     is what a real coordinator review caught: running `regime` on a
@@ -330,7 +330,7 @@ def test_regime_report_explains_why_no_binder_crossing_was_computed(tmp_path):
     PROVENANCE: the task brief's own required statement ("locating the
     transition by finite-size scaling requires a size family, which a
     single --spec/--edges model cannot provide") and
-    `tsu.preflight.sweep.crossing`'s own docstring, which needs two sizes'
+    `tsu_compiler.preflight.sweep.crossing`'s own docstring, which needs two sizes'
     Binder curves to find where they cross; `usable_band`'s own docstring
     for the lower-edge-is-the-crossing design and the 1D ring finding."""
     edges = _write_regime_edges(tmp_path)
@@ -369,7 +369,7 @@ def test_susceptibility_note_does_not_claim_a_peak_for_monotonic_chi():
     actionable, unlike a location that was never actually observed.
 
     Fixture values are the REAL numbers from a coordinator's live run of
-    `tsu regime --edges` on a 16-node 1D Ising ring (chi = 0.46, 0.619,
+    `tsuc regime --edges` on a 16-node 1D Ising ring (chi = 0.46, 0.619,
     0.836, 1.11 at beta*J = 0.1, 0.267, 0.433, 0.6) -- not invented, so
     this pins the exact live defect that was found, not a hypothetical.
     HOW IT FAILS: `susceptibility_note` calling
@@ -379,7 +379,7 @@ def test_susceptibility_note_does_not_claim_a_peak_for_monotonic_chi():
     the exact live defect a coordinator review caught in report.md
     ("The susceptibility peaks at beta*J = 0.6 (chi = 1.11)").
     PROVENANCE: the coordinator's own reported chi/beta_j values from a
-    real `tsu regime --edges` run on a 16-node ring."""
+    real `tsuc regime --edges` run on a 16-node ring."""
     rows = [_chi_row(0.1, 0.46), _chi_row(0.267, 0.619),
             _chi_row(0.433, 0.836), _chi_row(0.6, 1.11)]
     text = susceptibility_note(rows)
@@ -489,7 +489,7 @@ def test_inspect_never_prints_the_uncomputed_mediators_sentinel(tmp_path, capsys
 # ---------------------------------------------------------------------------
 
 def test_preflight_with_neither_spec_nor_edges_exits_cleanly(tmp_path, capsys):
-    """WHAT THIS PINS: `tsu preflight --out ...` with NEITHER --spec NOR
+    """WHAT THIS PINS: `tsuc preflight --out ...` with NEITHER --spec NOR
     --edges exits with a clean, non-zero return code and an informative
     stderr message -- not an unhandled Python traceback.
     HOW IT FAILS: `cli.py`'s preflight dispatch calling
@@ -506,7 +506,7 @@ def test_preflight_with_neither_spec_nor_edges_exits_cleanly(tmp_path, capsys):
 
 
 def test_regime_with_neither_spec_nor_edges_exits_cleanly(tmp_path, capsys):
-    """Complementary case for `tsu regime`."""
+    """Complementary case for `tsuc regime`."""
     out = tmp_path / "rg"
     rc = main(["regime", "--out", str(out)])
     assert rc == 2

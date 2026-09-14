@@ -7,12 +7,12 @@ import json
 
 import pytest
 
-from tsu.cli import main
-from tsu.passes.search import compile_spec
-from tsu.receipt import write_receipt
-from tsu.report import render_report
-from tsu.spec import load_spec
-from tsu.target import Z1
+from tsu_compiler.cli import main
+from tsu_compiler.passes.search import compile_spec
+from tsu_compiler.receipt import write_receipt
+from tsu_compiler.report import render_report
+from tsu_compiler.spec import load_spec
+from tsu_compiler.target import Z1
 
 
 def test_a_compiled_receipt_renders_all_sections_with_real_numbers(tmp_path):
@@ -66,7 +66,7 @@ def test_diversity_prints_the_real_measurement_now_that_something_computes_it(tm
 
 def test_ess_and_mixing_print_the_real_measurement_when_the_chain_supports_it(tmp_path):
     """toy.yaml's compiled chain mixes fast enough (tau ~ 0.9 -- see
-    tests/test_verify.py and tests/test_ess.py) that tsu.ess's reliability
+    tests/test_verify.py and tests/test_ess.py) that tsu_compiler.ess's reliability
     threshold is cleared: ESS/Mixing must now print REAL numbers sourced from
     the receipt (verification.json's `ess`, regime.json's `mixing_indicator`),
     not the old permanent placeholder -- that placeholder was honest only
@@ -88,20 +88,20 @@ def test_ess_and_mixing_print_the_real_measurement_when_the_chain_supports_it(tm
 
 def test_ess_and_mixing_print_unavailable_with_a_reason_when_the_chain_is_too_short(
         tmp_path, monkeypatch):
-    """The other honest half: when tsu.ess itself decides a chain is too
+    """The other honest half: when tsu_compiler.ess itself decides a chain is too
     short/too correlated to trust (see test_ess.py's validity-domain tests),
     the report must print `unavailable: <reason>`, never a fabricated number.
-    Forcing this end-to-end (not just at the tsu.ess unit level) proves the
+    Forcing this end-to-end (not just at the tsu_compiler.ess unit level) proves the
     wiring -- search.py, Verification, RegimeReport, report.py -- actually
     propagates a None-with-reason result all the way to the rendered text,
     rather than only the happy path ever being exercised."""
     import numpy as np
-    from tsu.backends import thrml_backend
+    from tsu_compiler.backends import thrml_backend
 
     real_sample_chains = thrml_backend.sample_chains
 
     def fake_sample_chains(prog, n_chains, n_samples, n_warmup, steps_per_sample, seed):
-        # A short, strongly autocorrelated chain: N/tau is far below tsu.ess's
+        # A short, strongly autocorrelated chain: N/tau is far below tsu_compiler.ess's
         # reliability threshold no matter what the real program mixes like.
         real = real_sample_chains(
             prog, n_chains, n_samples, n_warmup, steps_per_sample, seed)

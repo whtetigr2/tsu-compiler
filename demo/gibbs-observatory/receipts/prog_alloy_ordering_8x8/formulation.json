@@ -1,0 +1,23 @@
+[
+  {
+    "construct": "product_over_edges",
+    "ir_shape": "Product per edge (both orientations)",
+    "count": 224,
+    "scope": "the spec's 112-edge generated set",
+    "reason": "a pairwise value constraint between two connected variables becomes a Product of their two value-indicator linear forms -- one indicator per side of the edge, so the shape stays pairwise regardless of either variable's own domain size"
+  },
+  {
+    "construct": "product_over_edges",
+    "ir_shape": "Product per edge (both orientations)",
+    "count": 224,
+    "scope": "the spec's 112-edge generated set",
+    "reason": "a pairwise value constraint between two connected variables becomes a Product of their two value-indicator linear forms -- one indicator per side of the edge, so the shape stays pairwise regardless of either variable's own domain size"
+  },
+  {
+    "construct": "product_over_edges",
+    "ir_shape": "Product per edge (both orientations)",
+    "count": 224,
+    "scope": "the spec's 112-edge generated set",
+    "reason": "a pairwise value constraint between two connected variables becomes a Product of their two value-indicator linear forms -- one indicator per side of the edge, so the shape stays pairwise regardless of either variable's own domain size"
+  }
+]

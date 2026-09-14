@@ -2,9 +2,9 @@
 COMPILED `emergence_8x8` receipt and measure whether the four rules built
 into `specs/emergence_8x8.yaml` produce recognisable structure or noise.
 
-This does NOT call `tsu compile` -- the task's own budget allows exactly
+This does NOT call `tsuc compile` -- the task's own budget allows exactly
 one compile, already spent (`audit/receipts/emergence_8x8`). It calls
-`tsu.simulate.simulate` (a cheap re-sample of the already-compiled physical
+`tsu_compiler.simulate.simulate` (a cheap re-sample of the already-compiled physical
 program -- see that module's own docstring on why this never re-derives
 the energy model), then decodes EVERY draw itself (not just `simulate`'s
 own single `decoded_example`) so this script can measure density, spatial
@@ -33,9 +33,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from tsu.passes.encode import encode
-from tsu.simulate import _selected_encoding, simulate
-from tsu.spec import load_spec
+from tsu_compiler.passes.encode import encode
+from tsu_compiler.simulate import _selected_encoding, simulate
+from tsu_compiler.spec import load_spec
 
 RECEIPT_DIR = REPO_ROOT / "audit" / "receipts" / "emergence_8x8"
 RENDER_PATH = REPO_ROOT / "audit" / "receipts" / "emergence_8x8" / "worlds.png"

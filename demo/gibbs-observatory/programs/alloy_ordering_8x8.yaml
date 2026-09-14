@@ -1,0 +1,20 @@
+name: alloy_ordering_8x8
+description: >
+  Original Observatory gift — binary alloy / metallurgy Distribution Lab
+  (not Extropic codon). Bragg–Williams / Ising ordering alloy on an 8×8
+  square lattice: site 0 = atom A (e.g. Cu), site 1 = atom B (e.g. Zn).
+  Antiferromagnetic nearest-neighbour preference for unlike neighbours
+  drives CuZn-style checkerboard order. Utility = configurational sampling
+  for alloy order / phase design. JAX/THRML software sim only — not Extropic
+  silicon; no energy/watt claims.
+generate:
+  kind: grid
+  width: 8
+  height: 8
+  variable_domain: {domain: binary}
+terms:
+  # Same-same costly → ordering (unlike preferred)
+  - {kind: product_over_edges, a_value: 0, b_value: 0, weight: 0.45}
+  - {kind: product_over_edges, a_value: 1, b_value: 1, weight: 0.45}
+  # Mild unlike reward (tune soft to avoid freeze)
+  - {kind: product_over_edges, a_value: 0, b_value: 1, weight: -0.20}

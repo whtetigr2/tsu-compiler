@@ -1,0 +1,34 @@
+[
+  {
+    "encoding": "domain_wall",
+    "state": "HARDWARE_INFEASIBLE",
+    "reason": "a node requires 19 ports; target z1 provides 16",
+    "logical_spins": 20,
+    "logical_edges": 190,
+    "bipartite": false,
+    "mediators": 90,
+    "physical_pbits": null,
+    "colour_blocks": 20,
+    "max_abs_J": 0.25,
+    "max_abs_b": 4.75,
+    "mediators_inserted": null,
+    "mediation_method": null,
+    "mediation_beta": null
+  },
+  {
+    "encoding": "one_hot",
+    "state": "HARDWARE_INFEASIBLE",
+    "reason": "a node requires 19 ports; target z1 provides 16",
+    "logical_spins": 20,
+    "logical_edges": 190,
+    "bipartite": false,
+    "mediators": 90,
+    "physical_pbits": null,
+    "colour_blocks": 20,
+    "max_abs_J": 0.25,
+    "max_abs_b": 4.75,
+    "mediators_inserted": null,
+    "mediation_method": null,
+    "mediation_beta": null
+  }
+]

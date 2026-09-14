@@ -1,4 +1,4 @@
-"""Item 3: `tsu simulate` -- compile once, sample many.
+"""Item 3: `tsuc simulate` -- compile once, sample many.
 
 Reconstructs the SamplingProgram straight from a receipt's own program.json
 (nodes/edges/weights/biases/beta/offset, verbatim) and samples it with fresh
@@ -9,14 +9,14 @@ import json
 import numpy as np
 import pytest
 
-from tsu.cli import main
-from tsu.spec import load_spec
-from tsu.target import Z1
-from tsu.passes.search import compile_spec
-from tsu.backends.thrml_backend import exact_conditional_distribution, sample_chains
-from tsu.passes.verify import tv_noise_floor
-from tsu.receipt import write_receipt
-from tsu.simulate import reconstruct_program, simulate
+from tsu_compiler.cli import main
+from tsu_compiler.spec import load_spec
+from tsu_compiler.target import Z1
+from tsu_compiler.passes.search import compile_spec
+from tsu_compiler.backends.thrml_backend import exact_conditional_distribution, sample_chains
+from tsu_compiler.passes.verify import tv_noise_floor
+from tsu_compiler.receipt import write_receipt
+from tsu_compiler.simulate import reconstruct_program, simulate
 
 
 def _toy_receipt(tmp_path):
@@ -52,7 +52,7 @@ def test_simulate_never_calls_compile_spec(tmp_path, monkeypatch):
     def _boom(*a, **k):
         raise AssertionError("compile_spec was called -- simulate() recompiled")
 
-    import tsu.passes.search as search_mod
+    import tsu_compiler.passes.search as search_mod
     monkeypatch.setattr(search_mod, "compile_spec", _boom)
 
     path, got, im = simulate(d, n_chains=2, n_samples=5, n_warmup=20, seed=0)

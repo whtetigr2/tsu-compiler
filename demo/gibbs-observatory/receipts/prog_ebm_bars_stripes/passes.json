@@ -1,0 +1,35 @@
+{
+  "verdict": "COMPILED",
+  "ideal_passed": true,
+  "hardware_evaluated": true,
+  "allow_assumed": false,
+  "candidates": [
+    {
+      "encoding": "domain_wall",
+      "state": "SELECTED",
+      "reason": null,
+      "failure": null
+    },
+    {
+      "encoding": "one_hot",
+      "state": "VIABLE_NOT_SELECTED",
+      "reason": "not selected: domain_wall ranked ahead of one_hot under selection order: physical p-bit count, then colour blocks, then |J|max; ties broken by declaration order (domain_wall, one_hot)",
+      "failure": null
+    }
+  ],
+  "ordering_rationale": "selection order: physical p-bit count, then colour blocks, then |J|max; ties broken by declaration order (domain_wall, one_hot)",
+  "pass_durations": {
+    "encode": 0.0005017469957238063,
+    "lower": 0.0006344299981719814,
+    "analyse": 0.00021476999972946942,
+    "gate_checks": 4.67610007035546e-05,
+    "place": 0.048578537003777456,
+    "route": 2.2940002963878214e-06,
+    "build_program": 6.898200081195682e-05,
+    "regime": 0.00018437800463289022,
+    "verify": 2.7478102000022773
+  },
+  "coefficient_scale": 1.0,
+  "scaled_beta": 1.0,
+  "mediation": null
+}

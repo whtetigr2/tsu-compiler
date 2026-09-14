@@ -1,0 +1,217 @@
+{
+  "target": "z1",
+  "honesty": "software compile + THRML sim only \u2014 not Extropic silicon",
+  "updated": "2026-09-14T02:30:00Z",
+  "summary": {
+    "compiled": 17,
+    "hardware": 0,
+    "error": 0,
+    "total": 17
+  },
+  "programs": [
+    {
+      "id": "alloy_ordering_8x8",
+      "title": "Binary ordering alloy 8\u00d78 (CuZn-style)",
+      "domain": "metallurgy / Distribution Lab",
+      "verdict": "COMPILED",
+      "n_nodes": 64,
+      "mediators": 0,
+      "receipt_id": "prog_alloy_ordering_8x8",
+      "yaml": "programs/alloy_ordering_8x8.yaml",
+      "why_z1_owner_cares": "Original Observatory gift \u2014 Bragg\u2013Williams ordering alloy; decode to m_s / SRO / gallery. Not Extropic codon.",
+      "flagship": true
+    },
+    {
+      "id": "number_partition",
+      "title": "Number partition ({1,3,4,5,7,8})",
+      "domain": "finance / scheduling",
+      "verdict": "COMPILED",
+      "n_nodes": 12,
+      "mediators": 6,
+      "receipt_id": "prog_number_partition",
+      "yaml": "programs/number_partition.yaml",
+      "why_z1_owner_cares": "Textbook Ising partition \u2014 same math as load-balance and long/short splits."
+    },
+    {
+      "id": "knapsack_tiny",
+      "title": "Tiny 0/1 knapsack (capacity 7)",
+      "domain": "resource allocation",
+      "verdict": "COMPILED",
+      "n_nodes": 9,
+      "mediators": 4,
+      "receipt_id": "prog_knapsack_tiny",
+      "yaml": "programs/knapsack_tiny.yaml",
+      "why_z1_owner_cares": "Value vs capacity soft-QUBO \u2014 the resource-allocation template before MIP."
+    },
+    {
+      "id": "jobshop_tiny",
+      "title": "Job-shop lite (3 jobs \u00d7 2 machines)",
+      "domain": "manufacturing / scheduling",
+      "verdict": "COMPILED",
+      "n_nodes": 8,
+      "mediators": 2,
+      "receipt_id": "prog_jobshop_tiny",
+      "yaml": "programs/jobshop_tiny.yaml",
+      "why_z1_owner_cares": "Shop-floor assignment + contention \u2014 roster grammar on a factory floor."
+    },
+    {
+      "id": "ecology_lotka_lite",
+      "title": "Competitive ecology 4\u00d74 (two types)",
+      "domain": "ecology / Extropic",
+      "verdict": "COMPILED",
+      "n_nodes": 16,
+      "mediators": 0,
+      "receipt_id": "prog_ecology_lotka_lite",
+      "yaml": "programs/ecology_lotka_lite.yaml",
+      "why_z1_owner_cares": "Extropic ecology vibe as Ising spins \u2014 exclusion + clumping, no Torx needed."
+    },
+    {
+      "id": "market_binary_factors",
+      "title": "Banded binary market factors (10 assets)",
+      "domain": "markets / risk",
+      "verdict": "COMPILED",
+      "n_nodes": 14,
+      "mediators": 4,
+      "receipt_id": "prog_market_binary_factors",
+      "yaml": "programs/market_binary_factors.yaml",
+      "why_z1_owner_cares": "Sparse factor graph (degree\u226a16) \u2014 the honest alternative to dense K20."
+    },
+    {
+      "id": "seq_design_longer",
+      "title": "Codon / SEQ design (8 positions, k=3)",
+      "domain": "biotech / Extropic SEQ",
+      "verdict": "COMPILED",
+      "n_nodes": 32,
+      "mediators": 8,
+      "receipt_id": "prog_seq_design_longer",
+      "yaml": "programs/seq_design_longer.yaml",
+      "why_z1_owner_cares": "Scale-up of codon_opt_tiny \u2014 longer CDS fragment still fits Z1."
+    },
+    {
+      "id": "sat_3tiny",
+      "title": "Tiny 3-SAT (Rosenberg auxiliaries)",
+      "domain": "logic / verification",
+      "verdict": "COMPILED",
+      "n_nodes": 11,
+      "mediators": 4,
+      "receipt_id": "prog_sat_3tiny",
+      "yaml": "programs/sat_3tiny.yaml",
+      "why_z1_owner_cares": "3-SAT as pairwise QUBO with honest cubic reduction \u2014 logic on the sampler."
+    },
+    {
+      "id": "codon_opt_tiny",
+      "title": "Codon optimization tiny (6 AA, k=3)",
+      "domain": "biotech / Extropic SEQ",
+      "verdict": "COMPILED",
+      "n_nodes": 18,
+      "mediators": 6,
+      "receipt_id": "prog_codon_opt_tiny",
+      "yaml": "programs/codon_opt_tiny.yaml",
+      "why_z1_owner_cares": "Extropic/THRML codon_opt class \u2014 usage + adjacent-pair, Z1-ready."
+    },
+    {
+      "id": "placement_8x8_exclusion",
+      "title": "Hard-core placement 8\u00d78",
+      "domain": "placement / packing",
+      "verdict": "COMPILED",
+      "n_nodes": 64,
+      "mediators": 0,
+      "receipt_id": "prog_placement_8x8_exclusion",
+      "yaml": "programs/placement_8x8_exclusion.yaml",
+      "why_z1_owner_cares": "Keep-out / packing lattice \u2014 Placement Lab class, bipartite degree 4."
+    },
+    {
+      "id": "ilt_mask_adjacency_2x2",
+      "title": "ILT / mask adjacency 2\u00d72 (k=3)",
+      "domain": "lithography / OPC",
+      "verdict": "COMPILED",
+      "n_nodes": 8,
+      "mediators": 0,
+      "receipt_id": "prog_ilt_mask_adjacency_2x2",
+      "yaml": "programs/ilt_mask_adjacency_2x2.yaml",
+      "why_z1_owner_cares": "Forbidden feature abutments \u2014 the ILT rule-deck grammar on Z1."
+    },
+    {
+      "id": "roster_shift_conflicts",
+      "title": "Roster / shift conflicts",
+      "domain": "scheduling / HR",
+      "verdict": "COMPILED",
+      "n_nodes": 5,
+      "mediators": 1,
+      "receipt_id": "prog_roster_shift_conflicts",
+      "yaml": "programs/roster_shift_conflicts.yaml",
+      "why_z1_owner_cares": "Nurse/machine double-booking \u2014 smallest mediated scheduling demo."
+    },
+    {
+      "id": "maxcut_cycle7",
+      "title": "Max-Cut on C7",
+      "domain": "combinatorial / network",
+      "verdict": "COMPILED",
+      "n_nodes": 8,
+      "mediators": 1,
+      "receipt_id": "prog_maxcut_cycle7",
+      "yaml": "programs/maxcut_cycle7.yaml",
+      "why_z1_owner_cares": "Odd-cycle Max-Cut \u2014 mediators appear when the coupling graph needs bipartiteness."
+    },
+    {
+      "id": "mimo_detect_4",
+      "title": "4-bit MIMO ML detection",
+      "domain": "comms / signal",
+      "verdict": "COMPILED",
+      "n_nodes": 6,
+      "mediators": 2,
+      "receipt_id": "prog_mimo_detect_4",
+      "yaml": "programs/mimo_detect_4.yaml",
+      "why_z1_owner_cares": "Tiny ML-detection QUBO \u2014 matched-filter bias + interference couplings."
+    },
+    {
+      "id": "floorplan_4zone",
+      "title": "Floorplan 4 zones (k=3)",
+      "domain": "facilities / layout",
+      "verdict": "COMPILED",
+      "n_nodes": 12,
+      "mediators": 4,
+      "receipt_id": "prog_floorplan_4zone",
+      "yaml": "programs/floorplan_4zone.yaml",
+      "why_z1_owner_cares": "Room-function adjacency preferences \u2014 facilities engineer ask, sampler answer."
+    },
+    {
+      "id": "mrf_denoise_8x8",
+      "title": "Image MRF denoise prior 8\u00d78",
+      "domain": "vision / MRF",
+      "verdict": "COMPILED",
+      "n_nodes": 64,
+      "mediators": 0,
+      "receipt_id": "prog_mrf_denoise_8x8",
+      "yaml": "programs/mrf_denoise_8x8.yaml",
+      "why_z1_owner_cares": "Pairwise smoothness prior \u2014 vision workload after you attach data unaries offline."
+    },
+    {
+      "id": "terrain_layout_6x6",
+      "title": "Terrain / landcover 6\u00d76 (k=3)",
+      "domain": "GIS / generative layout",
+      "verdict": "COMPILED",
+      "n_nodes": 108,
+      "mediators": 36,
+      "receipt_id": "prog_terrain_layout_6x6",
+      "yaml": "programs/terrain_layout_6x6.yaml",
+      "why_z1_owner_cares": "Mid-size landcover with water\u2260rock forbid \u2014 heavier mediated lattice, still COMPILED."
+    },
+    {
+      "id": "ebm_bars_stripes",
+      "receipt_id": "prog_ebm_bars_stripes",
+      "yaml": "ebm_bars_stripes.yaml",
+      "verdict": "COMPILED",
+      "n_nodes": 28,
+      "mediators": 0,
+      "title": "EBM bars-and-stripes RBM 4\u00d74",
+      "role": "first_ai_demo",
+      "description": "Trained RBM (16v+12h V\u2194H); pairwise failed; train\u2192compile\u2192EBM Lab",
+      "grid": null,
+      "n_edges": 192,
+      "max_degree": 16,
+      "bipartite": true
+    }
+  ],
+  "flagship": "alloy_ordering_8x8"
+}

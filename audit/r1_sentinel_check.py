@@ -38,9 +38,9 @@ those copies. This script therefore imports route/place/search/torx_backend/
 thrml_backend explicitly FIRST, patches EVERY namespace holding a copy of
 each target function (the defining module AND every re-importing module),
 and only THEN imports `lattice_app` -- so lattice_app's own
-`from tsu.backends.thrml_backend import sample as thrml_sample` (its only
+`from tsu_compiler.backends.thrml_backend import sample as thrml_sample` (its only
 top-level import of a target symbol) picks up the WRAPPED function.
-`tsu.simulate.simulate` and `tsu.passes.search._verify` both import their
+`tsu_compiler.simulate.simulate` and `tsu_compiler.passes.search._verify` both import their
 sampler / torx_cross_check via a LOCAL import statement INSIDE the function
 body (`from .backends.thrml_backend import sample_chains`,
 `from ..backends.torx_backend import torx_cross_check`) -- those re-resolve
@@ -49,7 +49,7 @@ attribute is sufficient for them regardless of import order.
 
 Run with:
     PYTHONIOENCODING=utf-8 "C:/Users/whtet/AppData/Local/Python/pythoncore-3.14-64/python.exe" audit/r1_sentinel_check.py
-from the repo root. Never runs `tsu compile`; never starts a Tk mainloop.
+from the repo root. Never runs `tsuc compile`; never starts a Tk mainloop.
 """
 from __future__ import annotations
 
@@ -127,11 +127,11 @@ def main() -> None:
     # patch every namespace that holds a copy of a target symbol -- see
     # module docstring's IMPORT-ORDER CAUTION.
     # ------------------------------------------------------------------
-    import tsu.passes.route as route_mod
-    import tsu.passes.place as place_mod
-    import tsu.passes.search as search_mod
-    import tsu.backends.torx_backend as torx_backend_mod
-    import tsu.backends.thrml_backend as thrml_backend_mod
+    import tsu_compiler.passes.route as route_mod
+    import tsu_compiler.passes.place as place_mod
+    import tsu_compiler.passes.search as search_mod
+    import tsu_compiler.backends.torx_backend as torx_backend_mod
+    import tsu_compiler.backends.thrml_backend as thrml_backend_mod
     import torx  # the real, installed torx package
     import torx.psc as torx_psc
 
@@ -159,7 +159,7 @@ def main() -> None:
 
     # The sampler itself -- independent capture of real call-site kwargs.
     # param_names matches thrml_backend.py's own signature order exactly
-    # (read from source, src/tsu/backends/thrml_backend.py:181,232) so a
+    # (read from source, src/tsu_compiler/backends/thrml_backend.py:181,232) so a
     # POSITIONAL call is captured by name just as accurately as a keyword
     # one.
     _sample_params = ("prog", "n_chains", "n_samples", "n_warmup",
@@ -171,7 +171,7 @@ def main() -> None:
 
     # ------------------------------------------------------------------
     # Step 2: NOW import lattice_app -- its own
-    # `from tsu.backends.thrml_backend import sample as thrml_sample`
+    # `from tsu_compiler.backends.thrml_backend import sample as thrml_sample`
     # executes here, AFTER the patch, so it binds the WRAPPED function.
     # ------------------------------------------------------------------
     from lattice_app import Receipt, SampleWorker, RECEIPT_DIR  # noqa: E402

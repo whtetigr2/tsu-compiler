@@ -1,7 +1,7 @@
 import pytest
-from tsu.spec import load_spec, WorkloadSpec, TaskContract
-from tsu.passes.encode import encode
-from tsu.ir import Binary, Categorical, Linear, LinearForm, Product, Var, VarRef
+from tsu_compiler.spec import load_spec, WorkloadSpec, TaskContract
+from tsu_compiler.passes.encode import encode
+from tsu_compiler.ir import Binary, Categorical, Linear, LinearForm, Product, Var, VarRef
 
 
 def test_categorical_expands_to_k_minus_one_binary_spins():
@@ -32,7 +32,7 @@ def test_energy_is_preserved_across_the_encoding():
     zero on legal states."""
     s = load_spec("specs/toy.yaml")
     enc = encode(s)
-    from tsu.ir import EnergyModel
+    from tsu_compiler.ir import EnergyModel
     logical = EnergyModel(s.variables, s.terms, 1.0)
     for asg in s.assignments():
         bits = enc.encode_assignment(asg)

@@ -7,10 +7,10 @@ layer's mediated beta is) rests on bipartiteness, so this test pins it.
 """
 import sys
 
-from tsu.spec import load_spec
-from tsu.passes.encode import encode
-from tsu.passes.lower import lower
-from tsu.passes.analyse import analyse
+from tsu_compiler.spec import load_spec
+from tsu_compiler.passes.encode import encode
+from tsu_compiler.passes.lower import lower
+from tsu_compiler.passes.analyse import analyse
 
 sys.path.insert(0, "demo")
 

@@ -1,11 +1,11 @@
 import numpy as np
 import pytest
 
-from tsu.target import Z1, IDEAL
-from tsu.passes.lower import IsingModel
-from tsu.passes.analyse import analyse
-from tsu.passes.place import place
-from tsu.failures import CompileError
+from tsu_compiler.target import Z1, IDEAL
+from tsu_compiler.passes.lower import IsingModel
+from tsu_compiler.passes.analyse import analyse
+from tsu_compiler.passes.place import place
+from tsu_compiler.failures import CompileError
 
 
 def ising(n, edges, w=None):
@@ -63,10 +63,10 @@ def test_parity_conflict_is_still_raised_when_mediation_itself_cannot_fix_it():
     checks this rather than assuming it (spec 5.3.6), and that check must
     still classify the failure as `parity_conflict` with a routable
     remediation, exactly as before Task 6, if it is ever hit."""
-    import tsu.passes.place as place_mod
-    from tsu.passes.route import MediationReport
+    import tsu_compiler.passes.place as place_mod
+    from tsu_compiler.passes.route import MediationReport
 
-    from tsu.passes.route import insert_mediators as real_insert_mediators
+    from tsu_compiler.passes.route import insert_mediators as real_insert_mediators
 
     def _broken_insert_mediators(ising, report):
         med, rep = real_insert_mediators(ising, report)
@@ -163,7 +163,7 @@ def test_a_large_odd_ring_beyond_exact_maxcut_is_mediated_and_places_cleanly():
     `test_parity_conflict_is_still_raised_when_mediation_itself_cannot_fix_it`
     for the (now defensive-only) I5 sentinel-safety check that test used to
     exercise via this same graph."""
-    from tsu.passes.analyse import MAXCUT_EXACT_LIMIT
+    from tsu_compiler.passes.analyse import MAXCUT_EXACT_LIMIT
 
     n = MAXCUT_EXACT_LIMIT + 5
     edges = [(i, (i + 1) % n) for i in range(n)]
@@ -188,11 +188,11 @@ def test_parity_conflict_remediation_never_publishes_the_uncomputed_sentinel():
     so the failing-mediation path is forced here the same way that test
     forces it, on the same 25-node odd ring the original review found this
     on."""
-    import tsu.passes.place as place_mod
-    from tsu.passes.analyse import MAXCUT_EXACT_LIMIT
-    from tsu.passes.route import MediationReport
+    import tsu_compiler.passes.place as place_mod
+    from tsu_compiler.passes.analyse import MAXCUT_EXACT_LIMIT
+    from tsu_compiler.passes.route import MediationReport
 
-    from tsu.passes.route import insert_mediators as real_insert_mediators
+    from tsu_compiler.passes.route import insert_mediators as real_insert_mediators
 
     def _broken_insert_mediators(ising, report):
         med, rep = real_insert_mediators(ising, report)

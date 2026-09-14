@@ -1,0 +1,37 @@
+name: codon_opt_tiny
+description: >
+  Tiny codon-optimization Thermodynamic Program (Extropic / THRML codon_opt
+  class). Real problem: choose synonymous DNA codons for a short peptide so
+  host codon-usage is preferred and adjacent codon pairs avoid long nucleotide
+  runs (manufacturing / expression). Full paper also has a GC-content term;
+  this tiny instance keeps usage (unary) + adjacent-pair (pairwise) only.
+
+  Peptide fragment: six amino-acid positions with a TRUNCATED synonym table
+  (top-3 synonymous choices, k=3) so the instance stays inside Z1 field/degree
+  gates — honest scale-down of SEQ-style codon design, not a game puzzle.
+  Positions map to a designed CDS fragment (indices = synonym ranks 0..2).
+  Negative linear weights prefer the host's favorite synonym (index 0);
+  positive product weights discourage bad adjacent synonym pairs (repeat-like).
+variables:
+  p0: {domain: categorical, k: 3}
+  p1: {domain: categorical, k: 3}
+  p2: {domain: categorical, k: 3}
+  p3: {domain: categorical, k: 3}
+  p4: {domain: categorical, k: 3}
+  p5: {domain: categorical, k: 3}
+terms:
+  # usage: prefer synonym 0 mildly at each site (linear occupancy of indicator)
+  - {kind: linear, form: {"p0=0": 1.0, "p1=0": 1.0, "p2=0": 1.0, "p3=0": 1.0, "p4=0": 1.0, "p5=0": 1.0}, weight: -0.4}
+  # mild penalty on rare synonym 2
+  - {kind: linear, form: {"p0=2": 1.0, "p1=2": 1.0, "p2=2": 1.0, "p3=2": 1.0, "p4=2": 1.0, "p5=2": 1.0}, weight: 0.3}
+  # adjacent-pair repeat-like penalties (subset of bad pairs)
+  - {kind: product, a: {"p0=2": 1.0}, b: {"p1=2": 1.0}, weight: 0.8}
+  - {kind: product, a: {"p1=2": 1.0}, b: {"p2=2": 1.0}, weight: 0.8}
+  - {kind: product, a: {"p2=2": 1.0}, b: {"p3=2": 1.0}, weight: 0.8}
+  - {kind: product, a: {"p3=2": 1.0}, b: {"p4=2": 1.0}, weight: 0.8}
+  - {kind: product, a: {"p4=2": 1.0}, b: {"p5=2": 1.0}, weight: 0.8}
+  - {kind: product, a: {"p0=1": 1.0}, b: {"p1=1": 1.0}, weight: 0.35}
+  - {kind: product, a: {"p2=1": 1.0}, b: {"p3=1": 1.0}, weight: 0.35}
+  - {kind: product, a: {"p4=1": 1.0}, b: {"p5=1": 1.0}, weight: 0.35}
+contract:
+  validate: []

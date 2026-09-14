@@ -2,12 +2,12 @@ import itertools
 import numpy as np
 import pytest
 
-from tsu.ir import Binary, EnergyModel, Linear, LinearForm, Product, Var, VarRef
-from tsu.passes.lower import lower
-from tsu.passes.analyse import analyse
-from tsu.passes.program import build_program
-from tsu.backends.thrml_backend import exact_distribution, sample, sample_chains
-from tsu.backends.torx_backend import torx_cross_check
+from tsu_compiler.ir import Binary, EnergyModel, Linear, LinearForm, Product, Var, VarRef
+from tsu_compiler.passes.lower import lower
+from tsu_compiler.passes.analyse import analyse
+from tsu_compiler.passes.program import build_program
+from tsu_compiler.backends.thrml_backend import exact_distribution, sample, sample_chains
+from tsu_compiler.backends.torx_backend import torx_cross_check
 
 
 def two_spin_program(w=2.0, bias_a=0.7):
@@ -78,7 +78,7 @@ def test_torx_cross_check_refuses_multi_edge_models_with_a_reason():
     """Composing PISING across edges is a Trotter splitting; saying so beats
     returning a number that cannot be defended."""
     import numpy as _np
-    from tsu.passes.lower import IsingModel
+    from tsu_compiler.passes.lower import IsingModel
     three = IsingModel(("a", "b", "c"), ((0, 1), (1, 2)),
                        _np.array([1.0, 1.0]), _np.zeros(3), 1.0, 0.0)
     tx, note = torx_cross_check(three)
@@ -128,7 +128,7 @@ def test_sampling_handles_a_zero_edge_model_instead_of_raising():
 
 
 def test_sample_chains_returns_the_unflattened_per_chain_shape():
-    """Autocorrelation (see tsu.ess) is meaningless across a chain boundary --
+    """Autocorrelation (see tsu_compiler.ess) is meaningless across a chain boundary --
     `sample`'s (n_chains*n_samples, n_spins) contract flattens that boundary
     away on purpose for callers that only want i.i.d.-looking draws.
     `sample_chains` is the SEPARATE function that keeps chains apart, added
@@ -167,8 +167,8 @@ def test_every_chain_gets_its_own_random_key():
     as independent: Gelman-Rubin R-hat would read sqrt((n-1)/n) forever and
     never flag a divergence no matter how badly the chains disagreed, and ESS
     would be overestimated by a factor of n_chains, making every error bar too
-    small by sqrt(n_chains). Both are the numbers tsu.ess and
-    tsu.preflight.diagnostics exist to make honest.
+    small by sqrt(n_chains). Both are the numbers tsu_compiler.ess and
+    tsu_compiler.preflight.diagnostics exist to make honest.
 
     Each trajectory here is 50 samples x 2 spins = 100 bits, so two genuinely
     independent chains colliding is negligible; measured, this returns 8 of 8

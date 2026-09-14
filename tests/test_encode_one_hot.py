@@ -6,9 +6,9 @@ protected by the SAME dominance guard domain_wall uses.
 """
 import pytest
 
-from tsu.ir import Binary, EnergyModel, Linear, LinearForm, Product, Var, VarRef
-from tsu.passes.encode import encode
-from tsu.spec import TaskContract, WorkloadSpec, load_spec
+from tsu_compiler.ir import Binary, EnergyModel, Linear, LinearForm, Product, Var, VarRef
+from tsu_compiler.passes.encode import encode
+from tsu_compiler.spec import TaskContract, WorkloadSpec, load_spec
 
 
 def test_categorical_expands_to_k_binary_spins_one_per_value():
@@ -77,7 +77,7 @@ def test_indicator_for_a_value_is_a_single_spin_linear_not_a_chain_difference():
     difference. Verified by decoding the single-1-at-position-1 pattern back to
     c == 1, and confirming the workload term alone (weight 1 on VarRef(c, 1))
     reproduces the same logical energy the IR itself defines for that indicator."""
-    from tsu.ir import Categorical
+    from tsu_compiler.ir import Categorical
 
     spec = WorkloadSpec(
         name="single_value_probe",
@@ -96,7 +96,7 @@ def test_monotone_style_guard_protects_the_one_hot_penalty_too():
     monotonicity penalty must protect the exactly-one penalty -- a workload
     term large enough to overpower it must be rejected at encode time, not
     silently allow an illegal (not-exactly-one) pattern to win."""
-    from tsu.ir import Categorical
+    from tsu_compiler.ir import Categorical
     spec = WorkloadSpec(
         name="oversized_weight_one_hot",
         variables=(Var("c", Categorical(3)),),
@@ -118,7 +118,7 @@ def test_binary_only_spec_with_large_weight_still_encodes_one_hot():
 
 
 def test_generated_chain_name_collision_is_rejected_for_one_hot_too():
-    from tsu.ir import Categorical
+    from tsu_compiler.ir import Categorical
     spec = WorkloadSpec(
         name="name_collision_oh",
         variables=(Var("c", Categorical(3)), Var("c__oh0", Binary())),
@@ -131,8 +131,8 @@ def test_one_hot_produces_a_clique_per_categorical_and_is_reported_honestly():
     """Expect this encoding to produce a clique per variable and therefore a
     non-bipartite graph -- the honest result the brief asks be reported, not
     avoided. Verified structurally via lower+analyse."""
-    from tsu.passes.analyse import analyse
-    from tsu.passes.lower import lower
+    from tsu_compiler.passes.analyse import analyse
+    from tsu_compiler.passes.lower import lower
 
     s = load_spec("specs/toy.yaml")
     enc = encode(s, "one_hot")

@@ -4,13 +4,13 @@ pass whose cost grows with grid size (all gates are size-invariant), so
 this curve is what decides how big a world can be."""
 import sys, time, tempfile, os, json
 sys.path.insert(0, "src")
-from tsu.spec import load_spec
-from tsu.passes.encode import encode
-from tsu.passes.lower import lower
-from tsu.passes.analyse import analyse
-from tsu.passes.place import place
-from tsu.target import PROFILES
-from tsu.failures import CompileError
+from tsu_compiler.spec import load_spec
+from tsu_compiler.passes.encode import encode
+from tsu_compiler.passes.lower import lower
+from tsu_compiler.passes.analyse import analyse
+from tsu_compiler.passes.place import place
+from tsu_compiler.target import PROFILES
+from tsu_compiler.failures import CompileError
 
 BASE = """name: p
 generate: {{kind: grid, width: {n}, height: {n}, variable_domain: {{domain: categorical, k: 3}}}}

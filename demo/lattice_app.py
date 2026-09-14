@@ -3,9 +3,9 @@ tsu program.
 
 Everything on screen is either read verbatim from demo/receipts/small (a
 receipt whose `place` pass alone took ~201s to produce -- read once at
-startup here, NEVER regenerated: this file never calls `tsu compile`) or
+startup here, NEVER regenerated: this file never calls `tsuc compile`) or
 computed live by sampling that already-compiled program with
-`tsu.backends.thrml_backend.sample` and decoding with the compiler's OWN
+`tsu_compiler.backends.thrml_backend.sample` and decoding with the compiler's OWN
 `enc.is_codeword` / `enc.decode` / `spec.contract.validate` -- the same three
 calls demo/render_world.py uses, reused here rather than reimplemented.
 `render_world_image` below is that same file's rendering math, lifted
@@ -20,7 +20,7 @@ zero, a dash, or a guess. Three honesty commitments this file holds to:
   1. NO beta slider. This model carries 64 mediator spins whose couplings
      were baked in at beta=1 (see program.json / passes.json). Sampling a
      mediated model at any other beta is refused by
-     `tsu.passes.route.assert_beta_consistent` (raises BetaMismatchError,
+     `tsu_compiler.passes.route.assert_beta_consistent` (raises BetaMismatchError,
      spec 5.3.5) because the mediator couplings are themselves a function of
      beta. This app never calls `simulate(beta=...)`, so it never exercises
      that refusal path directly -- but it displays beta as FIXED and states
@@ -65,8 +65,8 @@ WORLDS_DIR = DEMO_DIR / "worlds"
 
 # RP-1: demo/receipts/small (RECEIPT_DIR above) is git-tracked, frozen
 # compile-time evidence -- program.json, verification.json, etc, written
-# ONCE by `tsu compile` and never touched again. SampleWorker's clamped
-# path calls `tsu.simulate.simulate()` once per pin change, and that call
+# ONCE by `tsuc compile` and never touched again. SampleWorker's clamped
+# path calls `tsu_compiler.simulate.simulate()` once per pin change, and that call
 # writes a simulation.json purely as a side effect this app never reads
 # back (it uses simulate()'s returned samples directly) -- so that output
 # belongs nowhere near RECEIPT_DIR. tempfile.gettempdir() (not a repo
@@ -77,17 +77,17 @@ SIM_OUTPUT_DIR = Path(tempfile.gettempdir()) / "tsu_lattice_app_sim_output"
 sys.path.insert(0, str(SRC))
 sys.path.insert(0, str(DEMO_DIR))
 
-from tsu.spec import load_spec  # noqa: E402
-from tsu.passes.encode import encode  # noqa: E402
-from tsu.simulate import reconstruct_program, _selected_encoding  # noqa: E402
-from tsu.backends.thrml_backend import sample as thrml_sample  # noqa: E402
-from tsu.passes.route import assert_beta_consistent, BetaMismatchError  # noqa: E402 -- Task 7
+from tsu_compiler.spec import load_spec  # noqa: E402
+from tsu_compiler.passes.encode import encode  # noqa: E402
+from tsu_compiler.simulate import reconstruct_program, _selected_encoding  # noqa: E402
+from tsu_compiler.backends.thrml_backend import sample as thrml_sample  # noqa: E402
+from tsu_compiler.passes.route import assert_beta_consistent, BetaMismatchError  # noqa: E402 -- Task 7
 # F1 (branch review, preflight-tool): onsager_betac's closed form now lives
-# in tsu.preflight.sweep (reused there too, for the same physics, rather
+# in tsu_compiler.preflight.sweep (reused there too, for the same physics, rather
 # than kept as two driftable copies) -- imported here, not redefined, so
-# this module and `tsu regime`'s Onsager cross-check can never disagree
+# this module and `tsuc regime`'s Onsager cross-check can never disagree
 # about the formula.
-from tsu.preflight.sweep import onsager_betac  # noqa: E402
+from tsu_compiler.preflight.sweep import onsager_betac  # noqa: E402
 from worldfile import save_world  # noqa: E402 -- A2: save/load provenance-carrying worlds
 import frontier as frontier_mod  # noqa: E402 -- B1: capacity frontier panel
 # Task 5: World Studio tab -- world.studio/run_log/export imported as modules,
@@ -103,9 +103,9 @@ from scope import (beta_to_temperature, temperature_control_state,  # noqa: E402
                     magnetization, energy_histogram, local_field_response,
                     sigmoid, per_cell_occupancy,
                     MIN_LOCAL_FIELD_BIN_COUNT)  # Task 5/6/8/10
-# C-1 fix: tsu.ess.integrated_autocorrelation_time / RELIABILITY_MIN_N_OVER_TAU
+# C-1 fix: tsu_compiler.ess.integrated_autocorrelation_time / RELIABILITY_MIN_N_OVER_TAU
 # and scope.autocorrelation are deliberately NOT imported here any more --
-# render_acf_plot no longer calls tsu.ess's single-chain estimator on this
+# render_acf_plot no longer calls tsu_compiler.ess's single-chain estimator on this
 # app's live energy_trace (see that function's own docstring for why: the
 # trace can never be one chain's own successive draws).
 from layers import FIELD_CAP, FieldCapExceeded, bias_patch  # noqa: E402 -- Task 7
@@ -202,7 +202,7 @@ BAND_SAMPLE_PARAMS = dict(n_chains=CLAMP_N_CHAINS, n_samples=CLAMP_N_SAMPLES,
 
 # A pin on an OVERLAY cell (see ClampState/LayerState below) is NOT a hard
 # workload clamp the way a base-layer pin is (base pins route through
-# `tsu.simulate.simulate(clamp=...)`, which repartitions and FIXES those
+# `tsu_compiler.simulate.simulate(clamp=...)`, which repartitions and FIXES those
 # physical spins -- see SampleWorker._run_clamped_batch). An overlay pin is
 # instead folded into the SAME bias_patch conditioning every band already
 # goes through, at a magnitude large relative to band_patch's own terms
@@ -1086,9 +1086,9 @@ def fmt_duration(seconds: float) -> str:
 
 
 # onsager_betac (Onsager's critical coupling for the uniform 2-D
-# square-lattice Ising model) now lives in tsu.preflight.sweep and is
+# square-lattice Ising model) now lives in tsu_compiler.preflight.sweep and is
 # imported at the top of this file (F1, branch review: keeping this
-# formula in exactly one place, reused by both this app and `tsu regime`'s
+# formula in exactly one place, reused by both this app and `tsuc regime`'s
 # Onsager cross-check, rather than two copies that could silently drift
 # apart). See that module for the formula and its docstring.
 #
@@ -1199,7 +1199,7 @@ def energy_of_draw(im, row) -> float:
     """The physical energy E(x) of one raw {0,1} draw under IsingModel `im`,
     from ITS OWN documented sign convention (lower.py module docstring:
     "sum b s + sum J s s == -E(x)", spins s = 2*occupancy - 1). The same
-    formula `tsu.passes.search._from_ising` uses for the compiler's own
+    formula `tsu_compiler.passes.search._from_ising` uses for the compiler's own
     mixing diagnostic (Task B3 reuses it too) -- reimplemented here, in
     pure Python/numpy, as a small local function rather than importing a
     leading-underscore name from another module."""
@@ -1493,7 +1493,7 @@ def _chain_break_at(row_idx: int, samples_per_chain: int) -> bool:
     second renderer) came to exist.
 
     `_run_clamped_batch`'s own `got` is chain-major flattened
-    (tsu.simulate.simulate -> sample_chains(...).reshape(-1, ...)): row i
+    (tsu_compiler.simulate.simulate -> sample_chains(...).reshape(-1, ...)): row i
     belongs to chain i // samples_per_chain, so row i starts a new chain
     exactly when i % samples_per_chain == 0. `_run_unclamped_tick` calls
     this with samples_per_chain=N_SAMPLES_PER_CALL, which is always 1 (a
@@ -1534,7 +1534,7 @@ class SampleWorker(threading.Thread):
     reconstructed program, unchanged from before this feature.
 
     CLAMPED (clamp is a non-empty {name: value} dict): repeated calls to
-    `tsu.simulate.simulate(..., clamp=clamp)` -- clamping is a WORKLOAD-level
+    `tsu_compiler.simulate.simulate(..., clamp=clamp)` -- clamping is a WORKLOAD-level
     concept (spec 5.3 / tests/test_clamp.py) that `simulate` already knows
     how to translate through `enc.encode_clamp` and repartition via
     `analyse`/`build_program`; this worker never touches that machinery
@@ -1684,7 +1684,7 @@ class SampleWorker(threading.Thread):
                 chain_break=_chain_break_at(row_idx, N_SAMPLES_PER_CALL))
 
     def _run_clamped_batch(self, is_step: bool = False) -> None:
-        from tsu.simulate import simulate  # local: keeps this app's only
+        from tsu_compiler.simulate import simulate  # local: keeps this app's only
         # entry point into clamping right here, next to the docstring above
         n_samples = speed_level(self.speed_idx)["clamp_samples"]
         sampler_params = {"n_chains": CLAMP_N_CHAINS, "n_samples": n_samples,
@@ -1786,29 +1786,29 @@ def render_acf_plot(w: int, h: int, series: Sequence[float]) -> tuple[Image.Imag
     tick (_run_unclamped_tick) is an independent restart: a fresh seed and
     a fresh n_warmup=300 warmup, contributing exactly one sample per
     chain, every tick. Every CLAMPED batch (_run_clamped_batch ->
-    tsu.simulate.simulate -> thrml_backend.sample_chains(...).reshape(-1,
+    tsu_compiler.simulate.simulate -> thrml_backend.sample_chains(...).reshape(-1,
     ...)) flattens n_chains mutually independent parallel chains
-    chain-major into one run of consecutive rows. tsu.ess's own module
+    chain-major into one run of consecutive rows. tsu_compiler.ess's own module
     contract is explicit that this is not a valid input --
     effective_sample_size's docstring says outright "callers must NOT
     flatten multiple chains into one series before calling this" -- and
     this app's live energy_trace is exactly that flattening, every time,
     with no exception. Previously this function called
-    tsu.ess.integrated_autocorrelation_time (via demo.scope.autocorrelation,
+    tsu_compiler.ess.integrated_autocorrelation_time (via demo.scope.autocorrelation,
     and directly) on that series anyway: audit finding C-1, a
     confident-looking tau/ACF number computed on data the estimator's own
-    contract rules out, with tsu.ess.effective_sample_size's reliability
+    contract rules out, with tsu_compiler.ess.effective_sample_size's reliability
     gate unreachable from this call site by construction (this function
     never called it -- it called integrated_autocorrelation_time
     directly). There is no way to fix that by reshaping THIS data -- a
     live, continuously-streaming, restart-heavy panel structurally has no
     genuine (n_chains, n_samples) buffer of one chain's own draws to
-    offer. So this function no longer calls tsu.ess or demo.scope's
+    offer. So this function no longer calls tsu_compiler.ess or demo.scope's
     autocorrelation machinery at all, on any input, and makes no tau/ACF
     claim of any kind. A genuine, gated measurement of this receipt's own
     tau exists -- demo/ess_run.py: one sample_chains() call collecting a
     real (n_chains, n_samples) buffer, routed through
-    tsu.ess.effective_sample_size so its reliability gate applies -- see
+    tsu_compiler.ess.effective_sample_size so its reliability gate applies -- see
     the VERIFICATION panel above for that receipt-level, compile-time
     result; this live panel has no equivalent to show."""
     img = Image.new("RGB", (w, h), PLOT_BG)
@@ -1820,9 +1820,9 @@ def render_acf_plot(w: int, h: int, series: Sequence[float]) -> tuple[Image.Imag
         f"far) is not a single Markov chain's own successive draws -- "
         f"every unclamped tick restarts fresh (new seed, new warmup, one "
         f"sample per chain) and every clamped batch flattens n_chains "
-        f"independent parallel chains chain-major, so tsu.ess's "
+        f"independent parallel chains chain-major, so tsu_compiler.ess's "
         f"autocorrelation/tau estimator (which requires one chain's own "
-        f"draws -- see tsu.ess.effective_sample_size's own docstring) "
+        f"draws -- see tsu_compiler.ess.effective_sample_size's own docstring) "
         f"cannot be validly applied to it, at any sample count. See "
         f"demo/ess_run.py for how a genuine, gated tau measurement looks, "
         f"and the VERIFICATION panel above for this receipt's own frozen "
@@ -3530,7 +3530,7 @@ class LatticeApp(tk.Tk):
             tk.Label(sf, text=t, bg=PANEL_BG, fg=FG, font=(MONO_FAMILY, 8),
                       anchor="w", justify="left", wraplength=395).pack(fill="x")
         tk.Label(sf, text=f"no beta slider: {r.mediator_count} mediator spin(s) were "
-                           f"coupled at beta={r.beta_used!r}; tsu.passes.route."
+                           f"coupled at beta={r.beta_used!r}; tsu_compiler.passes.route."
                            f"assert_beta_consistent refuses any other beta for this "
                            f"model (BetaMismatchError, spec 5.3.5) -- shown fixed, "
                            f"not hidden.",
@@ -3861,7 +3861,7 @@ class LatticeApp(tk.Tk):
             label.config(text=text)
             _fit_caption_height(label)
 
-        # C-1 fix: render_acf_plot no longer calls tsu.ess/demo.scope's
+        # C-1 fix: render_acf_plot no longer calls tsu_compiler.ess/demo.scope's
         # autocorrelation machinery at all (see its own docstring for why
         # this LIVE trace can never be a valid single-chain input) -- it
         # always returns an honest "unavailable" caption, never raises.
@@ -4303,7 +4303,7 @@ class LatticeApp(tk.Tk):
         gold) or FIXED (a locked seal, cold blue -- a point of pride, not
         an apology, never a greyed-out control). Keyed on
         temperature_control_state, which derives the decision from EXACTLY
-        the fact `tsu.passes.route.assert_beta_consistent` gates sampling
+        the fact `tsu_compiler.passes.route.assert_beta_consistent` gates sampling
         on (`ising.mediator_nodes` empty or not) -- never a hardcoded
         'base is locked' flag, and never `self.bands[self.active_layer]`
         directly (see get_beta_override's own docstring for the KeyError a

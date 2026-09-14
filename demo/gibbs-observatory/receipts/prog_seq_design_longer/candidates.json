@@ -1,0 +1,34 @@
+[
+  {
+    "encoding": "domain_wall",
+    "state": "HARDWARE_INFEASIBLE",
+    "reason": "placement failed: placement effort exhausted",
+    "logical_spins": 24,
+    "logical_edges": 35,
+    "bipartite": true,
+    "mediators": 0,
+    "physical_pbits": null,
+    "colour_blocks": 2,
+    "max_abs_J": 2.8465679151921335,
+    "max_abs_b": 3.05,
+    "mediators_inserted": 8,
+    "mediation_method": "bfs_depth_parity_with_greedy_local_search",
+    "mediation_beta": 1.0
+  },
+  {
+    "encoding": "one_hot",
+    "state": "SELECTED",
+    "reason": "",
+    "logical_spins": 32,
+    "logical_edges": 43,
+    "bipartite": true,
+    "mediators": 0,
+    "physical_pbits": 32,
+    "colour_blocks": 2,
+    "max_abs_J": 5.346573590022328,
+    "max_abs_b": 5.55,
+    "mediators_inserted": 8,
+    "mediation_method": "bfs_depth_parity_with_greedy_local_search",
+    "mediation_beta": 1.0
+  }
+]

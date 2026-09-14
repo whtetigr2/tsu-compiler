@@ -10,11 +10,11 @@ exact-dependent fields reading unavailable.
 """
 import pytest
 
-from tsu.ir import Binary, Product, LinearForm, Var, VarRef
-from tsu.spec import TaskContract, WorkloadSpec
-from tsu.target import IDEAL
-from tsu.passes.search import compile_spec
-from tsu.backends.thrml_backend import EXACT_LIMIT
+from tsu_compiler.ir import Binary, Product, LinearForm, Var, VarRef
+from tsu_compiler.spec import TaskContract, WorkloadSpec
+from tsu_compiler.target import IDEAL
+from tsu_compiler.passes.search import compile_spec
+from tsu_compiler.backends.thrml_backend import EXACT_LIMIT
 
 
 def _oversized_spec(contract_rules=()):

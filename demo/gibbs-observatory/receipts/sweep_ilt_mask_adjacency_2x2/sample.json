@@ -1,0 +1,14 @@
+{
+  "decoded": {
+    "g0_0": 1,
+    "g1_0": 0,
+    "g0_1": 1,
+    "g1_1": 1
+  },
+  "is_codeword": true,
+  "task_valid": true,
+  "violations": [],
+  "seed": 0,
+  "clamp": {},
+  "note": ""
+}

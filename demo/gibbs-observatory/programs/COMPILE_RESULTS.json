@@ -1,0 +1,529 @@
+{
+  "target": "z1",
+  "honesty": "software compile + THRML sim only \u2014 not Extropic silicon",
+  "updated": "2026-09-14T11:26:35Z",
+  "summary": {
+    "compiled": 18,
+    "hardware": 0,
+    "error": 0,
+    "total": 18
+  },
+  "programs": [
+    {
+      "id": "number_partition",
+      "receipt_id": "prog_number_partition",
+      "yaml": "/workspace/gibbs-observatory/programs/number_partition.yaml",
+      "verdict": "COMPILED",
+      "ok": true,
+      "n_nodes": 12,
+      "mediator_count": 6,
+      "bipartite": true,
+      "elapsed_s": 3.4488,
+      "errors": [],
+      "candidates": [
+        {
+          "encoding": "domain_wall",
+          "state": "SELECTED",
+          "reason": ""
+        },
+        {
+          "encoding": "one_hot",
+          "state": "VIABLE_NOT_SELECTED",
+          "reason": "not selected: domain_wall ranked ahead of one_hot under selection order: physical p-bit count, then colour blocks, then |J|max; ties broken by declaration order (domain_wall, one_hot)"
+        }
+      ],
+      "receipt_path": "/workspace/gibbs-observatory/receipts/prog_number_partition",
+      "label": "JAX/THRML simulation \u2014 not Extropic silicon",
+      "n_edges": 21,
+      "max_degree": 5,
+      "encoding": "domain_wall"
+    },
+    {
+      "id": "knapsack_tiny",
+      "receipt_id": "prog_knapsack_tiny",
+      "yaml": "/workspace/gibbs-observatory/programs/knapsack_tiny.yaml",
+      "verdict": "COMPILED",
+      "ok": true,
+      "n_nodes": 9,
+      "mediator_count": 4,
+      "bipartite": true,
+      "elapsed_s": 1.936,
+      "errors": [],
+      "candidates": [
+        {
+          "encoding": "domain_wall",
+          "state": "SELECTED",
+          "reason": ""
+        },
+        {
+          "encoding": "one_hot",
+          "state": "VIABLE_NOT_SELECTED",
+          "reason": "not selected: domain_wall ranked ahead of one_hot under selection order: physical p-bit count, then colour blocks, then |J|max; ties broken by declaration order (domain_wall, one_hot)"
+        }
+      ],
+      "receipt_path": "/workspace/gibbs-observatory/receipts/prog_knapsack_tiny",
+      "label": "JAX/THRML simulation \u2014 not Extropic silicon",
+      "n_edges": 14,
+      "max_degree": 4,
+      "encoding": "domain_wall"
+    },
+    {
+      "id": "jobshop_tiny",
+      "receipt_id": "prog_jobshop_tiny",
+      "yaml": "/workspace/gibbs-observatory/programs/jobshop_tiny.yaml",
+      "verdict": "COMPILED",
+      "ok": true,
+      "n_nodes": 8,
+      "mediator_count": 2,
+      "bipartite": true,
+      "elapsed_s": 1.4413,
+      "errors": [],
+      "candidates": [
+        {
+          "encoding": "domain_wall",
+          "state": "SELECTED",
+          "reason": ""
+        },
+        {
+          "encoding": "one_hot",
+          "state": "VIABLE_NOT_SELECTED",
+          "reason": "not selected: domain_wall ranked ahead of one_hot under selection order: physical p-bit count, then colour blocks, then |J|max; ties broken by declaration order (domain_wall, one_hot)"
+        }
+      ],
+      "receipt_path": "/workspace/gibbs-observatory/receipts/prog_jobshop_tiny",
+      "label": "JAX/THRML simulation \u2014 not Extropic silicon",
+      "n_edges": 9,
+      "max_degree": 3,
+      "encoding": "domain_wall"
+    },
+    {
+      "id": "sat_3tiny",
+      "receipt_id": "prog_sat_3tiny",
+      "yaml": "/workspace/gibbs-observatory/programs/sat_3tiny.yaml",
+      "verdict": "COMPILED",
+      "ok": true,
+      "n_nodes": 11,
+      "mediator_count": 4,
+      "bipartite": true,
+      "elapsed_s": 1.5597,
+      "errors": [],
+      "candidates": [
+        {
+          "encoding": "domain_wall",
+          "state": "SELECTED",
+          "reason": ""
+        },
+        {
+          "encoding": "one_hot",
+          "state": "VIABLE_NOT_SELECTED",
+          "reason": "not selected: domain_wall ranked ahead of one_hot under selection order: physical p-bit count, then colour blocks, then |J|max; ties broken by declaration order (domain_wall, one_hot)"
+        }
+      ],
+      "receipt_path": "/workspace/gibbs-observatory/receipts/prog_sat_3tiny",
+      "label": "JAX/THRML simulation \u2014 not Extropic silicon",
+      "n_edges": 18,
+      "max_degree": 6,
+      "encoding": "domain_wall"
+    },
+    {
+      "id": "market_binary_factors",
+      "receipt_id": "prog_market_binary_factors",
+      "yaml": "/workspace/gibbs-observatory/programs/market_binary_factors.yaml",
+      "verdict": "COMPILED",
+      "ok": true,
+      "n_nodes": 14,
+      "mediator_count": 4,
+      "bipartite": true,
+      "elapsed_s": 2.5235,
+      "errors": [],
+      "candidates": [
+        {
+          "encoding": "domain_wall",
+          "state": "SELECTED",
+          "reason": ""
+        },
+        {
+          "encoding": "one_hot",
+          "state": "VIABLE_NOT_SELECTED",
+          "reason": "not selected: domain_wall ranked ahead of one_hot under selection order: physical p-bit count, then colour blocks, then |J|max; ties broken by declaration order (domain_wall, one_hot)"
+        }
+      ],
+      "receipt_path": "/workspace/gibbs-observatory/receipts/prog_market_binary_factors",
+      "label": "JAX/THRML simulation \u2014 not Extropic silicon",
+      "n_edges": 21,
+      "max_degree": 4,
+      "encoding": "domain_wall"
+    },
+    {
+      "id": "maxcut_cycle7",
+      "receipt_id": "prog_maxcut_cycle7",
+      "yaml": "/workspace/gibbs-observatory/programs/maxcut_cycle7.yaml",
+      "verdict": "COMPILED",
+      "ok": true,
+      "n_nodes": 8,
+      "mediator_count": 1,
+      "bipartite": true,
+      "elapsed_s": 0.969,
+      "errors": [],
+      "candidates": [
+        {
+          "encoding": "domain_wall",
+          "state": "SELECTED",
+          "reason": ""
+        },
+        {
+          "encoding": "one_hot",
+          "state": "VIABLE_NOT_SELECTED",
+          "reason": "not selected: domain_wall ranked ahead of one_hot under selection order: physical p-bit count, then colour blocks, then |J|max; ties broken by declaration order (domain_wall, one_hot)"
+        }
+      ],
+      "receipt_path": "/workspace/gibbs-observatory/receipts/prog_maxcut_cycle7",
+      "label": "JAX/THRML simulation \u2014 not Extropic silicon",
+      "n_edges": 8,
+      "max_degree": 2,
+      "encoding": "domain_wall"
+    },
+    {
+      "id": "mimo_detect_4",
+      "receipt_id": "prog_mimo_detect_4",
+      "yaml": "/workspace/gibbs-observatory/programs/mimo_detect_4.yaml",
+      "verdict": "COMPILED",
+      "ok": true,
+      "n_nodes": 6,
+      "mediator_count": 2,
+      "bipartite": true,
+      "elapsed_s": 1.3366,
+      "errors": [],
+      "candidates": [
+        {
+          "encoding": "domain_wall",
+          "state": "SELECTED",
+          "reason": ""
+        },
+        {
+          "encoding": "one_hot",
+          "state": "VIABLE_NOT_SELECTED",
+          "reason": "not selected: domain_wall ranked ahead of one_hot under selection order: physical p-bit count, then colour blocks, then |J|max; ties broken by declaration order (domain_wall, one_hot)"
+        }
+      ],
+      "receipt_path": "/workspace/gibbs-observatory/receipts/prog_mimo_detect_4",
+      "label": "JAX/THRML simulation \u2014 not Extropic silicon",
+      "n_edges": 8,
+      "max_degree": 3,
+      "encoding": "domain_wall"
+    },
+    {
+      "id": "roster_shift_conflicts",
+      "receipt_id": "prog_roster_shift_conflicts",
+      "yaml": "/workspace/gibbs-observatory/programs/roster_shift_conflicts.yaml",
+      "verdict": "COMPILED",
+      "ok": true,
+      "n_nodes": 5,
+      "mediator_count": 1,
+      "bipartite": true,
+      "elapsed_s": 1.436,
+      "errors": [],
+      "candidates": [
+        {
+          "encoding": "domain_wall",
+          "state": "SELECTED",
+          "reason": ""
+        },
+        {
+          "encoding": "one_hot",
+          "state": "VIABLE_NOT_SELECTED",
+          "reason": "not selected: domain_wall ranked ahead of one_hot under selection order: physical p-bit count, then colour blocks, then |J|max; ties broken by declaration order (domain_wall, one_hot)"
+        }
+      ],
+      "receipt_path": "/workspace/gibbs-observatory/receipts/prog_roster_shift_conflicts",
+      "label": "JAX/THRML simulation \u2014 not Extropic silicon",
+      "n_edges": 5,
+      "max_degree": 3,
+      "encoding": "domain_wall"
+    },
+    {
+      "id": "ilt_mask_adjacency_2x2",
+      "receipt_id": "prog_ilt_mask_adjacency_2x2",
+      "yaml": "/workspace/gibbs-observatory/programs/ilt_mask_adjacency_2x2.yaml",
+      "verdict": "COMPILED",
+      "ok": true,
+      "n_nodes": 8,
+      "mediator_count": 0,
+      "bipartite": true,
+      "elapsed_s": 1.0437,
+      "errors": [
+        "one_hot: HARDWARE_INFEASIBLE: |b|max = 7.0 exceeds 6.0 (source=assumed)"
+      ],
+      "candidates": [
+        {
+          "encoding": "domain_wall",
+          "state": "SELECTED",
+          "reason": ""
+        },
+        {
+          "encoding": "one_hot",
+          "state": "HARDWARE_INFEASIBLE",
+          "reason": "|b|max = 7.0 exceeds 6.0 (source=assumed)"
+        }
+      ],
+      "receipt_path": "/workspace/gibbs-observatory/receipts/prog_ilt_mask_adjacency_2x2",
+      "label": "JAX/THRML simulation \u2014 not Extropic silicon",
+      "n_edges": 12,
+      "max_degree": 3,
+      "encoding": "domain_wall"
+    },
+    {
+      "id": "ecology_lotka_lite",
+      "receipt_id": "prog_ecology_lotka_lite",
+      "yaml": "/workspace/gibbs-observatory/programs/ecology_lotka_lite.yaml",
+      "verdict": "COMPILED",
+      "ok": true,
+      "n_nodes": 16,
+      "mediator_count": 0,
+      "bipartite": true,
+      "elapsed_s": 11.0897,
+      "errors": [],
+      "candidates": [
+        {
+          "encoding": "domain_wall",
+          "state": "SELECTED",
+          "reason": ""
+        },
+        {
+          "encoding": "one_hot",
+          "state": "VIABLE_NOT_SELECTED",
+          "reason": "not selected: domain_wall ranked ahead of one_hot under selection order: physical p-bit count, then colour blocks, then |J|max; ties broken by declaration order (domain_wall, one_hot)"
+        }
+      ],
+      "receipt_path": "/workspace/gibbs-observatory/receipts/prog_ecology_lotka_lite",
+      "label": "JAX/THRML simulation \u2014 not Extropic silicon",
+      "n_edges": 24,
+      "max_degree": 4,
+      "encoding": "domain_wall"
+    },
+    {
+      "id": "floorplan_4zone",
+      "receipt_id": "prog_floorplan_4zone",
+      "yaml": "/workspace/gibbs-observatory/programs/floorplan_4zone.yaml",
+      "verdict": "COMPILED",
+      "ok": true,
+      "n_nodes": 12,
+      "mediator_count": 4,
+      "bipartite": true,
+      "elapsed_s": 1.2307,
+      "errors": [],
+      "candidates": [
+        {
+          "encoding": "domain_wall",
+          "state": "SELECTED",
+          "reason": ""
+        },
+        {
+          "encoding": "one_hot",
+          "state": "VIABLE_NOT_SELECTED",
+          "reason": "not selected: domain_wall ranked ahead of one_hot under selection order: physical p-bit count, then colour blocks, then |J|max; ties broken by declaration order (domain_wall, one_hot)"
+        }
+      ],
+      "receipt_path": "/workspace/gibbs-observatory/receipts/prog_floorplan_4zone",
+      "label": "JAX/THRML simulation \u2014 not Extropic silicon",
+      "n_edges": 20,
+      "max_degree": 5,
+      "encoding": "domain_wall"
+    },
+    {
+      "id": "mrf_denoise_8x8",
+      "receipt_id": "prog_mrf_denoise_8x8",
+      "yaml": "/workspace/gibbs-observatory/programs/mrf_denoise_8x8.yaml",
+      "verdict": "COMPILED",
+      "ok": true,
+      "n_nodes": 64,
+      "mediator_count": 0,
+      "bipartite": true,
+      "elapsed_s": 1.9096,
+      "errors": [],
+      "candidates": [
+        {
+          "encoding": "domain_wall",
+          "state": "SELECTED",
+          "reason": ""
+        },
+        {
+          "encoding": "one_hot",
+          "state": "VIABLE_NOT_SELECTED",
+          "reason": "not selected: domain_wall ranked ahead of one_hot under selection order: physical p-bit count, then colour blocks, then |J|max; ties broken by declaration order (domain_wall, one_hot)"
+        }
+      ],
+      "receipt_path": "/workspace/gibbs-observatory/receipts/prog_mrf_denoise_8x8",
+      "label": "JAX/THRML simulation \u2014 not Extropic silicon",
+      "n_edges": 112,
+      "max_degree": 4,
+      "encoding": "domain_wall"
+    },
+    {
+      "id": "placement_8x8_exclusion",
+      "receipt_id": "prog_placement_8x8_exclusion",
+      "yaml": "/workspace/gibbs-observatory/programs/placement_8x8_exclusion.yaml",
+      "verdict": "COMPILED",
+      "ok": true,
+      "n_nodes": 64,
+      "mediator_count": 0,
+      "bipartite": true,
+      "elapsed_s": 1.2639,
+      "errors": [],
+      "candidates": [
+        {
+          "encoding": "domain_wall",
+          "state": "SELECTED",
+          "reason": ""
+        },
+        {
+          "encoding": "one_hot",
+          "state": "VIABLE_NOT_SELECTED",
+          "reason": "not selected: domain_wall ranked ahead of one_hot under selection order: physical p-bit count, then colour blocks, then |J|max; ties broken by declaration order (domain_wall, one_hot)"
+        }
+      ],
+      "receipt_path": "/workspace/gibbs-observatory/receipts/prog_placement_8x8_exclusion",
+      "label": "JAX/THRML simulation \u2014 not Extropic silicon",
+      "n_edges": 112,
+      "max_degree": 4,
+      "encoding": "domain_wall"
+    },
+    {
+      "id": "codon_opt_tiny",
+      "receipt_id": "prog_codon_opt_tiny",
+      "yaml": "/workspace/gibbs-observatory/programs/codon_opt_tiny.yaml",
+      "verdict": "COMPILED",
+      "ok": true,
+      "n_nodes": 18,
+      "mediator_count": 6,
+      "bipartite": true,
+      "elapsed_s": 16.1791,
+      "errors": [],
+      "candidates": [
+        {
+          "encoding": "domain_wall",
+          "state": "SELECTED",
+          "reason": ""
+        },
+        {
+          "encoding": "one_hot",
+          "state": "VIABLE_NOT_SELECTED",
+          "reason": "not selected: domain_wall ranked ahead of one_hot under selection order: physical p-bit count, then colour blocks, then |J|max; ties broken by declaration order (domain_wall, one_hot)"
+        }
+      ],
+      "receipt_path": "/workspace/gibbs-observatory/receipts/prog_codon_opt_tiny",
+      "label": "JAX/THRML simulation \u2014 not Extropic silicon",
+      "n_edges": 26,
+      "max_degree": 4,
+      "encoding": "domain_wall"
+    },
+    {
+      "id": "seq_design_longer",
+      "receipt_id": "prog_seq_design_longer",
+      "yaml": "/workspace/gibbs-observatory/programs/seq_design_longer.yaml",
+      "verdict": "COMPILED",
+      "ok": true,
+      "n_nodes": 32,
+      "mediator_count": 8,
+      "bipartite": true,
+      "elapsed_s": 5.7266,
+      "errors": [
+        "domain_wall: HARDWARE_INFEASIBLE: placement failed: placement effort exhausted"
+      ],
+      "candidates": [
+        {
+          "encoding": "domain_wall",
+          "state": "HARDWARE_INFEASIBLE",
+          "reason": "placement failed: placement effort exhausted"
+        },
+        {
+          "encoding": "one_hot",
+          "state": "SELECTED",
+          "reason": ""
+        }
+      ],
+      "receipt_path": "/workspace/gibbs-observatory/receipts/prog_seq_design_longer",
+      "label": "JAX/THRML simulation \u2014 not Extropic silicon",
+      "n_edges": 43,
+      "max_degree": 4,
+      "encoding": "one_hot"
+    },
+    {
+      "id": "terrain_layout_6x6",
+      "receipt_id": "prog_terrain_layout_6x6",
+      "yaml": "/workspace/gibbs-observatory/programs/terrain_layout_6x6.yaml",
+      "verdict": "COMPILED",
+      "ok": true,
+      "n_nodes": 108,
+      "mediator_count": 36,
+      "bipartite": true,
+      "elapsed_s": 38.5097,
+      "errors": [
+        "one_hot: HARDWARE_INFEASIBLE: placement failed: placement effort exhausted"
+      ],
+      "candidates": [
+        {
+          "encoding": "domain_wall",
+          "state": "SELECTED",
+          "reason": ""
+        },
+        {
+          "encoding": "one_hot",
+          "state": "HARDWARE_INFEASIBLE",
+          "reason": "placement failed: placement effort exhausted"
+        }
+      ],
+      "receipt_path": "/workspace/gibbs-observatory/receipts/prog_terrain_layout_6x6",
+      "label": "JAX/THRML simulation \u2014 not Extropic silicon",
+      "n_edges": 312,
+      "max_degree": 9,
+      "encoding": "domain_wall"
+    },
+    {
+      "id": "alloy_ordering_8x8",
+      "receipt_id": "prog_alloy_ordering_8x8",
+      "yaml": "/workspace/gibbs-observatory/programs/alloy_ordering_8x8.yaml",
+      "verdict": "COMPILED",
+      "ok": true,
+      "n_nodes": 64,
+      "mediator_count": 0,
+      "bipartite": true,
+      "n_edges": 112,
+      "max_degree": 4,
+      "encoding": "domain_wall",
+      "elapsed_s": 3.5,
+      "errors": [],
+      "candidates": [
+        {
+          "encoding": "domain_wall",
+          "state": "SELECTED"
+        }
+      ],
+      "receipt_path": "receipts/prog_alloy_ordering_8x8"
+    },
+    {
+      "id": "ebm_bars_stripes",
+      "receipt_id": "prog_ebm_bars_stripes",
+      "yaml": "/workspace/gibbs-observatory/programs/ebm_bars_stripes.yaml",
+      "verdict": "COMPILED",
+      "ok": true,
+      "n_nodes": 36,
+      "mediator_count": 0,
+      "bipartite": true,
+      "elapsed_s": 4.5,
+      "errors": [],
+      "candidates": [
+        {
+          "encoding": "domain_wall",
+          "state": "SELECTED",
+          "reason": ""
+        }
+      ],
+      "receipt_path": "/workspace/gibbs-observatory/receipts/prog_ebm_bars_stripes",
+      "label": "JAX/THRML simulation \u2014 not Extropic silicon \u00b7 first AI-shaped EBM demo",
+      "n_edges": 60,
+      "max_degree": 4,
+      "encoding": "domain_wall"
+    }
+  ]
+}

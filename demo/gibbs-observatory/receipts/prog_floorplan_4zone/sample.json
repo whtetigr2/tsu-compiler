@@ -1,0 +1,14 @@
+{
+  "decoded": {
+    "room0": 1,
+    "room1": 1,
+    "room2": 1,
+    "room3": 1
+  },
+  "is_codeword": true,
+  "task_valid": true,
+  "violations": [],
+  "seed": 0,
+  "clamp": {},
+  "note": ""
+}

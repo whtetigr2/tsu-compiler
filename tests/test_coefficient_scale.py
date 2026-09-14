@@ -33,7 +33,7 @@ available here. Covered by `test_nonpositive_scale_is_rejected*` below.
 
 Also not in the brief's own test list, but required by note 4 of the task:
 the receipt must round-trip both the scale and the compensated beta, so a
-later `tsu simulate` samples at the right temperature. Covered by
+later `tsuc simulate` samples at the right temperature. Covered by
 `test_receipt_program_beta_is_the_compensated_beta` below.
 
 Fix round 1 (review): `coefficient_scale <= 0` alone does NOT reject NaN --
@@ -66,15 +66,15 @@ import math
 import numpy as np
 import pytest
 
-from tsu.ir import Binary, Categorical, Linear, LinearForm, Product, Var, VarRef
-from tsu.passes.encode import encode, spec_beta
-from tsu.passes.lower import lower
-from tsu.passes.program import SamplingProgram
-from tsu.passes.search import compile_spec
-from tsu.receipt import write_receipt
-from tsu.report import render_explain, render_report
-from tsu.spec import load_spec, TaskContract, WorkloadSpec
-from tsu.target import PROFILES
+from tsu_compiler.ir import Binary, Categorical, Linear, LinearForm, Product, Var, VarRef
+from tsu_compiler.passes.encode import encode, spec_beta
+from tsu_compiler.passes.lower import lower
+from tsu_compiler.passes.program import SamplingProgram
+from tsu_compiler.passes.search import compile_spec
+from tsu_compiler.receipt import write_receipt
+from tsu_compiler.report import render_explain, render_report
+from tsu_compiler.spec import load_spec, TaskContract, WorkloadSpec
+from tsu_compiler.target import PROFILES
 
 
 def test_scale_multiplies_every_coefficient_including_the_penalty():
@@ -166,7 +166,7 @@ def test_scaled_distribution_matches_unscaled_exactly():
     `exact_distribution` takes a `SamplingProgram`, not bare model output
     (Ruling 3), and returns `(states, probs)`, not `probs` alone -- checked
     directly against `thrml_backend.py` rather than assumed."""
-    from tsu.backends.thrml_backend import exact_distribution
+    from tsu_compiler.backends.thrml_backend import exact_distribution
     spec = load_spec("specs/toy.yaml")
     a = lower(encode(spec, "domain_wall", coefficient_scale=1.0).model)
     b = lower(encode(spec, "domain_wall", coefficient_scale=0.25).model)
@@ -240,7 +240,7 @@ def test_receipt_records_scale_and_beta():
 
 def test_receipt_program_beta_is_the_compensated_beta(tmp_path):
     """Note 4: if a scaled compile's receipt does not carry the scale and the
-    compensated beta, `tsu simulate` (which reads program.json's `beta`
+    compensated beta, `tsuc simulate` (which reads program.json's `beta`
     verbatim -- see simulate.py's `reconstruct_program`) would sample at the
     WRONG temperature later with nothing to flag it. The PHYSICAL program
     actually built by this compile -- not just the bookkeeping fields --

@@ -1,0 +1,21 @@
+{
+  "peak_memory_bytes": null,
+  "sampler": {
+    "wall_time_s": 2.274539168996853,
+    "samples_per_second": 2813.7567764210507,
+    "params": {
+      "n_chains": 32,
+      "n_samples": 200,
+      "n_warmup": 400,
+      "steps_per_sample": 2,
+      "seed": 0
+    }
+  },
+  "baseline": {
+    "available": false,
+    "note": "unavailable: 2^28 too large to enumerate",
+    "exact_wall_time_s": null,
+    "sampler_wall_time_s": 2.274539168996853,
+    "disclaimer": "a correctness-and-cost REFERENCE only when available; no speed or hardware claim"
+  }
+}

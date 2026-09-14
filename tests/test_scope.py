@@ -164,7 +164,7 @@ def test_per_cell_occupancy_rejects_spins_per_cell_that_does_not_divide_n_world_
 class _FakeIsing:
     """A minimal stand-in carrying exactly the attributes
     local_field_response reads (nodes/edges/weights/biases/beta) -- the
-    same shape as tsu.passes.lower.IsingModel, without pulling the whole
+    same shape as tsu_compiler.passes.lower.IsingModel, without pulling the whole
     compiler in for a pure-arithmetic test."""
 
     def __init__(self, nodes, edges, weights, biases, beta):
@@ -240,7 +240,7 @@ def test_local_field_response_reports_a_low_count_bin_as_unavailable_not_a_numbe
 
 # ---------------------------------------------------------------------------
 # Task 8: temperature_control_state -- the temperature control's two
-# explicit states, keyed on the SAME fact tsu.passes.route.
+# explicit states, keyed on the SAME fact tsu_compiler.passes.route.
 # assert_beta_consistent gates sampling on (whether `ising.mediator_nodes`
 # is empty), never a hardcoded "base is locked" flag -- see
 # assert_beta_consistent's own docstring: "A model with no mediator spins
@@ -310,7 +310,7 @@ def test_temperature_control_state_keys_on_the_same_fact_assert_beta_consistent_
     a range of mediator-node shapes, so they cannot silently drift apart."""
     import math
     from scope import temperature_control_state
-    from tsu.passes.route import assert_beta_consistent
+    from tsu_compiler.passes.route import assert_beta_consistent
 
     for mediator_nodes in [(), (1,), (1, 2, 3), tuple(range(64))]:
         ising = _FakeMediatedIsing(mediator_nodes=mediator_nodes, beta=1.0)

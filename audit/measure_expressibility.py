@@ -1,8 +1,8 @@
 """Task 3 (plan 2026-09-04-lattice-rule-taxonomy): measure, for each of the
-twelve `tsu.rules.RULE_CLASSES`, the smallest concrete instance of that
+twelve `tsu_compiler.rules.RULE_CLASSES`, the smallest concrete instance of that
 class's characteristic mathematical shape, lower it through the real
-compiler pipeline (`tsu.spec.load_spec` / `tsu.passes.encode.encode` /
-`tsu.passes.lower.lower`), and report the measured `tsu.passes.analyse`
+compiler pipeline (`tsu_compiler.spec.load_spec` / `tsu_compiler.passes.encode.encode` /
+`tsu_compiler.passes.lower.lower`), and report the measured `tsu_compiler.passes.analyse`
 GraphReport alongside an EXACT / DISTORTED / INEXPRESSIBLE verdict with the
 arithmetic that proves it.
 
@@ -36,11 +36,11 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 import sympy as sp
 
-from tsu.ir import (Binary, EnergyModel, Linear, LinearForm, Product, Var, VarRef)
-from tsu.passes.analyse import analyse
-from tsu.passes.encode import _REWRITE, encode
-from tsu.passes.lower import ThreeBodyError, lower
-from tsu.spec import load_spec
+from tsu_compiler.ir import (Binary, EnergyModel, Linear, LinearForm, Product, Var, VarRef)
+from tsu_compiler.passes.analyse import analyse
+from tsu_compiler.passes.encode import _REWRITE, encode
+from tsu_compiler.passes.lower import ThreeBodyError, lower
+from tsu_compiler.spec import load_spec
 
 
 def _write(body: str) -> str:
@@ -508,12 +508,12 @@ def measure_statistical():
 @dataclass(frozen=True)
 class _CrossingCountTerm:
     """A hand-rolled term (duck-typed `sympy_expr`, exactly the extension
-    point `tsu.passes.lower._accumulate_symbolic` already supports) used
+    point `tsu_compiler.passes.lower._accumulate_symbolic` already supports) used
     ONLY to probe whether (target - N_cross)^2 reduces to a pairwise model,
     where N_cross = sum of XOR-crossing indicators over a path's edges.
     Deliberately built the same way `lower.py`'s own test suite probes a
     synthetic order-3 key (tests/test_lower_sparse.py) -- an independent
-    construction, not a modification of `src/tsu`."""
+    construction, not a modification of `src/tsu_compiler`."""
     names: tuple
     target: float
     weight: float

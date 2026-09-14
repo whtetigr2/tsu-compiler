@@ -47,11 +47,11 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 sys.path.insert(0, str(REPO_ROOT / "audit"))
 
-from tsu.ir import EnergyModel, LinearForm, Product, VarRef  # noqa: E402
-from tsu.passes.analyse import analyse  # noqa: E402
-from tsu.passes.encode import encode  # noqa: E402
-from tsu.passes.lower import IsingModel, lower  # noqa: E402
-from tsu.spec import load_spec  # noqa: E402
+from tsu_compiler.ir import EnergyModel, LinearForm, Product, VarRef  # noqa: E402
+from tsu_compiler.passes.analyse import analyse  # noqa: E402
+from tsu_compiler.passes.encode import encode  # noqa: E402
+from tsu_compiler.passes.lower import IsingModel, lower  # noqa: E402
+from tsu_compiler.spec import load_spec  # noqa: E402
 
 from assignment_gadget_probe import build_grid_gadget_model  # noqa: E402
 from oracles.exact import exact_boltzmann  # noqa: E402
@@ -178,7 +178,7 @@ def main() -> None:
 # The construction chosen here: replicate each over-cap node into a STAR --
 # one PRIMARY copy (keeps the node's own bias) plus k-1 SECONDARY copies,
 # each bound to the primary by exactly ONE dedicated edge (a "spoke"), not a
-# multi-hop chain (Route A's own topology, src/tsu/passes/split.py). Every
+# multi-hop chain (Route A's own topology, src/tsu_compiler/passes/split.py). Every
 # node's external edges are distributed across its own copies, at most
 # (max_degree - 1) on a secondary and (max_degree - (k-1)) on the primary,
 # so no copy's own degree exceeds max_degree. This is a genuinely different
@@ -227,7 +227,7 @@ def _k_for_star(d: int, max_degree: int) -> int:
     """Smallest k (>=2) such that a star of 1 primary (external budget
     max_degree-(k-1)) plus (k-1) secondaries (external budget max_degree-1
     each) can carry d external edges. Mirrors split_high_degree's own
-    ceil-based sizing (src/tsu/passes/split.py), but for the star's
+    ceil-based sizing (src/tsu_compiler/passes/split.py), but for the star's
     asymmetric per-role budgets -- a chain's per_copy_cap is uniform
     (max_degree - 2 for every copy) because every interior copy carries
     2 chain edges; a star's primary alone accumulates k-1 spokes while every
@@ -268,7 +268,7 @@ def star_replicate(ising: IsingModel, max_degree: int, spoke_strength_fn):
     DECOUPLED form. A node at or under max_degree is left untouched, exactly
     like split_high_degree's own auto-detection.
 
-    Deliberately NOT in src/tsu/passes/ -- Route B is a design discipline
+    Deliberately NOT in src/tsu_compiler/passes/ -- Route B is a design discipline
     (task-3-brief.md), measured here, not implemented as a compiler pass."""
     n = len(ising.nodes)
     incident: list[list[int]] = [[] for _ in range(n)]
@@ -366,7 +366,7 @@ def star_replicate(ising: IsingModel, max_degree: int, spoke_strength_fn):
 
 # ---------------------------------------------------------------------------
 # Small enumerable analogs, verified against audit/oracles/exact.py (which
-# does not import src/tsu -- an oracle sharing code with the thing under
+# does not import src/tsu_compiler -- an oracle sharing code with the thing under
 # test verifies nothing, the same rule tests/test_split.py's own module
 # docstring states).
 # ---------------------------------------------------------------------------
@@ -431,7 +431,7 @@ def _clique_model(n: int, target: float, weight: float, beta: float = 1.0):
     cost, not a fresh untested shape."""
     names = tuple(f"x{i}" for i in range(n))
     xs = [VarRef(nm) for nm in names]
-    from tsu.ir import Binary, Var
+    from tsu_compiler.ir import Binary, Var
     variables = tuple(Var(nm, Binary()) for nm in names)
     L = LinearForm({VarRef(nm): 1.0 for nm in names}, const=-float(target))
     model = EnergyModel(variables, (Product(L, L, weight),), beta)
@@ -666,7 +666,7 @@ def task3_full_scale_statistical_8x8(spoke_strength: float = 1.5):
     print(f"  replications={rep.replications} added_nodes={rep.added_nodes} "
           f"star_edges={rep.star_edges}")
 
-    from tsu.target import Z1
+    from tsu_compiler.target import Z1
     gates = {
         "degree <= 16": (after.max_degree, 16, after.max_degree <= 16),
         "|J| <= 6.0": (after.max_abs_J, 6.0, after.max_abs_J <= 6.0),
@@ -699,8 +699,8 @@ def task3_main():
 # s(k), against the documented 6.0 |J| cap.
 # ============================================================================
 
-from tsu.passes.split import split_high_degree  # noqa: E402
-from tsu.target import Z1  # noqa: E402
+from tsu_compiler.passes.split import split_high_degree  # noqa: E402
+from tsu_compiler.target import Z1  # noqa: E402
 
 
 def _z1_gate_table(report):
@@ -1002,7 +1002,7 @@ def task5_diagnose_field_cap_gap():
     artifact of the 8x8 scale specifically, by measuring the SAME
     construction at 3x3, 4x4, 5x5 as well."""
     print("\n=== Task 5: diagnosis -- which gate binds, and is it size-independent? ===")
-    from tsu.target import Z1
+    from tsu_compiler.target import Z1
     cap_b = Z1.max_abs_bias.value
     for size in (3, 4, 5, 8):
         model, _aux = build_grid_gadget_model(width=size, height=size, target=4)

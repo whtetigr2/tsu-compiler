@@ -50,7 +50,7 @@ This script:
      re-introducing a non-pairwise term) -- and reports whether ANY
      reproduces max(0, target-N) exactly, by comparing GROUND STATES
      (min-over-z energy at every fixed neighbourhood configuration) against
-     the intended function, computed independently of src/tsu.
+     the intended function, computed independently of src/tsu_compiler.
   3. Gives the GENERAL structural reason no such (w, mu) can exist: z=0 is
      always an available choice and every z-containing term evaluates to 0
      when z=0, so min_z(...) <= 0 for EVERY neighbourhood configuration --
@@ -64,14 +64,14 @@ This script:
      is exactly the recursion the plan's brief names.
   4. Cross-checks the failure at the FULL DISTRIBUTION level (not just
      ground states) using `audit/oracles/exact.py`'s `exact_boltzmann`/
-     `exact_energy` -- independent of src/tsu by construction -- comparing
+     `exact_energy` -- independent of src/tsu_compiler by construction -- comparing
      the auxiliary formulation's marginal distribution over the
      neighbourhood against the distribution induced by the honest
      DISTORTED alternative ((target-N)^2, already measured EXACT-pairwise
      in Task 3) at the same beta, via total variation distance over P(N),
      to quantify how the aux probe's failure looks in practice, not
      just at zero temperature. (Both models' (J, b) are BUILT via
-     `tsu.passes.lower.lower` -- already independently validated exact in
+     `tsu_compiler.passes.lower.lower` -- already independently validated exact in
      Task 3 by brute force -- rather than hand-derived here; an earlier
      version of this script hand-derived them and silently mis-collected a
      same-spin square as a bias term, exactly the class of bug
@@ -94,8 +94,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 sys.path.insert(0, str(REPO_ROOT / "audit"))
 
-from tsu.ir import Binary, EnergyModel, Linear, LinearForm, Product, Var, VarRef  # noqa: E402
-from tsu.passes.lower import lower  # noqa: E402 -- to BUILD (J,b); see step4's own note
+from tsu_compiler.ir import Binary, EnergyModel, Linear, LinearForm, Product, Var, VarRef  # noqa: E402
+from tsu_compiler.passes.lower import lower  # noqa: E402 -- to BUILD (J,b); see step4's own note
 from oracles.exact import exact_boltzmann, exact_energy  # noqa: E402 -- independent oracle
 
 
@@ -106,13 +106,13 @@ NAMES = ["x0", "x1", "x2"]
 def intended(N: float, target: float) -> float:
     """max(0, target - N) -- the rule Task 3's morphology/ecological rows
     found DISTORTED by the nearest pairwise form. Computed independently,
-    not by calling anything under src/tsu."""
+    not by calling anything under src/tsu_compiler."""
     return max(0.0, target - N)
 
 
 def _multilinear_reference_polynomial(n: int, target: float):
     """The EXACT multilinear (Mobius/Lagrange) polynomial for
-    max(0, target-N) over n binary neighbours, independent of src/tsu and of
+    max(0, target-N) over n binary neighbours, independent of src/tsu_compiler and of
     `build_aux_model` -- one indicator monomial per state, weighted by that
     state's own `intended` value. Used only to VERIFY, before probing
     anything, that a given (n, target) instance is not degenerate: a bare
@@ -268,7 +268,7 @@ def _to_oracle_JB(ising):
     did, is exactly the "second, weaker computation" class of bug this
     project's own encode.py docstrings warn against -- it silently mis-
     collected a same-spin square as a bias term; see git history). The
-    INDEPENDENCE requirement (spec Task A4: "do NOT import src/tsu") binds
+    INDEPENDENCE requirement (spec Task A4: "do NOT import src/tsu_compiler") binds
     `audit/oracles/exact.py` itself, which this function feeds but never
     modifies or reimplements."""
     J = {ising.edges[i]: float(ising.weights[i]) for i in range(len(ising.edges))}
@@ -279,7 +279,7 @@ def _to_oracle_JB(ising):
 def step4_oracle_distribution_check():
     n = len(NAMES)
     print("\n=== Step 4: distribution-level check against the independent oracle ===")
-    print("    (audit/oracles/exact.py's exact_boltzmann/exact_energy -- does not import src/tsu)")
+    print("    (audit/oracles/exact.py's exact_boltzmann/exact_energy -- does not import src/tsu_compiler)")
     weight, mu, beta = 1.0, 0.0, 1.0
     model = build_aux_model(weight, mu)
     ising = lower(model)

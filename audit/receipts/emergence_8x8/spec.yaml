@@ -59,7 +59,7 @@ description: >
     - `climate` -- EXACT (matrix row #8), but its distinguishing cost is
       the CATEGORICAL domain-wall encoding's own structural overhead, which
       this task measured (via `tsu.passes.analyse.analyse`, not
-      `tsu compile`) to collide with NEIGHBOURHOOD's own clique cost on a
+      `tsuc compile`) to collide with NEIGHBOURHOOD's own clique cost on a
       full 8x8 k=3 grid: max_degree=18, over the Z1 cap of 16 (product_over_
       edges alone: max_degree=9; neighbourhood_count alone: max_degree=9;
       combined: 18, not simply additive by coincidence but close to it here
@@ -81,11 +81,11 @@ description: >
       rendered, which would misrepresent what "emergence" means for this
       experiment. Left out rather than included as inert decoration.
 
-  Structural pre-check (this task's own budget: `tsu compile` may run
+  Structural pre-check (this task's own budget: `tsuc compile` may run
   ONCE, so every number below comes from `tsu.passes.analyse.analyse` on
   the ACTUAL lowered model -- the same cheap, non-placement pipeline
   audit/measure_expressibility.py already uses -- run repeatedly to choose
-  these weights BEFORE the one real compile, never from `tsu compile`
+  these weights BEFORE the one real compile, never from `tsuc compile`
   itself): n_nodes=64 (binary cells pass through encode() unchanged, no
   domain-wall chain), max_degree=12 (Z1 cap 16, margin 4), bipartite=False
   (both NEIGHBOURHOOD's and GAMEPLAY's cliques mediate), |J|max=0.35 (cap

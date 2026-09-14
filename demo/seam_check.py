@@ -1,7 +1,7 @@
 """A1: seam-clamp measurement -- can a chunk be sampled subject to its
 neighbours' already-sampled edges, cheaply and correctly?
 
-Everything here rides on the VERIFIED `tsu.simulate.simulate` API and the
+Everything here rides on the VERIFIED `tsu_compiler.simulate.simulate` API and the
 compiler's OWN `encode()` (`is_codeword` / `decode` / `encode_clamp`) and
 `spec.contract.validate` -- exactly the pattern `demo/render_world.py` uses.
 No clamping or decoding is hand-rolled here; only the CROSS-CHUNK adjacency
@@ -31,9 +31,9 @@ from pathlib import Path
 
 sys.path.insert(0, "src")
 
-from tsu.simulate import simulate
-from tsu.spec import load_spec
-from tsu.passes.encode import encode
+from tsu_compiler.simulate import simulate
+from tsu_compiler.spec import load_spec
+from tsu_compiler.passes.encode import encode
 
 R = "demo/receipts/small"
 W = H = 8

@@ -22,11 +22,11 @@ import pytest
 sys.path.insert(0, "src")
 sys.path.insert(0, "demo")
 
-from tsu.spec import load_spec
-from tsu.passes.encode import encode
-from tsu.simulate import reconstruct_program, _selected_encoding
-from tsu.backends.thrml_backend import sample as thrml_sample
-import tsu.target as target_mod
+from tsu_compiler.spec import load_spec
+from tsu_compiler.passes.encode import encode
+from tsu_compiler.simulate import reconstruct_program, _selected_encoding
+from tsu_compiler.backends.thrml_backend import sample as thrml_sample
+import tsu_compiler.target as target_mod
 
 import layers
 from layers import bias_patch, FieldCapExceeded, FIELD_CAP
@@ -104,7 +104,7 @@ def test_empty_patch_is_a_noop():
 #    band_patch (which produces exactly {(cell, 1): weight} patches, see
 #    that module's docstring) unusable against the one receipt it exists
 #    to condition. Fixed to build the SAME value-1/value-0 LinearForm
-#    tsu.spec._value_indicator itself builds for a Binary domain.
+#    tsu_compiler.spec._value_indicator itself builds for a Binary domain.
 # --------------------------------------------------------------------------
 
 def _load_elev_band():

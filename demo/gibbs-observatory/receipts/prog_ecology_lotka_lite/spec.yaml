@@ -1,0 +1,22 @@
+name: ecology_lotka_lite
+description: >
+  Discrete competitive-occupancy / Lotka-style exclusion on a 4x4 grid
+  (Extropic ecology vibe). Real problem: each cell is one of two competing
+  types (categorical k=2). Types may not abut (competitive exclusion on
+  edges); same-type neighbours get a mild ferromagnetic reward so patches
+  clump — a tiny spatial Lotka / niche-partitioning prior. Continuous
+  Lotka–Volterra ODEs and Torx diffusion are out of scope for this Ising
+  YAML shelf (Torx-native, not this compiler shelf yet).
+generate:
+  kind: grid
+  width: 4
+  height: 4
+  variable_domain: {domain: categorical, k: 2}
+terms:
+  - {kind: product_over_edges, a_value: 0, b_value: 1, weight: 1.2}
+  - {kind: product_over_edges, a_value: 0, b_value: 0, weight: -0.25}
+  - {kind: product_over_edges, a_value: 1, b_value: 1, weight: -0.25}
+contract:
+  validate:
+    - {rule: forbid_value_pair_over_edges, a_value: 0, b_value: 1,
+       message: "competing types share an edge — competitive exclusion violated"}

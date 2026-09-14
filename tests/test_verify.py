@@ -1,9 +1,9 @@
 import pytest
-from tsu.spec import load_spec, TaskContract, WorkloadSpec
-from tsu.ir import Binary, Linear, Product, LinearForm, Var, VarRef
-from tsu.target import IDEAL, Z1
-from tsu.passes.search import compile_spec
-from tsu.backends.thrml_backend import EXACT_LIMIT
+from tsu_compiler.spec import load_spec, TaskContract, WorkloadSpec
+from tsu_compiler.ir import Binary, Linear, Product, LinearForm, Var, VarRef
+from tsu_compiler.target import IDEAL, Z1
+from tsu_compiler.passes.search import compile_spec
+from tsu_compiler.backends.thrml_backend import EXACT_LIMIT
 
 
 def _oversized_spec(n) -> WorkloadSpec:
@@ -166,9 +166,9 @@ def test_decoded_sample_persists_a_failing_one_when_no_sample_ever_passes_the_co
 def test_regime_report_has_cheap_fields_and_measures_mixing_when_the_chain_supports_it():
     """toy.yaml's compiled chain mixes fast enough (tau ~ 0.9, close to the
     i.i.d. tau=1 floor -- a 4-spin chromatic-block-Gibbs chain has little to
-    decorrelate) that N/tau clears tsu.ess's reliability threshold, so
+    decorrelate) that N/tau clears tsu_compiler.ess's reliability threshold, so
     mixing_indicator is now a REAL measurement, not the old permanent None --
-    the whole point of wiring tsu.ess in was to stop reporting "unmeasured"
+    the whole point of wiring tsu_compiler.ess in was to stop reporting "unmeasured"
     for a quantity the compiler can, in fact, measure here.
 
     `energy_scale` used to be a permanent None (regime.py's own docstring:

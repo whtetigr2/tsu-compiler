@@ -1,0 +1,55 @@
+{
+  "verdict": "COMPILED",
+  "ideal_passed": true,
+  "hardware_evaluated": true,
+  "allow_assumed": false,
+  "candidates": [
+    {
+      "encoding": "domain_wall",
+      "state": "SELECTED",
+      "reason": null,
+      "failure": null
+    },
+    {
+      "encoding": "one_hot",
+      "state": "HARDWARE_INFEASIBLE",
+      "reason": "|b|max = 7.0 exceeds 6.0 (source=assumed)",
+      "failure": {
+        "measured": 7.0,
+        "limit": 6.0,
+        "assumed": true,
+        "remediations": [
+          {
+            "action": "change encoding",
+            "detail": "a local encoding keeps |b| bounded independent of size"
+          },
+          {
+            "action": "relax target",
+            "detail": "target.max_abs_bias >= 7.0"
+          },
+          {
+            "action": "override",
+            "detail": "pass --allow-assumed to downgrade this gate; max_abs_bias is source=assumed"
+          }
+        ],
+        "gate": "field_cap",
+        "cause": "|b|max = 7.0 exceeds 6.0 (source=assumed)"
+      }
+    }
+  ],
+  "ordering_rationale": "selection order: physical p-bit count, then colour blocks, then |J|max; ties broken by declaration order (domain_wall, one_hot)",
+  "pass_durations": {
+    "encode": 6.750699685653672e-05,
+    "lower": 6.368300091708079e-05,
+    "analyse": 5.9959998907288536e-05,
+    "gate_checks": 2.3094999050954357e-05,
+    "place": 0.0011720660004357342,
+    "route": 4.3299951357766986e-07,
+    "build_program": 1.2303000403335318e-05,
+    "regime": 1.6758996935095638e-05,
+    "verify": 1.4443089840024186
+  },
+  "coefficient_scale": 1.0,
+  "scaled_beta": 1.0,
+  "mediation": null
+}

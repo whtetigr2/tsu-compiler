@@ -12,12 +12,12 @@ recorded in wfc-stress-report.md so they cannot silently drift:
   domain-wall alone recovers under --allow-assumed, and task_validity is
   still a real number for it despite no exact reference existing.
 """
-from tsu.spec import load_spec
-from tsu.target import Z1
-from tsu.passes.encode import encode
-from tsu.passes.search import compile_spec, compare
-from tsu.states import CandidateState
-from tsu.backends.thrml_backend import EXACT_LIMIT
+from tsu_compiler.spec import load_spec
+from tsu_compiler.target import Z1
+from tsu_compiler.passes.encode import encode
+from tsu_compiler.passes.search import compile_spec, compare
+from tsu_compiler.states import CandidateState
+from tsu_compiler.backends.thrml_backend import EXACT_LIMIT
 
 
 def test_2x2_k3_spin_counts_are_within_exact_enumeration_reach():

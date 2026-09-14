@@ -3,8 +3,8 @@ import math
 import numpy as np
 import pytest
 
-from tsu.ir import Binary, EnergyModel, LinearForm, Linear, Product, Var, VarRef
-from tsu.passes.lower import lower, ThreeBodyError
+from tsu_compiler.ir import Binary, EnergyModel, LinearForm, Linear, Product, Var, VarRef
+from tsu_compiler.passes.lower import lower, ThreeBodyError
 
 
 def binary_model(terms, names=("a", "b")):
@@ -85,7 +85,7 @@ def test_four_distinct_spin_product_is_rejected_as_pairwise_violation():
 
 
 def test_categorical_reaching_lower_is_an_error():
-    from tsu.ir import Categorical
+    from tsu_compiler.ir import Categorical
     m = EnergyModel((Var("c", Categorical(3)),), (), 1.0)
     with pytest.raises(ValueError, match="encode"):
         lower(m)

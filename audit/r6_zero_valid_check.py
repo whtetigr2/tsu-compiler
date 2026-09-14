@@ -1,7 +1,7 @@
 """R6 -- "zero valid samples" must never become "proven impossible" (plan
 Wave 3). Reads the ACTUAL on-screen strings the app would render for a
 zero-valid batch at every path the review brief names, by calling the real,
-public, importable functions directly (no Tk instance, no `tsu compile`,
+public, importable functions directly (no Tk instance, no `tsuc compile`,
 no full suite) -- never re-typing the f-string by hand and hoping it
 matches, since a hand-typed guess is exactly what would miss a wording
 regression between the source and this check.
@@ -118,12 +118,12 @@ print("PATH 6: compile-time HARDWARE_INFEASIBLE (spec/candidate rejection) --"
       " does the literal enum name ever reach a viewer unqualified?")
 print("=" * 78)
 sys.path.insert(0, str(REPO_ROOT / "src"))
-from tsu.states import CandidateState  # noqa: E402
+from tsu_compiler.states import CandidateState  # noqa: E402
 print(f"CandidateState.HARDWARE_INFEASIBLE = {CandidateState.HARDWARE_INFEASIBLE.value!r}")
 print("grep of demo/*.py for the literal string 'HARDWARE_INFEASIBLE': "
       "zero hits (confirmed separately with `grep -rn HARDWARE_INFEASIBLE "
-      "demo/`) -- the live Tk app and `tsu report`'s prose narrative "
-      "(src/tsu/report.py:_failure_narrative) both render only the "
+      "demo/`) -- the live Tk app and `tsuc report`'s prose narrative "
+      "(src/tsu_compiler/report.py:_failure_narrative) both render only the "
       "recorded `cause`/`reason` string (e.g. 'placement failed: placement "
       "effort exhausted', or 'measured X, limit Y'), never the bare enum "
       "name. This state IS reachable from an infeasible SPEC (a spec whose "

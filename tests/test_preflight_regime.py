@@ -11,10 +11,10 @@ import pytest
 sys.path.insert(0, "src")
 sys.path.insert(0, "demo")
 
-from tsu.ess import RELIABILITY_MIN_N_OVER_TAU
-from tsu.passes.lower import IsingModel
-from tsu.preflight.diagnostics import RHAT_THRESHOLD
-from tsu.preflight.sweep import (RegimeRow, binder, crossing, susceptibility,
+from tsu_compiler.ess import RELIABILITY_MIN_N_OVER_TAU
+from tsu_compiler.passes.lower import IsingModel
+from tsu_compiler.preflight.diagnostics import RHAT_THRESHOLD
+from tsu_compiler.preflight.sweep import (RegimeRow, binder, crossing, susceptibility,
                                  usable_band, sweep, SATURATION)
 
 
@@ -223,7 +223,7 @@ def test_usable_band_is_none_without_a_crossing_on_a_real_1d_ising_ring():
     positive with a KNOWN-CORRECT answer (no band exists, because no
     transition exists).
 
-    This is the exact live finding from a coordinator review: `tsu regime
+    This is the exact live finding from a coordinator review: `tsuc regime
     --edges` on a 16-node ring reported "No Binder crossing was observed"
     immediately followed by "Usable band: (0.433, 0.6)" three lines later
     -- self-contradictory, both symptoms of the same deleted literal.
@@ -264,14 +264,14 @@ def test_usable_band_is_none_without_a_crossing_on_a_real_1d_ising_ring():
 
 
 def test_sweep_defaults_clear_the_ess_reliability_floor():
-    """n_chains * n_samples must clear tsu.ess's own reliability floor in the
+    """n_chains * n_samples must clear tsu_compiler.ess's own reliability floor in the
     BEST case (tau ~ 1) -- otherwise every row sweep() produces at its own
     defaults is unconditionally ESS-unavailable regardless of how well the
     chain mixes, independent of mixing quality entirely. This is exactly the
     contradiction this task's Concern 1 found (8*400=3,200 against a floor of
     5,000, even at tau~1).
 
-    Reads the floor from tsu.ess directly (not a hardcoded 5000) and the
+    Reads the floor from tsu_compiler.ess directly (not a hardcoded 5000) and the
     defaults off sweep's own signature via inspect.signature (not restated
     literals), so this test tracks either constant if it is ever re-derived
     rather than silently drifting from the code."""
@@ -285,14 +285,14 @@ def test_sweep_defaults_clear_the_ess_reliability_floor():
 def test_sweep_runs_end_to_end_and_carries_the_ess_refusal_through():
     """A real (tiny) sampling run through sweep() itself -- not just the
     synthetic RegimeRow objects the tests above construct by hand -- to
-    confirm analyse -> build_program -> sample_chains -> tsu.ess/r_hat are
+    confirm analyse -> build_program -> sample_chains -> tsu_compiler.ess/r_hat are
     actually wired together correctly and produce well-typed rows.
 
     Makes NO claim about where a transition sits on this toy: a 3x3 lattice
     sampled for 40 draws/chain is far too small/short for that, and asserting
     a location here would be exactly the fabrication this module exists to
     refuse. What IS checked is the refusal itself: n_chains*n_samples = 160 is
-    far below tsu.ess's own reliability floor (RELIABILITY_MIN_N_OVER_TAU =
+    far below tsu_compiler.ess's own reliability floor (RELIABILITY_MIN_N_OVER_TAU =
     5000 -- see tsu/ess.py), so effective_sample_size MUST return
     ess=None/iat=None regardless of how well the chain mixes, and sweep() must
     carry that refusal through as None fields and ess_unavailable=True rather
@@ -324,7 +324,7 @@ def test_sweep_runs_end_to_end_and_carries_the_ess_refusal_through():
         assert 0.0 <= r.abs_m <= 1.0
         assert -1e-9 <= r.binder <= 2.0 / 3.0 + 1e-9
         assert r.r_hat > 0.0
-        # 4*40 = 160 total draws is nowhere near tsu.ess's reliability floor
+        # 4*40 = 160 total draws is nowhere near tsu_compiler.ess's reliability floor
         # of 5000, at ANY tau -- this is not a statement about mixing quality,
         # so it is unconditionally true regardless of what this toy's R-hat
         # happens to be. max_samples=40 forbids any escalation, so this stays
@@ -434,7 +434,7 @@ def _frozen_spin_model(size, beta_j):
     the point past which `p_plus = 1/(1+exp(-2*beta*b))` rounds to EXACTLY
     1.0 in float64 (verified directly: `np.random.default_rng(0).random()`
     draws are always < 1.0, so `draws < p_plus` is unconditionally True) --
-    reproducing tsu.ess's 'series is constant (zero variance)' refusal
+    reproducing tsu_compiler.ess's 'series is constant (zero variance)' refusal
     deterministically, the same shape as the branch review's own
     single-spin live repro, without depending on a specific --beta-steps
     value or a near-miss numeric coincidence."""
@@ -456,7 +456,7 @@ def test_a_permanent_refusal_is_not_retried_and_does_not_blame_the_budget():
     makes `r.ess_reason` contain 'budget'/'largest attempt' even for this
     permanent, unfixable refusal, implying to a reader that raising
     --max-samples would help.
-    PROVENANCE: tsu.ess.effective_sample_size's own reason string for a
+    PROVENANCE: tsu_compiler.ess.effective_sample_size's own reason string for a
     constant series ('unavailable: series is constant (zero variance);
     autocorrelation is undefined'); branch review F7's single-spin live
     reproduction (beta_j=0.05, beta-steps=3)."""
@@ -500,15 +500,15 @@ def test_a_curable_refusal_still_escalates_and_still_names_its_budget():
 
 # ---------------------------------------------------------------------------
 # F6 (branch review): N_eff must never exceed the number of draws actually
-# taken. tsu.ess's windowed tau estimate can dip below 1.0 on a fast-mixing
-# chain (routine, not a bug in tsu.ess -- see ess.py's own module docstring),
+# taken. tsu_compiler.ess's windowed tau estimate can dip below 1.0 on a fast-mixing
+# chain (routine, not a bug in tsu_compiler.ess -- see ess.py's own module docstring),
 # which makes N_eff = N_total/tau print LARGER than N_total. "your effective
 # sample size exceeds your sample size" is flagged in the branch review as
 # the one line that ends a conversation with a reviewer, even though the
 # review independently confirmed (exact Boltzmann enumeration, RMS sigma_off
 # 1.07 over 10 couplings) that the resulting error bars are still correctly
 # calibrated -- this is a presentation/estimator-artifact defect, not a wrong
-# number. tsu.ess itself is deliberately NOT touched here (it is validated
+# number. tsu_compiler.ess itself is deliberately NOT touched here (it is validated
 # against arviz/statsmodels with its own test suite); the floor belongs at
 # the one call site that renders tau/N_eff to a reader.
 # ---------------------------------------------------------------------------
@@ -516,7 +516,7 @@ def test_a_curable_refusal_still_escalates_and_still_names_its_budget():
 def test_reported_ess_is_floored_and_never_exceeds_the_total_draw_count(monkeypatch):
     """WHAT THIS PINS: `sweep()` floors the REPORTED tau at 1.0 (and, with
     it, N_eff = N_total/tau) before it goes into a RegimeRow, even when
-    tsu.ess's own estimator reports a raw tau below 1. tau_A = 1 +
+    tsu_compiler.ess's own estimator reports a raw tau below 1. tau_A = 1 +
     2*sum_k rho_k is exactly 1.0 for i.i.d. draws (every rho_k is 0 beyond
     lag 0), so a windowed ESTIMATE below 1 is an artifact of Sokal's
     finite-window truncation on a fast-mixing chain -- no physical process
@@ -524,15 +524,15 @@ def test_reported_ess_is_floored_and_never_exceeds_the_total_draw_count(monkeypa
     shrink an over-large N_eff back toward N_total (never inflate it
     further) and can only widen `abs_m_err` (never understate it) --
     checked here by asserting `stderr_from_ess` is called with the FLOORED
-    ess, not tsu.ess's raw (inflated) one.
+    ess, not tsu_compiler.ess's raw (inflated) one.
 
-    `effective_sample_size` is monkeypatched (not tsu.ess itself, which
+    `effective_sample_size` is monkeypatched (not tsu_compiler.ess itself, which
     this task's brief says must stay untouched) to return a controlled
     EssEstimate with tau=0.8 -- exactly the "tau dips below 1" shape the
     branch review reproduced live (N_eff=35,153 from N_total=32,000 on a
     16-node ring).
 
-    HOW IT FAILS: without a floor, `r.tau`/`r.n_eff` pass tsu.ess's raw
+    HOW IT FAILS: without a floor, `r.tau`/`r.n_eff` pass tsu_compiler.ess's raw
     EssEstimate straight through, so `r.tau == 0.8` (fails `>= 1.0`) and
     `r.n_eff == n_total/0.8 == 1.25*n_total` (exceeds n_total). And if the
     floor were applied to `tau`/`n_eff` for display only but NOT threaded
@@ -541,11 +541,11 @@ def test_reported_ess_is_floored_and_never_exceeds_the_total_draw_count(monkeypa
     computed from a too-large ESS is a too-SMALL (falsely precise) stderr,
     exactly the overstatement the review's own "conservative" framing
     rules out.
-    PROVENANCE: tsu.ess's module docstring (Sokal 1989 sec. 3.3) for why
+    PROVENANCE: tsu_compiler.ess's module docstring (Sokal 1989 sec. 3.3) for why
     tau_A = 1 for i.i.d. draws; N_eff=35,153/N_total=32,000 is the branch
     review's own live reproduction (F6)."""
-    import tsu.preflight.sweep as sweep_mod
-    from tsu.ess import EssEstimate
+    import tsu_compiler.preflight.sweep as sweep_mod
+    from tsu_compiler.ess import EssEstimate
 
     n_chains, n_samples = 8, 100
     n_total = n_chains * n_samples
@@ -574,7 +574,7 @@ def test_reported_ess_is_floored_and_never_exceeds_the_total_draw_count(monkeypa
     assert r.n_eff == pytest.approx(n_total), \
         "N_eff must never be reported larger than the total draws taken"
     assert captured["ess"] == pytest.approx(n_total), \
-        "abs_m_err must be computed from the FLOORED ess, not tsu.ess's raw, " \
+        "abs_m_err must be computed from the FLOORED ess, not tsu_compiler.ess's raw, " \
         "artificially-inflated one -- otherwise flooring tau/n_eff for " \
         "display would leave the error bar just as falsely precise as before"
 
@@ -590,7 +590,7 @@ def test_report_legend_states_the_tau_and_n_eff_convention(tmp_path):
     PROVENANCE: branch review F6 ("report.md prints a tau column and an
     N_eff column and never states the convention... Add one line to the
     legend")."""
-    from tsu.preflight.render import write_regime
+    from tsu_compiler.preflight.render import write_regime
     rows = _rows(16, [0.3], [0.2])
     write_regime(rows, None, None, tmp_path, onsager=None)
     text = (tmp_path / "report.md").read_text(encoding="utf-8")
@@ -607,7 +607,7 @@ def test_report_legend_states_the_tau_and_n_eff_convention(tmp_path):
 # constant this project's spec opens with (an 8x8 uniform square lattice --
 # the one graph Onsager solved -- printed that false note on every run,
 # because the code never checked). `detect_uniform_square_lattice` replaces
-# the hardcoded `onsager=None` in `tsu.cli.sweep_single_model` with an actual,
+# the hardcoded `onsager=None` in `tsu_compiler.cli.sweep_single_model` with an actual,
 # deliberately conservative check: three distinct claims (applies / checked
 # and does not apply / not determined), never a binary. No test anywhere in
 # the suite previously read `regime.json["onsager_note"]` at all (the review's
@@ -638,7 +638,7 @@ def test_onsager_betac_matches_the_textbook_constant():
     test_frontier.py's existing `test_onsager_betac_matches_the_textbook_constant`
     for the demo-side re-export check)."""
     import math
-    from tsu.preflight.sweep import onsager_betac
+    from tsu_compiler.preflight.sweep import onsager_betac
     j_max = 1.7
     expected = math.log(1.0 + math.sqrt(2.0)) / 2.0 / j_max
     assert onsager_betac(j_max) == pytest.approx(expected, rel=1e-12)
@@ -656,7 +656,7 @@ def test_detect_uniform_square_lattice_applies_on_an_open_grid():
     makes `kc` None here, failing the `is not None` assertion below.
     PROVENANCE: branch review F1's own reproduction (8x8 lattice, Kc =
     0.4407 = ln(1+sqrt(2))/2)."""
-    from tsu.preflight.sweep import detect_uniform_square_lattice, onsager_betac
+    from tsu_compiler.preflight.sweep import detect_uniform_square_lattice, onsager_betac
     model = _open_grid(8, j=1.0, b=0.0)
     kc, note = detect_uniform_square_lattice(model)
     assert kc is not None, f"must detect the 8x8 open grid as a square lattice, got note={note!r}"
@@ -670,7 +670,7 @@ def test_detect_uniform_square_lattice_scales_kc_with_j():
     """kc must be reported in the SWEPT model's own beta*J units, i.e.
     onsager_betac(j_uniform) -- not the unit-coupling constant regardless of
     the model's actual |J|."""
-    from tsu.preflight.sweep import detect_uniform_square_lattice, onsager_betac
+    from tsu_compiler.preflight.sweep import detect_uniform_square_lattice, onsager_betac
     model = _open_grid(6, j=2.5, b=0.0)
     kc, note = detect_uniform_square_lattice(model)
     assert kc is not None
@@ -681,7 +681,7 @@ def test_detect_uniform_square_lattice_does_not_apply_on_nonzero_field():
     """A nonzero bias breaks Onsager's zero-field precondition -- this must
     be a POSITIVELY VERIFIED 'does not apply', never 'not determined' (the
     reason is known, not merely unchecked)."""
-    from tsu.preflight.sweep import detect_uniform_square_lattice
+    from tsu_compiler.preflight.sweep import detect_uniform_square_lattice
     model = _open_grid(4, j=0.4, b=0.1)
     kc, note = detect_uniform_square_lattice(model)
     assert kc is None
@@ -691,7 +691,7 @@ def test_detect_uniform_square_lattice_does_not_apply_on_nonzero_field():
 
 def test_detect_uniform_square_lattice_does_not_apply_on_nonuniform_coupling():
     """Non-uniform |J| breaks Onsager's uniform-coupling precondition."""
-    from tsu.preflight.sweep import detect_uniform_square_lattice
+    from tsu_compiler.preflight.sweep import detect_uniform_square_lattice
     model = _open_grid(4, j=0.4, b=0.0)
     weights = np.array(model.weights, dtype=float)
     weights[0] *= 3.0
@@ -710,7 +710,7 @@ def test_detect_uniform_square_lattice_does_not_apply_on_a_1d_ring():
     (Ising 1925): if this were ever misdetected as a square lattice, its
     report would print a fabricated Kc next to a model that provably has
     no finite-temperature transition at any coupling."""
-    from tsu.preflight.sweep import detect_uniform_square_lattice
+    from tsu_compiler.preflight.sweep import detect_uniform_square_lattice
     n = 16
     edges = tuple((i, (i + 1) % n) for i in range(n))
     model = IsingModel(nodes=tuple(f"x{i}" for i in range(n)), edges=edges,
@@ -724,7 +724,7 @@ def test_detect_uniform_square_lattice_does_not_apply_on_a_1d_ring():
 def test_detect_uniform_square_lattice_does_not_apply_on_two_components():
     """Two disjoint grids are not "a single connected uniform square
     lattice" -- Onsager's result is for one connected lattice."""
-    from tsu.preflight.sweep import detect_uniform_square_lattice
+    from tsu_compiler.preflight.sweep import detect_uniform_square_lattice
     a = _open_grid(3, j=0.4, b=0.0)
     b = _open_grid(3, j=0.4, b=0.0)
     offset = len(a.nodes)
@@ -750,7 +750,7 @@ def test_detect_uniform_square_lattice_reports_not_determined_when_the_embed_sea
     HOW IT FAILS: treating a None from `_try_grid_embed` as a confirmed
     negative (instead of an inconclusive search) makes `note` say "does
     not apply" instead of "not determined"."""
-    import tsu.preflight.sweep as sweep_mod
+    import tsu_compiler.preflight.sweep as sweep_mod
     monkeypatch.setattr(sweep_mod, "_try_grid_embed", lambda g, **k: None)
     model = _open_grid(4, j=0.4, b=0.0)
     kc, note = sweep_mod.detect_uniform_square_lattice(model)
@@ -766,13 +766,13 @@ def test_write_regime_honours_an_explicit_onsager_note(tmp_path):
     binary logic. The branch review's own grep (`grep -rn "onsager"
     tests/`) found NO test anywhere reading `regime.json["onsager_note"]`
     at all -- this is that test (see test_cli.py for the full end-to-end
-    check through a real `tsu regime` run).
+    check through a real `tsuc regime` run).
     HOW IT FAILS: `write_regime` ignoring `onsager_note` and falling back
     to its own onsager-is-None binary guess makes the JSON field read
     "not determined: this call did not report..." (the new default)
     instead of the exact string passed in below."""
     import json
-    from tsu.preflight.render import write_regime
+    from tsu_compiler.preflight.render import write_regime
     rows = _rows(16, [0.3], [0.2])
     custom_note = "checked and does not apply: test stub reason"
     paths = write_regime(rows, None, None, tmp_path, onsager=None,
@@ -794,7 +794,7 @@ def test_write_regime_defaults_to_not_determined_rather_than_not_applicable(tmp_
     square lattice (`onsager_kc`: None, `onsager_note`: "not applicable to
     this graph", while chi peaked at beta*J=0.4778 against Kc=0.4407)."""
     import json
-    from tsu.preflight.render import write_regime
+    from tsu_compiler.preflight.render import write_regime
     rows = _rows(16, [0.3], [0.2])
     paths = write_regime(rows, None, None, tmp_path, onsager=None)
     data = json.loads(paths[0].read_text(encoding="utf-8"))

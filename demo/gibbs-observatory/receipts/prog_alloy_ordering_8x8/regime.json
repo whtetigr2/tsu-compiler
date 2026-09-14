@@ -1,0 +1,9 @@
+{
+  "energy_scale": "unavailable: 2^64 too large to enumerate",
+  "coupling_utilisation": 0.09166666666666667,
+  "precision_headroom": "unmeasured: fewer than two distinct |J| values in the model",
+  "beta_recommendation": null,
+  "mixing_indicator": "unavailable: N/tau=1609 (N=6400, tau~=3.98) is below the reliability threshold 5000 the AR(1) validation established (see ess-report.md); chain too short/too correlated for a trustworthy estimate",
+  "regime": "feasible",
+  "basis": "within cap; mixing not measured"
+}

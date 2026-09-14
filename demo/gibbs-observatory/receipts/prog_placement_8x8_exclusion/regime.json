@@ -1,0 +1,9 @@
+{
+  "energy_scale": "unavailable: 2^64 too large to enumerate",
+  "coupling_utilisation": 0.3333333333333333,
+  "precision_headroom": "unmeasured: fewer than two distinct |J| values in the model",
+  "beta_recommendation": null,
+  "mixing_indicator": 0.9375132806577504,
+  "regime": "feasible",
+  "basis": "within cap; mixing not measured"
+}

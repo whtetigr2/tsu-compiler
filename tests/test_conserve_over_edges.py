@@ -20,11 +20,11 @@ import textwrap
 
 import pytest
 
-from tsu.ir import Binary, EnergyModel, LinearForm, Product, Var, VarRef
-from tsu.passes.analyse import analyse
-from tsu.passes.encode import encode
-from tsu.passes.lower import ThreeBodyError, lower
-from tsu.spec import load_spec
+from tsu_compiler.ir import Binary, EnergyModel, LinearForm, Product, Var, VarRef
+from tsu_compiler.passes.analyse import analyse
+from tsu_compiler.passes.encode import encode
+from tsu_compiler.passes.lower import ThreeBodyError, lower
+from tsu_compiler.spec import load_spec
 
 
 def _write(body: str) -> str:
@@ -309,8 +309,8 @@ def test_a_directed_flow_workload_discloses_that_TV_does_not_certify_transport()
     ratchet's stationary distribution to TV ~1e-15 while its net current goes
     to ZERO. Distributional agreement and directed behaviour are independent,
     and this compiler can express the second while only measuring the first."""
-    from tsu.passes.search import _transport_note
-    from tsu.spec import load_spec
+    from tsu_compiler.passes.search import _transport_note
+    from tsu_compiler.spec import load_spec
 
     note = _transport_note(load_spec("specs/emergence_8x8.yaml"))
     assert note, "a conserve_over_edges spec must carry a transport disclosure"
@@ -328,7 +328,7 @@ def test_a_workload_with_no_flow_variables_carries_no_transport_note():
 
     PROVENANCE: toy.yaml's own term list -- it has no `conserve_over_edges`
     term, so there is no directed quantity for TV to fail to certify."""
-    from tsu.passes.search import _transport_note
-    from tsu.spec import load_spec
+    from tsu_compiler.passes.search import _transport_note
+    from tsu_compiler.spec import load_spec
 
     assert _transport_note(load_spec("specs/toy.yaml")) == ""

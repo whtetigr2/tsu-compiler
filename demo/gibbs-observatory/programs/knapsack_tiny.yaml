@@ -1,0 +1,24 @@
+name: knapsack_tiny
+description: >
+  Tiny 0/1 knapsack with capacity soft-penalty (resource allocation class).
+  Real problem: choose a subset of five items with values [5,4,3,3,2] and
+  weights [4,3,3,2,2] under capacity 7. Negative linear terms prefer high
+  value; a squared (sum w_i x_i − 7) soft constraint prefers filling the
+  knapsack near capacity — the standard QUBO resource-allocation template
+  (exact fill / soft capacity), not a MIP solver. Scale kept tiny for Z1.
+variables:
+  item0: {domain: binary}
+  item1: {domain: binary}
+  item2: {domain: binary}
+  item3: {domain: binary}
+  item4: {domain: binary}
+terms:
+  # value reward (prefer include high-value items)
+  - {kind: linear, form: {item0: 5.0, item1: 4.0, item2: 3.0, item3: 3.0, item4: 2.0}, weight: -0.25}
+  # capacity soft: (4*i0 + 3*i1 + 3*i2 + 2*i3 + 2*i4 - 7)^2
+  - {kind: product,
+     a: {item0: 4.0, item1: 3.0, item2: 3.0, item3: 2.0, item4: 2.0, const: -7.0},
+     b: {item0: 4.0, item1: 3.0, item2: 3.0, item3: 2.0, item4: 2.0, const: -7.0},
+     weight: 0.2}
+contract:
+  validate: []

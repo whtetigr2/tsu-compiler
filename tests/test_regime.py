@@ -1,10 +1,10 @@
 import numpy as np
 import pytest
 
-from tsu.target import Z1
-from tsu.passes.lower import IsingModel
-from tsu.passes.analyse import analyse
-from tsu.regime import analyse_regime
+from tsu_compiler.target import Z1
+from tsu_compiler.passes.lower import IsingModel
+from tsu_compiler.passes.analyse import analyse
+from tsu_compiler.regime import analyse_regime
 
 
 def ising(n_nodes, edges, w, b=None):

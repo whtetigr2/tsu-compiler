@@ -1,0 +1,42 @@
+[
+  {
+    "gate": "degree",
+    "passed": true,
+    "measured": 4,
+    "limit": 16,
+    "assumed": false,
+    "downgraded": false
+  },
+  {
+    "gate": "coupling_cap",
+    "passed": true,
+    "measured": 0.55,
+    "limit": 6.0,
+    "assumed": false,
+    "downgraded": false
+  },
+  {
+    "gate": "field_cap",
+    "passed": true,
+    "measured": 2.7755575615628914e-17,
+    "limit": 6.0,
+    "assumed": true,
+    "downgraded": false
+  },
+  {
+    "gate": "node_budget",
+    "passed": true,
+    "measured": 64,
+    "limit": 269568,
+    "assumed": false,
+    "downgraded": false
+  },
+  {
+    "gate": "colouring",
+    "passed": true,
+    "measured": null,
+    "limit": "distinct",
+    "assumed": false,
+    "downgraded": false
+  }
+]

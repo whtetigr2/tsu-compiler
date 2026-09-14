@@ -3,13 +3,13 @@ from pathlib import Path
 
 import pytest
 
-from tsu.spec import load_spec, TaskContract, WorkloadSpec
-from tsu.ir import Binary, Product, LinearForm, Var, VarRef
-from tsu.passes.analyse import MAXCUT_EXACT_LIMIT
-from tsu.target import IDEAL, Z1
-from tsu.passes.search import compile_spec
-from tsu.receipt import write_receipt, load_receipt, replay
-from tsu.viz import render
+from tsu_compiler.spec import load_spec, TaskContract, WorkloadSpec
+from tsu_compiler.ir import Binary, Product, LinearForm, Var, VarRef
+from tsu_compiler.passes.analyse import MAXCUT_EXACT_LIMIT
+from tsu_compiler.target import IDEAL, Z1
+from tsu_compiler.passes.search import compile_spec
+from tsu_compiler.receipt import write_receipt, load_receipt, replay
+from tsu_compiler.viz import render
 
 
 def test_receipt_contains_every_required_artifact(tmp_path):
@@ -183,7 +183,7 @@ def test_task_validity_and_noise_floor_render_their_reason_not_the_word_none(tmp
     unconditionally; only energy_tv/execution_tv/execution_noise_floor/
     cross_check_tv -- which truly do need an exact reference -- stay
     unavailable for a model this large."""
-    from tsu.backends.thrml_backend import EXACT_LIMIT
+    from tsu_compiler.backends.thrml_backend import EXACT_LIMIT
 
     n = EXACT_LIMIT + 2
     variables = tuple(Var(f"x{i}", Binary()) for i in range(n))

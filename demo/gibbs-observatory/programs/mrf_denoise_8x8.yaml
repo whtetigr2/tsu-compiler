@@ -1,0 +1,15 @@
+name: mrf_denoise_8x8
+description: >
+  Image MRF denoising prior on an 8x8 binary grid (vision class). Real problem:
+  recover a clean binary image whose neighbouring pixels prefer agreement —
+  the classic pairwise Potts/Ising smoothness MRF used as a denoising /
+  segmentation prior. Same graph and weight family as lattice_elev_band_8x8
+  (proven bipartite, degree 4); reframed here as the vision workload a Z1
+  owner would actually sample after attaching a data unary term offline.
+generate:
+  kind: grid
+  width: 8
+  height: 8
+  variable_domain: {domain: binary}
+terms:
+  - {kind: product_over_edges, a_value: 1, b_value: 1, weight: -0.4}

@@ -28,15 +28,15 @@ import tempfile
 
 import numpy as np
 
-from tsu.spec import load_spec
-from tsu.passes.encode import encode
-from tsu.passes.lower import lower
-from tsu.passes.analyse import analyse
-from tsu.passes.place import place
-from tsu.passes.route import route
-from tsu.passes.program import build_program
-from tsu.target import PROFILES
-from tsu.backends.thrml_backend import sample as thrml_sample
+from tsu_compiler.spec import load_spec
+from tsu_compiler.passes.encode import encode
+from tsu_compiler.passes.lower import lower
+from tsu_compiler.passes.analyse import analyse
+from tsu_compiler.passes.place import place
+from tsu_compiler.passes.route import route
+from tsu_compiler.passes.program import build_program
+from tsu_compiler.target import PROFILES
+from tsu_compiler.backends.thrml_backend import sample as thrml_sample
 
 FIELD_YAML = """name: world_field
 generate:

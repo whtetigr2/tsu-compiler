@@ -21,7 +21,7 @@ import numpy as np
 
 from critical_sweep import (compile_layer, grid_of, connected_corr,
                             corr_length, onsager_kc, N, MAX_R, SAMPLE)
-from tsu.backends.thrml_backend import sample as thrml_sample
+from tsu_compiler.backends.thrml_backend import sample as thrml_sample
 
 FINE = [-0.30, -0.34, -0.38, -0.41, -0.43, -0.45, -0.47, -0.50, -0.55]
 RENDER_AT = [-0.20, -0.40, -0.44, -0.48, -0.60]
