@@ -16,7 +16,7 @@ Describe a constrained problem as a spec. The compiler:
 
 `tsu preflight` is the edit-loop tool: bipartite + degree + |J| + budget in milliseconds. Non-bipartite placement is the coffee-vs-afternoon line.
 
-## Live run (this machine, 2026-09-13)
+## Live run (2026-09-13)
 
 ```
 python -m tsu inspect   specs/toy.yaml
@@ -61,4 +61,4 @@ This is the developer contract Thermalizers will need: **fit / encode / mediate 
 3. `compile --target z1` on `toy.yaml` — open `candidates.json` + `verification.json`.
 4. Optional: `demo/Run LATTICE.bat` for the world/clamp UI.
 
-Need: the `tsu_env` Python that already has `thrml` (`TSU_Project_Archive\tsuproject\tsu_env`), `PYTHONPATH=src`.
+Requires an interpreter with `thrml` and `extro-torx` available; see the top-level README for install.
