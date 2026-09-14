@@ -57,6 +57,8 @@ class TargetProfile:
     coupling_bits: Sourced
     node_budget: Sourced
     connected_fabric: Sourced
+    coupling_parameters: Sourced
+    per_edge_independent_J: Sourced
 
     def is_assumed(self, field_name: str) -> bool:
         got = getattr(self, field_name)
@@ -169,6 +171,33 @@ Z1 = TargetProfile(
         "PLACEABLE rather than merely countable. DOES NOT licence any claim "
         "about inter-core bandwidth, nor that the array is a plain rectangle -- "
         "nothing reproduces 2,135,904 exactly."),
+    coupling_parameters=Sourced(
+        215_904,
+        "https://extropic.ai/writing/z1t/ die callout; also "
+        "from-one-to-one-billion Fig. 05 caption",
+        "'269,568 pbits, 215,904 coupling parameters'. DISTINCT from the "
+        "edge count: the same Z1T page's body prose states 'this graph of "
+        "couplings has each node being of degree 16, for a total of 269,568 "
+        "pbits and 2,135,904 coupling EDGES on a single chip'. So the die "
+        "carries ~2.14M physical edges against ~216K programmable "
+        "parameters -- a ratio of 9.89:1. Both figures are Extropic's own "
+        "words; see audit/findings/R2.md."),
+    per_edge_independent_J=Sourced(
+        True,
+        "assumed",
+        "THIS COMPILER ASSUMES ONE INDEPENDENTLY-PROGRAMMABLE J PER EDGE, and "
+        "on the physical Z1 die that is an IDEALISATION: there are ~9.89 "
+        "edges per coupling parameter (see coupling_parameters above). What "
+        "is known is the two counts. What is NOT known is the MAPPING -- "
+        "which edges share a parameter, and whether sharing is structured "
+        "(by offset class, by core, or by some physical grouping) or arbitrary. Nothing published "
+        "explains the mechanism, and a weight-tying hypothesis was tested "
+        "against the Thermalizers paper and failed (R2). So this project "
+        "models the COUNT and refuses to invent the MAPPING. A model whose "
+        "couplings cannot be expressed under the real sharing pattern would "
+        "be unprogrammable on physical Z1, and NO gate or test here detects "
+        "that -- which is why this is recorded as an assumption rather than "
+        "left silent."),
 )
 
 IDEAL = TargetProfile(
@@ -182,6 +211,8 @@ IDEAL = TargetProfile(
     coupling_bits=Sourced(float("inf"), "control"),
     node_budget=Sourced(float("inf"), "control"),
     connected_fabric=Sourced(True, "control"),
+    coupling_parameters=Sourced(float("inf"), "control"),
+    per_edge_independent_J=Sourced(True, "control"),
 )
 
 PROFILES = {"z1": Z1, "ideal": IDEAL}

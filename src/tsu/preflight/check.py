@@ -65,6 +65,11 @@ class PreflightReport:
     # None for any model that fits inside one core -- the common case, and
     # the reason this carries a default: absence is normal, not an omission.
     fabric_note: str | None = None
+    # Distinct |J| values the model needs, against the die's
+    # programmable-parameter budget. None when the target has no
+    # finite parameter count (the ideal control).
+    distinct_couplings: int | None = None
+    coupling_note: str | None = None
 
 
 
@@ -99,6 +104,47 @@ def _fabric_note(n_spins: int, target) -> str | None:
             f"whether {target.name}'s cores form one connected lattice. See "
             f"that field's citation for the derivation and what it does not "
             f"licence.")
+
+
+def _coupling_note(ising, target) -> tuple[int | None, str | None]:
+    """How many distinct coupling values does this model need, and can the die
+    hold that many?
+
+    Z1 carries ~2,135,904 coupling EDGES against ~215,904 coupling PARAMETERS
+    (both Extropic's own figures -- see target.coupling_parameters), so roughly
+    ten edges share each programmable parameter. This compiler assumes one
+    independent J per edge, which is an IDEALISATION on the physical die.
+
+    The measure that matters is DISTINCT coupling values, not edge count: a
+    model with 9,557 edges but only 32 distinct |J| needs 32 parameters, and
+    sharing is irrelevant to it. Reported always, because it is cheap and it is
+    the number that decides whether the count binds.
+
+    What this CANNOT check is the MAPPING -- whether those distinct values can
+    be ASSIGNED under Z1's real sharing structure, which is unpublished. A model
+    well inside the count can still be unprogrammable if sharing is structured
+    (say, per offset class) and the model needs two different couplings on edges
+    that share a parameter. That is stated rather than silently passed, because
+    a report that said only "215,904: OK" would imply a check nobody ran.
+    """
+    budget = target.coupling_parameters.value
+    if budget in (None, float("inf")):
+        return None, None
+    import numpy as np
+    distinct = int(np.unique(np.round(np.abs(np.asarray(ising.weights,
+                                                        dtype=float)), 9)).size)
+    note = (f"this model needs {distinct:,} distinct coupling values against "
+            f"{int(budget):,} programmable parameters on the die, so the COUNT "
+            f"is not binding. The MAPPING is unmodelled: ~{2135904/budget:.1f} "
+            f"edges share each parameter on Z1 and the sharing structure is "
+            f"unpublished, so whether these values can be ASSIGNED is not "
+            f"checked here (target.per_edge_independent_J is an assumption).")
+    if distinct > budget:
+        note = (f"this model needs {distinct:,} distinct coupling values but "
+                f"the die exposes only {int(budget):,} programmable parameters "
+                f"-- it cannot be programmed on Z1 regardless of placement.")
+    return distinct, note
+
 
 def _remediations(exc: CompileError) -> tuple[str, ...]:
     """Flatten every `Remediation` the compiler already computed for this
@@ -299,6 +345,7 @@ def preflight(ising: IsingModel, target: TargetProfile = PROFILES["z1"],
                                   for x in gates)
                else "ok")
 
+    n_distinct, coupling_note = _coupling_note(ising, target)
     return PreflightReport(
         n_spins=rep.n_nodes, n_couplings=rep.n_edges,
         max_degree=rep.max_degree, bipartite=rep.bipartite,
@@ -306,4 +353,5 @@ def preflight(ising: IsingModel, target: TargetProfile = PROFILES["z1"],
         place_seconds=place_seconds, placed=placement is not None,
         place_error=place_error, remediations=remediations,
         gates=gates, verdict=verdict,
-        fabric_note=_fabric_note(rep.n_nodes + mediators, target))
+        fabric_note=_fabric_note(rep.n_nodes + mediators, target),
+        distinct_couplings=n_distinct, coupling_note=coupling_note)

@@ -557,3 +557,43 @@ def test_a_model_larger_than_one_core_says_its_placement_rests_on_an_assumption(
     assert _fabric_note(core, z1) is None, "at exactly one core, still silent"
     note = _fabric_note(core + 1, z1)
     assert note and "ASSUMED" in note and "connected_fabric" in note
+
+
+def test_the_coupling_note_reports_distinct_values_not_edge_count():
+    """WHAT THIS PINS: Z1 carries ~2,135,904 coupling EDGES against ~215,904
+    coupling PARAMETERS (Extropic's own figures), so this compiler's
+    one-independent-J-per-edge model is an idealisation. The measure that
+    decides whether that bites is DISTINCT coupling values, not edge count: a
+    model with thousands of edges but a handful of distinct |J| needs only a
+    handful of parameters.
+
+    HOW IT FAILS: count edges instead of distinct values in `_coupling_note`
+    and this reads 3 instead of 1 on a fixture whose three edges share one
+    coupling -- which would make every large model look near the budget when
+    it is nowhere near it.
+
+    PROVENANCE: target.coupling_parameters, sourced to the Z1T die callout;
+    the edge figure to the same page's body prose. See audit/findings/R2.md."""
+    from tsu.preflight.check import _coupling_note
+    im = IsingModel(nodes=("a", "b", "c", "d"), edges=((0, 1), (1, 2), (2, 3)),
+                    weights=np.full(3, 0.4), biases=np.zeros(4),
+                    beta=1.0, offset=0.0)
+    n, note = _coupling_note(im, PROFILES["z1"])
+    assert n == 1, "three edges sharing one coupling value need ONE parameter"
+    assert "MAPPING is unmodelled" in note
+
+
+def test_the_coupling_note_is_absent_when_the_target_has_no_parameter_budget():
+    """WHAT THIS PINS: the ideal control has no die and no parameter budget, so
+    it must carry no note. A disclosure about physical sharing on a target that
+    has no hardware would be noise pretending to be rigour.
+
+    HOW IT FAILS: drop the infinite-budget guard and the ideal control starts
+    reporting a sharing caveat about a substrate it does not have.
+
+    PROVENANCE: PROFILES['ideal'].coupling_parameters is `inf`, sourced
+    'control'."""
+    from tsu.preflight.check import _coupling_note
+    im = IsingModel(nodes=("a", "b"), edges=((0, 1),), weights=np.array([0.4]),
+                    biases=np.zeros(2), beta=1.0, offset=0.0)
+    assert _coupling_note(im, PROFILES["ideal"]) == (None, None)

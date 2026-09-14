@@ -250,6 +250,9 @@ def write_preflight(report, out_dir) -> list[Path]:
             lines += [f"- {r}" for r in report.remediations]
     # Only present for a model larger than one core -- see
     # check._fabric_note for why it stays silent below that threshold.
+    if getattr(report, "coupling_note", None):
+        lines.append("")
+        lines.append("> **Coupling parameters:** " + report.coupling_note)
     if getattr(report, "fabric_note", None):
         lines.append("")
         lines.append("> **Rests on an assumption:** " + report.fabric_note)
