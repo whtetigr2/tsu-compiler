@@ -18,6 +18,7 @@ out/*
 !out/softmax-boltzmann/
 !out/doom-preflight/
 !out/visibility/
+!out/texture/
 out_check/
 worlds/
 

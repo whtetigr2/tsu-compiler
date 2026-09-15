@@ -1,0 +1,73 @@
+{
+  "lattice": {
+    "pbits_per_bit_layer": 4096,
+    "bit_layers": 4,
+    "pbits_total": 16384,
+    "max_degree": 4,
+    "bipartite": true,
+    "degree_within_z1": true,
+    "fits_node_budget": true
+  },
+  "recipes": [
+    {
+      "recipe": "flat_noise",
+      "note": "CONTROL -- no anisotropy, no period, equal bits",
+      "parameters": 14,
+      "contrast": 0.0525,
+      "grad_y": 0.0229,
+      "grad_x": 0.0224,
+      "anisotropy": 1.021,
+      "neighbour_corr": 0.0027,
+      "row_structure": 0.0179
+    },
+    {
+      "recipe": "brick",
+      "note": "staggered courses with mortar seams",
+      "parameters": 14,
+      "contrast": 0.3711,
+      "grad_y": 0.2206,
+      "grad_x": 0.1044,
+      "anisotropy": 2.114,
+      "neighbour_corr": 0.1038,
+      "row_structure": 0.2966
+    },
+    {
+      "recipe": "grating",
+      "note": "strong vertical coupling, weak horizontal",
+      "parameters": 14,
+      "contrast": 0.4204,
+      "grad_y": 0.0023,
+      "grad_x": 0.4822,
+      "anisotropy": 0.005,
+      "neighbour_corr": -0.0493,
+      "row_structure": 0.0005
+    },
+    {
+      "recipe": "panel",
+      "note": "large plates divided by seams on a square grid",
+      "parameters": 14,
+      "contrast": 0.3219,
+      "grad_y": 0.1056,
+      "grad_x": 0.1056,
+      "anisotropy": 1.0,
+      "neighbour_corr": 0.0688,
+      "row_structure": 0.2225
+    },
+    {
+      "recipe": "rough_stone",
+      "note": "near-critical, slightly anisotropic, heavy grain",
+      "parameters": 14,
+      "contrast": 0.1281,
+      "grad_y": 0.0134,
+      "grad_x": 0.0128,
+      "anisotropy": 1.047,
+      "neighbour_corr": 0.0166,
+      "row_structure": 0.0662
+    }
+  ],
+  "control_failures": [],
+  "stored_image_data": 0,
+  "comparison": "a stored 64x64 greyscale tile is 4,096 numbers; these recipes are 14 each",
+  "scope": "texture FAMILIES, not reproductions. Nothing here reproduces any particular surface from any particular game, and it cannot -- there is no pixel data to reproduce from.",
+  "hardware": "none -- simulation"
+}
