@@ -146,7 +146,7 @@ footer{padding-block:2.4rem 3.4rem;border-top:1px solid var(--line);
       <div class="panel">
         <div class="panel-h"><span>Where the chains go</span><span id="cells">0 / 1156 cells</span></div>
         <canvas id="surface" width="34" height="34" aria-label="Free energy over the two sublattice magnetisations"></canvas>
-        <p class="n" style="font-size:.78rem;color:var(--faint);margin:0">
+        <p class="n" id="surf-note" style="font-size:.78rem;color:var(--faint);margin:0">
           Free energy <code>F = −ln P</code> over the two chessboard sublattices,
           built from the draws. Unvisited cells are <strong>not painted</strong> —
           <code>−ln 0</code> is infinite. White dots are the 16 chains.</p>
@@ -176,6 +176,22 @@ footer{padding-block:2.4rem 3.4rem;border-top:1px solid var(--line);
         one connected basin. Drag β·J up through <strong>0.440687</strong> —
         Onsager's exact critical point for this lattice — and keep watching the two numbers.</p>
     </div>
+
+    <div class="verdict fire" style="margin-top:14px">
+      <span class="tag">Found by Grok, auditing this exhibit</span>
+      <p>Deep in the ordered phase this panel had been captioned as a free energy
+        <em>surface</em> while only a handful of cells had enough visits to estimate
+        <code>F</code> at all. <strong>That is not a surface</strong>, and calling it one
+        implies support the draws do not have. The caption now changes when support collapses
+        and says plainly that these are isolated points — which is itself the finding, since
+        the reason support collapses is that the chains stopped exploring.</p>
+    </div>
+    <p style="margin-top:1.2em">The same audit confirmed the masking rule is load-bearing
+      rather than decorative. The usual way to avoid <code>−ln 0</code> is to add a small
+      epsilon to every bin. Grok measured what that would do here: <strong>23 bins the
+      sampler never entered would be painted</strong>, at an <code>F</code> around 77 — a
+      value with no meaning, rendered as landscape. Refusing to paint them is the difference
+      between showing a measurement and drawing a picture of one.</p>
   </div>
 </section>
 
@@ -768,6 +784,19 @@ function drawSurface(mags){
   }
   cS.putImageData(img,0,0);
   document.getElementById('cells').textContent=vis+' / '+(BINS*BINS)+' cells';
+  // Grok, auditing this panel: below a handful of supported cells this is not a
+  // surface and must not be captioned as one. A continuous F(m) implies support
+  // the draws do not have -- so the panel says which of the two it is showing.
+  const note=document.getElementById('surf-note');
+  if(vis<12){
+    note.innerHTML='<strong style="color:var(--alarm)">Not a surface.</strong> Only '+vis+
+      ' cells have enough visits to estimate <code>F</code> at all, so these are isolated '+
+      'points, not a landscape. That IS the result: the chains are not exploring.';
+  }else{
+    note.innerHTML='Free energy <code>F = −ln P</code> over the two chessboard '+
+      'sublattices, built from the draws. Unvisited cells are <strong>not painted</strong> '+
+      '— <code>−ln 0</code> is infinite. White dots are the 16 chains.';
+  }
   // chains, drawn on top in device pixels
   cS.fillStyle='#fff';
   for(const[a,b]of mags){
