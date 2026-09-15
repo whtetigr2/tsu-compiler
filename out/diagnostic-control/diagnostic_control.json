@@ -1,0 +1,128 @@
+{
+  "lattice": "16x16 periodic, zero field",
+  "n_spins": 256,
+  "onsager_kc": 0.440687,
+  "n_chains": 16,
+  "draws": 64000,
+  "rhat_threshold": 1.01,
+  "blocks": [
+    {
+      "ir_weight": 1.0,
+      "sign_per_exact_oracle": "ferromagnetic",
+      "rows": [
+        {
+          "beta_j": 0.2,
+          "regime": "disordered",
+          "r_hat_folded_abs_m": 1.0001,
+          "r_hat_signed_m": 1.0001,
+          "max_r_hat_per_spin": 1.0002,
+          "min_ess_per_spin": 59543,
+          "n_frozen": 0,
+          "n_ess_unavailable": 0,
+          "per_spin_reports_failure": false,
+          "folded_scalar_reports_failure": false,
+          "signed_scalar_reports_failure": false
+        },
+        {
+          "beta_j": 0.44,
+          "regime": "disordered",
+          "r_hat_folded_abs_m": 1.0006,
+          "r_hat_signed_m": 1.039,
+          "max_r_hat_per_spin": 1.0225,
+          "min_ess_per_spin": null,
+          "n_frozen": 0,
+          "n_ess_unavailable": 256,
+          "per_spin_reports_failure": true,
+          "folded_scalar_reports_failure": false,
+          "signed_scalar_reports_failure": true
+        },
+        {
+          "beta_j": 0.6,
+          "regime": "ordered",
+          "r_hat_folded_abs_m": 1.0,
+          "r_hat_signed_m": 47.5789,
+          "max_r_hat_per_spin": 4.4057,
+          "min_ess_per_spin": 59606,
+          "n_frozen": 0,
+          "n_ess_unavailable": 0,
+          "per_spin_reports_failure": true,
+          "folded_scalar_reports_failure": false,
+          "signed_scalar_reports_failure": true
+        },
+        {
+          "beta_j": 0.8,
+          "regime": "ordered",
+          "r_hat_folded_abs_m": 1.0,
+          "r_hat_signed_m": 160.8975,
+          "max_r_hat_per_spin": 12.5329,
+          "min_ess_per_spin": 60687,
+          "n_frozen": 0,
+          "n_ess_unavailable": 0,
+          "per_spin_reports_failure": true,
+          "folded_scalar_reports_failure": false,
+          "signed_scalar_reports_failure": true
+        }
+      ]
+    },
+    {
+      "ir_weight": -1.0,
+      "sign_per_exact_oracle": "antiferromagnetic",
+      "rows": [
+        {
+          "beta_j": 0.2,
+          "regime": "disordered",
+          "r_hat_folded_abs_m": 1.0,
+          "r_hat_signed_m": 1.0,
+          "max_r_hat_per_spin": 1.0001,
+          "min_ess_per_spin": 59918,
+          "n_frozen": 0,
+          "n_ess_unavailable": 0,
+          "per_spin_reports_failure": false,
+          "folded_scalar_reports_failure": false,
+          "signed_scalar_reports_failure": false
+        },
+        {
+          "beta_j": 0.44,
+          "regime": "disordered",
+          "r_hat_folded_abs_m": 1.0,
+          "r_hat_signed_m": 1.0,
+          "max_r_hat_per_spin": 1.0296,
+          "min_ess_per_spin": null,
+          "n_frozen": 0,
+          "n_ess_unavailable": 256,
+          "per_spin_reports_failure": true,
+          "folded_scalar_reports_failure": false,
+          "signed_scalar_reports_failure": false
+        },
+        {
+          "beta_j": 0.6,
+          "regime": "ordered",
+          "r_hat_folded_abs_m": 0.9999,
+          "r_hat_signed_m": 1.0001,
+          "max_r_hat_per_spin": 4.577,
+          "min_ess_per_spin": 59814,
+          "n_frozen": 0,
+          "n_ess_unavailable": 0,
+          "per_spin_reports_failure": true,
+          "folded_scalar_reports_failure": false,
+          "signed_scalar_reports_failure": false
+        },
+        {
+          "beta_j": 0.8,
+          "regime": "ordered",
+          "r_hat_folded_abs_m": 1.0,
+          "r_hat_signed_m": 1.0,
+          "max_r_hat_per_spin": 11.3862,
+          "min_ess_per_spin": 61015,
+          "n_frozen": 0,
+          "n_ess_unavailable": 0,
+          "per_spin_reports_failure": true,
+          "folded_scalar_reports_failure": false,
+          "signed_scalar_reports_failure": false
+        }
+      ]
+    }
+  ],
+  "control_failures": [],
+  "hardware": "none -- CPU simulation; this tests OUR instruments"
+}

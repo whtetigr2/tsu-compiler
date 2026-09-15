@@ -128,26 +128,84 @@ them understates what this compiler can already do.
 Measured directly (`audit/codon_sampleability.py`, receipt in
 `out/codon-sampleability/`), CPU only, 16 chains:
 
-| workload | logical → physical | draws | tau | ESS | R-hat | seconds |
-|---|---|---:|---:|---:|---:|---:|
-| `codon_tiny_10aa` | 31 → 53 | 32,000 | 3.91 | 8,191 | 1.000 | 0.5 |
-| `codon_default_prefix` | 266 → 434 | 32,000 | 4.02 | 7,954 | 1.001 | 2.8 |
-| `codon_spike_200aa` | 481 → 764 | 32,000 | 4.21 | 7,606 | 1.001 | 2.4 |
-| **`codon_spike_full`** | **3,147 → 5,025** | 32,000 | 4.68 | **6,837** | 1.002 | **10.8** |
+| workload | logical → physical | draws | tau | max R-hat **per spin** | min ESS **per spin** | frozen | uncertified | seconds |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| `codon_tiny_10aa` | 31 → 53 | 64,000 | 6.92 | 1.0013 | 7,580 | 0 | 0 | 0.8 |
+| `codon_default_prefix` | 266 → 434 | 128,000 | 5.81 | 1.0029 | 6,218 | 0 | 0 | 10.7 |
+| `codon_spike_200aa` | 481 → 764 | 128,000 | 5.34 | 1.0009 | 6,367 | 0 | 0 | 8.2 |
+| **`codon_spike_full`** | **3,147 → 5,025** | 128,000 | 5.46 | **1.0018** | **5,991** | **0** | **0** | **44.4** |
 
-**Every published codon model, including the full spike, samples on this machine
-with a trustworthy effective sample size in under eleven seconds.**
+**Every published codon model, including the full spike, samples on this
+machine — and the claim rests on every individual spin, not on their average.
+For the full spike that is all 3,147 logical spins: none frozen, none left
+uncertified, the worst of them at R-hat 1.0018 with an effective sample size of
+5,991.**
+
+### These numbers replace an earlier, weaker table — and the correction matters
+
+An earlier version of this section reported the full spike at `tau 4.68 / ESS
+6,837 / R-hat 1.002` in 10.8 seconds. Those figures came from a single scalar
+order parameter, the mean magnetisation, folded by `abs()`. A claims-vs-evidence
+audit found two things wrong with that, recorded in full at
+`audit/findings/R20.md`:
+
+- Folding by `abs()` is the right move for a **Z2-symmetric** model. These
+  models carry a nonzero bias on *every* spin — 3,147 of 3,147 on the full
+  spike — so there is no symmetry to fold, and folding inflated ESS by between
+  5.9% and 41% depending on the workload.
+- More seriously, **a scalar summary cannot detect a stuck chain at all** if the
+  thing it is stuck in averages out. `audit/diagnostic_control.py` demonstrates
+  this on a model with a known exact answer: on an ordered antiferromagnet whose
+  chains are frozen in different configurations, both the folded *and* the
+  signed scalar report R-hat 1.0000, while the maximum over individual spins is
+  11.39.
+
+The verdict now requires every logical spin to mix, and the harness escalates
+the draw count until every one of them certifies rather than stopping when the
+mean looks healthy. That is why the full spike now reads 128,000 draws and 44.4
+seconds instead of 32,000 and 10.8 — **the work got four times more expensive
+because it is now actually checking what it claimed to check.** The earlier
+"under eleven seconds" was measuring less.
 
 The ESS figures are trustworthy in a specific sense: `tsu_compiler.ess` refuses
-to return a number below its AR(1)-validated floor of `N/tau >= 5000`. At 16,000
-draws the full spike gives `N/tau = 3,633` and the estimator correctly returns
-`unavailable`; the harness escalates to 32,000 draws, which clears it. The number
-reported is therefore one the estimator was willing to stand behind, not the
-first one it produced.
+to return a number below its AR(1)-validated floor of `N/tau >= 5000` and
+returns `unavailable` with a reason instead. That refusal applies per spin as
+well as to the scalar, so a spin whose own ESS falls below the floor blocks the
+verdict — it does not quietly drop out of the minimum.
 
-`R-hat` sits at 1.000–1.002 across every workload, so the chains agree — these
-models mix well, and `tau` grows only from 3.91 to 4.68 across a hundredfold
-range in size.
+### Are these draws actually correlated, or effectively independent?
+
+Worth answering directly rather than leaving for a reader to wonder about, since
+an effective sample size means nothing if the underlying chain is producing
+independent draws — at that point the MCMC machinery is decoration.
+
+Per-spin integrated autocorrelation time, derived from the same receipt
+(`tau = draws / ESS`, so a value of 1.0 means the draws are effectively
+independent):
+
+| workload | draws | tau at the **median** spin | tau at the **worst** spin |
+|---|---:|---:|---:|
+| `codon_tiny_10aa` | 64,000 | 5.52 | 8.44 |
+| `codon_default_prefix` | 128,000 | 3.39 | 20.59 |
+| `codon_spike_200aa` | 128,000 | 3.08 | 20.10 |
+| **`codon_spike_full`** | 128,000 | **2.82** | **21.37** |
+
+The draws are genuinely correlated: the typical spin decorrelates over about
+three recorded draws and the worst spin over roughly twenty-one. That spread is
+the whole reason the full spike needs 128,000 draws rather than the 32,000 the
+scalar was satisfied by — a handful of slow spins set the cost, and averaging
+over 3,147 of them hides exactly that.
+
+Note also that `steps_per_sample` is 4, so one recorded draw is four Gibbs
+sweeps; in sweeps the worst spin decorrelates over roughly 85.
+
+**What this does NOT establish.** That these workloads are *hard*. They are not,
+on this machine — the full spike certifies in 44 seconds on a CPU. Nothing here
+measures a sampling advantage for thermodynamic hardware, and no such claim is
+made anywhere in this pack. What this compiler demonstrably provides is the
+compilation and the preflight verdict; where this model family stops being
+tractable for CPU block Gibbs is an open question we have scoped but not yet
+answered (`audit/GROK_VERIFICATION_DISPATCH.md`, Check 2).
 
 **What is still not measured:** geometric placement of the 5,025-spin mediated
 model. That limit is unchanged, is a property of the placement search rather than

@@ -12,6 +12,7 @@ out/*
 !out/connectivity-cost/
 !out/codon-sampleability/
 !out/dtm-preflight/
+!out/diagnostic-control/
 out_check/
 worlds/
 
