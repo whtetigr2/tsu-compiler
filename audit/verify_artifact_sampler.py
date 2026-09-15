@@ -33,10 +33,11 @@ FAILURE CRITERIA    Any disagreement beyond that, or a sign that contradicts the
 PROVENANCE          `audit/oracles/exact.py` enumerates all 2**16 states from
                     E = -sum J s s - sum b s and does NOT import this package,
                     so it cannot inherit a convention from the code it checks.
-SCOPE OF VALIDITY   4x4 only -- the reference enumerates 2**n. It establishes
-                    that the UPDATE RULE is right, not that the page's 16x16
-                    rendering, its R-hat accumulators, or its free energy
-                    histogram are. Those are separate claims.
+SCOPE OF VALIDITY   Two of the page's three load-bearing computations. The
+                    update rule is checked at 4x4 only, because the reference
+                    enumerates 2**n. The R-hat accumulator is checked against
+                    tsu_compiler's own across six series. NOT covered: the free
+                    energy histogram, and the page's 16x16 rendering.
 ==========================================================================
 
 WHY THIS EXISTS. The page was written, published, and only then checked -- the
@@ -64,6 +65,7 @@ import math
 import sys
 
 sys.path.insert(0, "audit")
+sys.path.insert(0, "src")
 
 import numpy as np
 
@@ -108,6 +110,73 @@ def exact(sign: int, beta_j: float) -> float:
     return float(np.mean([P @ (S[:, a] * S[:, b]) for a, b in EDGES]))
 
 
+def page_rhat(series) -> float:
+    """The page's OTHER load-bearing computation, transcribed.
+
+    It accumulates Gelman-Rubin from STREAMING Welford moments -- one sample at
+    a time, no history retained -- where `tsu_compiler` computes it two-pass
+    over a stored array. The two are algebraically identical, which is exactly
+    why this is worth checking numerically rather than by reading: streaming
+    accumulation is where floating-point drift hides, and the page's two
+    headline numbers are both outputs of this function. A correct sampler feeding
+    a broken accumulator would still put wrong numbers on the screen."""
+    m, n = len(series), len(series[0])
+    means, m2, cnt = [0.0] * m, [0.0] * m, [0] * m
+    for c in range(m):
+        for x in series[c]:
+            cnt[c] += 1
+            d = x - means[c]
+            means[c] += d / cnt[c]
+            m2[c] += d * (x - means[c])
+    variances = [m2[c] / (n - 1) for c in range(m)]
+    W = sum(variances) / m
+    gm = sum(means) / m
+    if W <= 0:
+        return math.inf if any((mm - gm) ** 2 > 0 for mm in means) else 1.0
+    B = sum((mm - gm) ** 2 for mm in means) * n / (m - 1)
+    return math.sqrt((((n - 1) / n) * W + B / n) / W)
+
+
+def check_accumulators(failures: list) -> None:
+    """Six series chosen so each could break the accumulator differently."""
+    from tsu_compiler.preflight.diagnostics import r_hat
+
+    rng = np.random.default_rng(11)
+    cases = {}
+    cases["iid noise"] = rng.normal(size=(16, 500))
+    x = rng.normal(size=(16, 500))
+    for t in range(1, 500):
+        x[:, t] = 0.9 * x[:, t - 1] + x[:, t]
+    cases["correlated AR(1)"] = x
+    # identical chains are the published edge case: R-hat is exactly
+    # sqrt((n-1)/n), strictly BELOW 1, and an accumulator that quietly clamps
+    # to 1 would pass every other row here
+    cases["identical chains"] = np.tile(rng.normal(size=(1, 500)), (16, 1))
+    split = rng.normal(size=(16, 500)) * 0.01
+    split[:8] += 1.0
+    split[8:] -= 1.0
+    cases["two frozen modes"] = split
+    cases["spin-like +-1"] = rng.choice([-1.0, 1.0], size=(16, 500))
+    # a large offset breaks a naive sum-of-squares accumulator while leaving
+    # Welford unharmed -- the specific failure Welford exists to prevent
+    cases["large offset 1e6"] = rng.normal(size=(16, 500)) + 1e6
+
+    print(f"\n{'series':>20} {'tsu_compiler':>15} {'page (Welford)':>16} {'rel diff':>11}")
+    for name, v in cases.items():
+        ours = float(r_hat(v))
+        theirs = page_rhat([list(r) for r in v])
+        rel = abs(ours - theirs) / max(1e-12, abs(ours))
+        print(f"{name:>20} {ours:>15.9f} {theirs:>16.9f} {rel:>11.2e}")
+        if rel >= 1e-9:
+            failures.append(f"R-hat accumulator drifts on '{name}': "
+                            f"{ours:.9f} vs {theirs:.9f} (relative {rel:.2e})")
+    identical = page_rhat([list(r) for r in cases["identical chains"]])
+    expected = math.sqrt(499 / 500)
+    if abs(identical - expected) > 1e-9:
+        failures.append(f"identical chains gave {identical:.9f}, not the "
+                        f"published sqrt((n-1)/n) = {expected:.9f}")
+
+
 def main() -> int:
     failures = []
     print(f"{'sign':>5} {'beta*J':>7} {'page rule':>11} {'oracle':>10} {'diff':>9}")
@@ -124,16 +193,20 @@ def main() -> int:
                 failures.append(f"sign=+1 at beta*J={bj} is not ferromagnetic")
             if sign < 0 and want >= 0:
                 failures.append(f"sign=-1 at beta*J={bj} is not antiferromagnetic")
+    check_accumulators(failures)
     print()
     if failures:
         print("CONTROL FAILURES -- the published page is wrong:")
         for f in failures:
             print("  " + f)
         return 1
-    print("  The page's update rule reproduces the exact distribution, and its")
+    print("  The page's update rule reproduces the exact distribution, its")
     print("  ferro/antiferro labels match the sign of the correlation it")
-    print("  actually produces. This covers the UPDATE RULE only -- see")
-    print("  SCOPE OF VALIDITY.")
+    print("  actually produces, and its streaming R-hat accumulator agrees with")
+    print("  tsu_compiler's two-pass one to floating-point noise -- including")
+    print("  the identical-chains edge case, where the published answer is")
+    print("  sqrt((n-1)/n), strictly BELOW 1.")
+    print("  Still NOT covered: the free energy histogram.")
     return 0
 
 
