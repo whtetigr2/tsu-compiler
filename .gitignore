@@ -13,6 +13,7 @@ out/*
 !out/codon-sampleability/
 !out/dtm-preflight/
 !out/diagnostic-control/
+!out/free-energy/
 out_check/
 worlds/
 

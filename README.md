@@ -109,6 +109,33 @@ bug from the code it checks — asserted by a test on every run.
 bipartite lattice costs: 1.60× in mediator spins on that model, against a
 bipartite control at 1.00×.
 
+## What a diagnostic can miss
+
+![Free energy over the two sublattice magnetisations, ferromagnetic and antiferromagnetic, across the Onsager transition](audit/free_energy_sublattice.png)
+
+Free energy `F = -ln P` estimated from the sampler's own draws on a 16×16
+zero-field Ising lattice, 96,000 draws per panel. Onsager gives the exact
+critical point, `Kc = 0.440687`, so "ordered" is known in advance rather than
+read off the picture. White dots are where the 16 chains ended, arrows are
+`-grad F`, and **blank cells were never visited** — `F = -ln 0` is infinite, and
+painting those would invent landscape the sampler never entered.
+
+The axes are the two chessboard sublattices. A ferromagnet orders with them in
+agreement, so its basins sit on the diagonal; an antiferromagnet orders with
+them opposed, so its basins sit on the *anti*-diagonal — where the total
+magnetisation `(m_A + m_B)/2` is **zero for both**.
+
+That is the whole point. In the bottom-right panel the chains are frozen in two
+different configurations, and a scalar order parameter collapses both onto the
+same number and reports `R-hat = 1.0000`. The per-spin diagnostic, on the same
+draws, reports 11.11. The cell counts show what is actually happening: the
+chains visit 7 of 1,156 cells and never cross between them.
+
+This is why the sampling verdict in this project rests on every spin
+individually rather than on their average
+(`audit/findings/R20.md`, `audit/diagnostic_control.py`).
+Regenerate with `python audit/free_energy_sublattice.py`.
+
 ## License
 
 Apache-2.0. See `LICENSE` and `NOTICE`.
