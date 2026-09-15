@@ -19,6 +19,7 @@ out/*
 !out/doom-preflight/
 !out/visibility/
 !out/texture/
+!out/game/
 out_check/
 worlds/
 

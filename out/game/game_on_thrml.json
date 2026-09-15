@@ -1,0 +1,40 @@
+{
+  "visibility": {
+    "spins": 11200,
+    "edges": 22144,
+    "degree": 4,
+    "bipartite": true,
+    "colour_blocks": 2,
+    "thrml_vs_truth_best": 1.0,
+    "thrml_vs_page_best": 1.0,
+    "page_vs_truth": 1.0,
+    "seconds": 3.0
+  },
+  "creature_with_bilateral_coupling": {
+    "bipartite": false,
+    "degree": 5,
+    "mirror_pairs_in_same_block": 294,
+    "self_loops": 21
+  },
+  "creature": {
+    "spins": 315,
+    "edges": 594,
+    "degree": 4,
+    "bipartite": true,
+    "colour_blocks": 2,
+    "marginal_mean_abs_diff": 0.0072,
+    "marginal_worst_cell": 0.174,
+    "mean_pairwise_diff": 25.8
+  },
+  "control_failures": [],
+  "sampler": "thrml via tsu_compiler.backends.thrml_backend",
+  "input": "exported live from level.html, not re-derived",
+  "not_ported": [
+    "level geometry",
+    "doors",
+    "line of sight",
+    "shot resolution"
+  ],
+  "not_ported_reason": "these are lookups; writing a lookup as an energy is how R23 happened",
+  "hardware": "none -- thrml on CPU/JAX"
+}
