@@ -38,7 +38,7 @@ Receipt `out/toy-z1/`:
 - verification: `energy_tv = 0`, `codeword_violation_rate = 0`, `execution_tv = 0.010` (noise floor 0.015), task validity 0.90
 - torx cross-check: honestly **unavailable** (PISING is exact only for a single bond)
 
-## What is already proven (internal audit, 900 tests)
+## What is already proven (internal audit, 913 tests at `e9c905d`)
 
 Energy IR / oracle / THRML agree to ~1e-16. Pre-registered χ² vs the real sampler (TV 0.012, N=10k). Mediator marginals ~1e-16 **on models small enough to enumerate exactly — a 3-spin frustrated triangle and a 5-spin odd cycle, checked against a brute-force oracle that does not import the compiler.** Domain-wall decode exact over full bitspace k=2..6. Independent oracle vs Wolfram to 11 sig figs.
 
