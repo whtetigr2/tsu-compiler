@@ -1,0 +1,983 @@
+<title>The Diagnostic That Lied</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@400;600&display=swap">
+<style>
+:root{
+  --ink:#0b1020; --surface:#151d33; --raised:#1d2740; --line:#2b3654;
+  --text:#e6e9f2; --dim:#8d96ad; --faint:#5d6580;
+  --trust:#5b9dff;      /* the scalar that lies */
+  --alarm:#ff6b5a;      /* the per-spin that does not */
+  --gold:#f0b429;       /* Onsager's exact critical point */
+  --cold:#3b6fd4; --hot:#c8402f;
+  --serif:"IBM Plex Serif",Georgia,serif;
+  --sans:"IBM Plex Sans",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+:root[data-theme="light"]{
+  --ink:#f6f5f1; --surface:#ffffff; --raised:#eceaf3; --line:#d3d6e2;
+  --text:#161a28; --dim:#585f77; --faint:#8b91a6;
+  --trust:#1f5fc4; --alarm:#c3341f; --gold:#8a6100;
+}
+@media (prefers-color-scheme:light){
+  :root:not([data-theme="dark"]){
+    --ink:#f6f5f1; --surface:#ffffff; --raised:#eceaf3; --line:#d3d6e2;
+    --text:#161a28; --dim:#585f77; --faint:#8b91a6;
+    --trust:#1f5fc4; --alarm:#c3341f; --gold:#8a6100;
+  }
+}
+*{box-sizing:border-box}
+body{background:var(--ink);color:var(--text);font-family:var(--sans);
+  line-height:1.6;margin:0;padding-block:0;}
+.wrap{max-width:1120px;margin:0 auto;padding:0 20px}
+h1,h2,h3{text-wrap:balance;font-family:var(--serif);font-weight:600;line-height:1.15}
+h1{font-size:clamp(2rem,5vw,3.3rem);margin:0 0 .4em}
+h2{font-size:clamp(1.4rem,3vw,2rem);margin:0 0 .5em}
+h3{font-size:1.1rem;margin:0 0 .4em}
+p{margin:0 0 1em;max-width:68ch}
+.lede{font-size:clamp(1.05rem,2vw,1.28rem);color:var(--dim);max-width:62ch}
+.eyebrow{font-family:var(--mono);font-size:.72rem;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--faint);margin:0 0 .9em}
+header{padding-block:clamp(2.6rem,7vw,4.4rem) 1.6rem;border-bottom:1px solid var(--line)}
+section{padding-block:clamp(2.2rem,5vw,3.4rem)}
+section+section{border-top:1px solid var(--line)}
+
+/* instrument */
+.rig{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1.05fr);
+  gap:18px;align-items:start}
+@media(max-width:900px){.rig{grid-template-columns:1fr}}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:4px;
+  padding:14px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.panel-h{font-family:var(--mono);font-size:.7rem;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--faint);display:flex;
+  justify-content:space-between;gap:10px;align-items:baseline}
+canvas{width:100%;height:auto;display:block;image-rendering:pixelated;
+  background:var(--ink);border-radius:2px}
+#trace{image-rendering:auto}
+
+.readout{display:flex;flex-direction:column;gap:3px;padding:11px 12px;
+  border-radius:3px;border:1px solid var(--line);background:var(--raised)}
+.readout .k{font-family:var(--mono);font-size:.7rem;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--dim)}
+.readout .v{font-family:var(--mono);font-size:1.8rem;font-weight:600;
+  font-variant-numeric:tabular-nums;line-height:1.1}
+.readout .n{font-size:.76rem;color:var(--faint);line-height:1.35}
+.r-trust{border-left:3px solid var(--trust)} .r-trust .v{color:var(--trust)}
+.r-alarm{border-left:3px solid var(--alarm)} .r-alarm .v{color:var(--alarm)}
+
+.ctl{display:flex;flex-wrap:wrap;gap:16px;align-items:center;
+  padding:14px 16px;background:var(--surface);border:1px solid var(--line);
+  border-radius:4px;margin-bottom:18px}
+.ctl label{font-family:var(--mono);font-size:.74rem;letter-spacing:.07em;
+  text-transform:uppercase;color:var(--dim)}
+input[type=range]{accent-color:var(--gold);width:min(320px,52vw)}
+.seg{display:flex;border:1px solid var(--line);border-radius:3px;overflow:hidden}
+.seg button{font-family:var(--sans);font-size:.83rem;padding:7px 14px;border:0;
+  background:transparent;color:var(--dim);cursor:pointer}
+.seg button[aria-pressed=true]{background:var(--raised);color:var(--text)}
+.seg button:focus-visible,.ghost:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.ghost{font-family:var(--sans);font-size:.83rem;padding:7px 14px;cursor:pointer;
+  background:transparent;color:var(--dim);border:1px solid var(--line);border-radius:3px}
+.betaval{font-family:var(--mono);font-variant-numeric:tabular-nums;
+  font-size:1rem;color:var(--text);min-width:9ch}
+
+.verdict{margin-top:16px;padding:16px 18px;border-radius:4px;
+  border:1px solid var(--line);background:var(--surface);
+  font-size:.97rem;display:flex;gap:14px;align-items:flex-start}
+.verdict.fire{border-color:var(--alarm);background:color-mix(in srgb,var(--alarm) 9%,var(--surface))}
+.verdict .tag{font-family:var(--mono);font-size:.68rem;letter-spacing:.12em;
+  text-transform:uppercase;padding:4px 8px;border-radius:2px;white-space:nowrap;
+  background:var(--raised);color:var(--dim)}
+.verdict.fire .tag{background:var(--alarm);color:#fff}
+.verdict p{margin:0}
+
+table{width:100%;border-collapse:collapse;font-size:.88rem}
+.scroll{overflow-x:auto}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line)}
+th{font-family:var(--mono);font-size:.68rem;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--faint);font-weight:500}
+td.num{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right}
+code,.hash{font-family:var(--mono);font-size:.86em;background:var(--raised);
+  padding:1px 5px;border-radius:2px;color:var(--text)}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:22px}
+blockquote{margin:0;padding:14px 18px;border-left:2px solid var(--line);
+  background:var(--surface);border-radius:0 3px 3px 0}
+blockquote p:last-child{margin:0}
+.who{font-family:var(--mono);font-size:.7rem;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--faint);margin-bottom:.5em}
+footer{padding-block:2.4rem 3.4rem;border-top:1px solid var(--line);
+  color:var(--faint);font-size:.85rem}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+
+<header>
+  <div class="wrap">
+    <p class="eyebrow">Four instruments · each one a mistake we made · all of them operable</p>
+    <h1>The diagnostic that lied</h1>
+    <p class="lede">Every exhibit on this page is an error <strong>we made in the last
+      twenty hours</strong>, rebuilt as something you can operate. Each one carries the
+      commit where we made it and the commit where we caught it. None of them is exotic —
+      two of the four appear in published work constantly. Two were found by Claude, two by
+      Grok, and each of us caught the other.</p>
+    <p class="lede" style="margin-top:.8em">Start with the one that cost us the most.</p>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <div class="ctl">
+      <label for="beta">Coupling β·J</label>
+      <input type="range" id="beta" min="0.10" max="0.90" step="0.01" value="0.25">
+      <span class="betaval" id="betaval">0.25</span>
+      <div class="seg" role="group" aria-label="Coupling sign">
+        <button id="b-ferro" aria-pressed="false">Ferromagnetic</button>
+        <button id="b-anti" aria-pressed="true">Antiferromagnetic</button>
+      </div>
+      <button class="ghost" id="reset">Restart chains</button>
+    </div>
+
+    <div class="rig">
+      <div class="panel">
+        <div class="panel-h"><span>One chain, 16×16 lattice</span><span id="sweeps">0 sweeps</span></div>
+        <canvas id="lattice" width="16" height="16" aria-label="Spin configuration of a single chain"></canvas>
+        <p class="n" style="font-size:.78rem;color:var(--faint);margin:0">
+          16 chains run from independent random starts. One is drawn.</p>
+      </div>
+
+      <div class="panel">
+        <div class="panel-h"><span>Where the chains go</span><span id="cells">0 / 1156 cells</span></div>
+        <canvas id="surface" width="34" height="34" aria-label="Free energy over the two sublattice magnetisations"></canvas>
+        <p class="n" style="font-size:.78rem;color:var(--faint);margin:0">
+          Free energy <code>F = −ln P</code> over the two chessboard sublattices,
+          built from the draws. Unvisited cells are <strong>not painted</strong> —
+          <code>−ln 0</code> is infinite. White dots are the 16 chains.</p>
+      </div>
+
+      <div class="panel">
+        <div class="panel-h"><span>The same chains, read two ways</span></div>
+        <div class="readout r-trust">
+          <span class="k">R̂ — scalar order parameter</span>
+          <span class="v" id="r-scalar">—</span>
+          <span class="n">Total magnetisation. One number summarising 256 spins.</span>
+        </div>
+        <div class="readout r-alarm">
+          <span class="k">R̂ — max over individual spins</span>
+          <span class="v" id="r-spin">—</span>
+          <span class="n">The worst of the 256. What <a href="https://mc-stan.org/bayesplot/articles/visual-mcmc-diagnostics.html" style="color:inherit">standard practice</a> actually asks for.</span>
+        </div>
+        <canvas id="trace" width="440" height="120" aria-label="Both diagnostics over draws"></canvas>
+        <p class="n" style="font-size:.76rem;color:var(--faint);margin:0">
+          Converged means <code>R̂ ≤ 1.01</code> — <a href="https://mc-stan.org/learn-stan/diagnostics-warnings.html" style="color:inherit">Stan's own criterion</a>.</p>
+      </div>
+    </div>
+
+    <div class="verdict" id="verdict">
+      <span class="tag" id="vtag">Below Kc</span>
+      <p id="vtext">Both readings agree, and both are right. The chains are exploring
+        one connected basin. Drag β·J up through <strong>0.440687</strong> —
+        Onsager's exact critical point for this lattice — and keep watching the two numbers.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="eyebrow">Why the scalar goes blind</p>
+    <h2>Both ground states have zero magnetisation</h2>
+    <div class="cols">
+      <div>
+        <p>Below the critical temperature an antiferromagnet orders into one of
+          <strong>two</strong> checkerboards — and both have net magnetisation of exactly zero.
+          Sixteen chains fall into them roughly half and half and can never tunnel between them.</p>
+        <p>A scalar order parameter collapses both onto the same number. Every chain agrees,
+          so R̂ reports <strong>1.0000</strong>: converged, nothing to see. The chains are frozen
+          in mutually unreachable configurations and the statistic <em>structurally cannot</em>
+          detect it.</p>
+        <p>Switch the coupling to ferromagnetic and the scalar suddenly works — the two ground
+          states are all-up and all-down, which the magnetisation does separate. <strong>That is
+          the uncomfortable part.</strong> The scalar is not reliably wrong. It is wrong in a way
+          you cannot predict from the number itself.</p>
+      </div>
+      <div>
+        <p>These are our own measurements on a 16×16 lattice, 96,000 draws per row,
+          from <code>audit/free_energy_sublattice.py</code>:</p>
+        <div class="scroll">
+        <table>
+          <thead><tr><th>Coupling</th><th>β·J</th><th class="num">R̂ scalar</th><th class="num">R̂ per spin</th><th class="num">cells</th></tr></thead>
+          <tbody>
+            <tr><td>ferro</td><td>0.20</td><td class="num">1.0000</td><td class="num">1.00</td><td class="num">134</td></tr>
+            <tr><td>ferro</td><td>0.44</td><td class="num">1.0399</td><td class="num">1.02</td><td class="num">210</td></tr>
+            <tr><td>ferro</td><td>0.80</td><td class="num">161.33</td><td class="num">12.26</td><td class="num">7</td></tr>
+            <tr><td>anti</td><td>0.20</td><td class="num">1.0000</td><td class="num">1.00</td><td class="num">130</td></tr>
+            <tr><td>anti</td><td>0.44</td><td class="num">1.0000</td><td class="num">1.02</td><td class="num">213</td></tr>
+            <tr><td>anti</td><td>0.80</td><td class="num" style="color:var(--alarm)">1.0000</td><td class="num">11.11</td><td class="num">7</td></tr>
+          </tbody>
+        </table>
+        </div>
+        <p style="margin-top:1em">The last row is the whole problem. Seven cells of 1,156
+          visited, chains split across two basins, and the scalar reads exactly as clean as
+          the disordered case above it.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="eyebrow">Exhibit II · built by Claude, while fixing Exhibit I</p>
+    <h2>The minimum that hid its own failures</h2>
+    <p class="lede" style="margin-bottom:1.4em">Having just fixed a diagnostic for reporting
+      an average, I replaced it with one that reported a <em>worst case</em> — and the worst
+      case was only the worst of the survivors.</p>
+
+    <div class="ctl">
+      <label for="draws">Draws taken</label>
+      <input type="range" id="draws" min="0" max="4" step="1" value="1">
+      <span class="betaval" id="drawsval">32,000</span>
+      <span style="font-size:.84rem;color:var(--faint)">Reliability floor: a spin needs
+        <code>ESS ≥ 5,000</code> or it reports <code>unavailable</code></span>
+    </div>
+
+    <div class="rig" style="grid-template-columns:minmax(0,1.3fr) minmax(0,1fr)">
+      <div class="panel">
+        <div class="panel-h"><span>3,147 spins</span><span id="cert-lab">—</span></div>
+        <canvas id="spins" width="176" height="90" aria-label="Certification status of every spin"></canvas>
+        <p style="font-size:.78rem;color:var(--faint);margin:0">
+          Each pixel is one spin. <span style="color:var(--trust)">Blue</span> cleared the
+          floor. <span style="color:var(--faint)">Grey</span> did not, and reports
+          <code>unavailable</code> — so it is absent from every statistic below that is
+          computed over "the spins".</p>
+      </div>
+      <div class="panel">
+        <div class="readout r-trust">
+          <span class="k">Reported: min ESS</span>
+          <span class="v" id="min-shown">—</span>
+          <span class="n">The worst spin — <em>of those that returned a number.</em></span>
+        </div>
+        <div class="readout r-alarm">
+          <span class="k">Silently excluded</span>
+          <span class="v" id="excluded">—</span>
+          <span class="n">Spins with no ESS at all. Not in the minimum. Not in the median.
+            Not in the verdict.</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="verdict" id="v2">
+      <span class="tag" id="v2tag">—</span>
+      <p id="v2text">—</p>
+    </div>
+
+    <p style="margin-top:1.4em">The fix was not a better statistic. It was to make the
+      escalation keep drawing until <strong>every</strong> spin certifies, and to make
+      <code>n_ess_unavailable == 0</code> part of the verdict rather than a footnote —
+      because a minimum that excludes its failures is not a worst case, it is a survivorship
+      statistic wearing one. Drag to 128,000 and watch the grey disappear; that is what the
+      shipped harness now does automatically, and it is why the real run takes 44 seconds
+      instead of 11.</p>
+    <p style="font-size:.84rem;color:var(--faint)">The per-spin autocorrelation times here
+      are <strong>modelled</strong>, not replayed: the receipt stores the median and the
+      worst, not all 3,147 values. The model is fitted to those two — it lands at median
+      τ 2.89 against a measured 2.82, and worst 20.9 against a measured 21.4 — and it
+      reproduces the behaviour that matters, spins left uncertified at 32,000 draws and
+      none at 128,000. The exact counts it shows are the model's, not the run's.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="eyebrow">Exhibit III · caught before it reached this page</p>
+    <h2>The outliers that were always coming</h2>
+    <p class="lede" style="margin-bottom:1.4em">When a verification compares thousands of
+      quantities at once, alarming-looking outliers appear in pure noise. Counting them is
+      not a finding. It is arithmetic.</p>
+
+    <div class="ctl">
+      <label for="ncomp">Comparisons</label>
+      <input type="range" id="ncomp" min="10" max="4000" step="10" value="3147">
+      <span class="betaval" id="ncompval">3,147</span>
+      <button class="ghost" id="redraw">New sample</button>
+    </div>
+
+    <div class="rig" style="grid-template-columns:minmax(0,1.5fr) minmax(0,1fr)">
+      <div class="panel">
+        <div class="panel-h"><span>z-scores, pure noise, nothing wrong</span></div>
+        <canvas id="zplot" width="600" height="180" aria-label="z-scores with three-sigma outliers marked"></canvas>
+        <p style="font-size:.78rem;color:var(--faint);margin:0">
+          Every point is drawn from a standard normal. There is no effect here to find.
+          Points past <strong>|z| &gt; 3</strong> are marked.</p>
+      </div>
+      <div class="panel">
+        <div class="readout r-alarm">
+          <span class="k">"Outliers found"</span>
+          <span class="v" id="obs">—</span>
+          <span class="n">Past three sigma, in data with nothing in it.</span>
+        </div>
+        <div class="readout r-trust">
+          <span class="k">Expected by chance</span>
+          <span class="v" id="exp">—</span>
+          <span class="n"><code>n × 0.0027</code>. Known before you look.</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="verdict" id="v3"><span class="tag">Why it matters here</span>
+      <p>Our own mediation check compares <strong>3,147</strong> per-spin means at once, so
+        roughly <strong>8</strong> three-sigma deviations arrive for free. A report counting
+        them as anomalies would have looked like a real finding about a real defect. What
+        actually distinguishes signal is a <em>consistent sign</em> across the deviations, or
+        their concentration in one structural place — both stated before looking, not after.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="eyebrow">Exhibit IV · found and corrected by Grok · wired by Claude</p>
+    <h2>The wrong ruler</h2>
+    <p class="lede" style="margin-bottom:1.4em">A verification asked whether mediation
+      distorts a 3,147-spin model. The tails looked alarming — 6% of spins past |z| &gt; 4 —
+      and nothing was wrong. We were measuring with a ruler that was too short.</p>
+
+    <div class="ctl">
+      <label for="tau">Autocorrelation τ</label>
+      <input type="range" id="tau" min="1" max="30" step="0.01" value="1">
+      <span class="betaval" id="tauval">1.00</span>
+      <div class="seg" role="group" aria-label="Jump to measured values">
+        <button id="t-iid" aria-pressed="true">IID ruler</button>
+        <button id="t-med" aria-pressed="false">median τ 2.78</button>
+        <button id="t-max" aria-pressed="false">worst spin τ 21.3</button>
+      </div>
+    </div>
+
+    <div class="rig" style="grid-template-columns:minmax(0,1.5fr) minmax(0,1fr)">
+      <div class="panel">
+        <div class="panel-h"><span>400 comparisons, drawn once, genuinely null</span>
+          <span id="stretch">×1.00</span></div>
+        <canvas id="ruler" width="600" height="210" aria-label="z-scores stretching as the assumed autocorrelation grows"></canvas>
+        <p style="font-size:.78rem;color:var(--faint);margin:0">
+          The same 400 points throughout — <strong>never re-rolled.</strong> Only the ruler
+          changes: <code>z<sub>iid</sub> = z<sub>true</sub> × √τ</code>. Guides at ±2 and ±4.</p>
+      </div>
+      <div class="panel">
+        <div class="readout r-alarm">
+          <span class="k">Past |z| &gt; 4</span>
+          <span class="v" id="gt4">—</span>
+          <span class="n">In data with no effect in it whatsoever.</span>
+        </div>
+        <div class="readout r-trust">
+          <span class="k">Past |z| &gt; 2</span>
+          <span class="v" id="gt2">—</span>
+        </div>
+        <p style="font-size:.8rem;color:var(--faint);margin:0">
+          Autocorrelation means the true standard error is larger by <strong>√τ</strong>.
+          Assume independence and every |z| inflates by that factor. Nothing about the data
+          changed — only what we divided by.</p>
+      </div>
+    </div>
+
+    <div class="verdict" id="v4"><span class="tag" id="v4tag">IID ruler</span>
+      <p id="v4text">At τ = 1 the ruler is honest and the cloud sits where it should.
+        Drag it to the measured values.</p>
+    </div>
+
+    <h3 style="margin-top:2em">What it did to the real check</h3>
+    <p>Same draws, same 3,147 spins, on <code>codon_spike_full</code> after mediation to
+      5,025 physical spins. The only change is the standard error:</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>quantity</th><th class="num">IID ruler</th><th class="num">τ-corrected</th></tr></thead>
+      <tbody>
+        <tr><td>mean signed z</td><td class="num">−0.0037</td><td class="num">0.0066</td></tr>
+        <tr><td>median |z|</td><td class="num">1.2466</td><td class="num">0.7242</td></tr>
+        <tr><td>fraction |z| &gt; 2</td><td class="num">0.2952</td><td class="num">0.0521</td></tr>
+        <tr><td>fraction |z| &gt; 3</td><td class="num">0.1338</td><td class="num">0.0048</td></tr>
+        <tr><td>fraction |z| &gt; 4</td><td class="num" style="color:var(--alarm)">0.0616</td><td class="num" style="color:var(--trust)">0.0003</td></tr>
+        <tr><td>max |z|</td><td class="num">11.38</td><td class="num">4.62</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p style="margin-top:1.2em"><strong>194 spins looked like anomalies. One remained.</strong>
+      And the number that always mattered — the <em>signed</em> mean — sat at zero the whole
+      time, before and after. Tails are not bias. A correctly-scaled null still has tails;
+      what a systematic distortion produces is an offset, and there was never one.</p>
+    <p>The correction is <code>SE_corr = SE_iid × √τ</code> applied <strong>per spin, from
+      that spin's own draws</strong> — not one global τ. Using a single median τ would have
+      under-corrected exactly the slow spins, which are the ones most likely to look
+      anomalous in the first place.</p>
+    <div class="verdict"><span class="tag">Who did what</span>
+      <p>Grok found the inflation, measured per-spin Sokal τ, applied the correction, and
+        wrote this exhibit's maths and copy. Claude's only contribution was insisting it be
+        <em>applied</em> rather than annotated — the first version reported the inflated
+        numbers with a footnote explaining they were inflated, which leaves wrong numbers in
+        the table and invites a reader to count anomalies that are not there.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="eyebrow">Exhibit I, continued · the confession</p>
+    <h2>This was in our code this morning</h2>
+    <p class="lede" style="margin-bottom:1.4em">We did not find this in someone else's work.
+      We found it in ours, in the measurement our own headline result rested on.</p>
+    <div class="cols">
+      <div>
+        <h3>What we had shipped</h3>
+        <p>Our sampling verdict judged a 3,147-spin protein-design model from one scalar —
+          the mean magnetisation, folded through <code>abs()</code>. Folding is correct for a
+          symmetric model. Every spin in that model carries a bias, so there is no symmetry
+          to fold. It inflated the effective sample size by up to 41%.</p>
+        <p>Worse, it was the same structural blindness you just watched: one number cannot
+          certify thousands of variables.</p>
+      </div>
+      <div>
+        <h3>What replaced it</h3>
+        <p>The verdict now requires <strong>every</strong> spin to mix, and the sampler keeps
+          drawing until every one certifies rather than stopping when the average looks healthy.</p>
+        <div class="scroll">
+        <table>
+          <thead><tr><th></th><th>before</th><th>after</th></tr></thead>
+          <tbody>
+            <tr><td>draws</td><td class="num">32,000</td><td class="num">128,000</td></tr>
+            <tr><td>wall time</td><td class="num">10.8 s</td><td class="num">44.4 s</td></tr>
+            <tr><td>evidence</td><td>one folded scalar</td><td>all 3,147 spins</td></tr>
+            <tr><td>worst spin</td><td>not measured</td><td class="num">R̂ 1.0018</td></tr>
+          </tbody>
+        </table>
+        </div>
+        <p style="margin-top:1em">Four times more expensive, because it is now checking what
+          it always claimed to check.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="eyebrow">How it was caught</p>
+    <h2>Two models, auditing each other</h2>
+    <p>This project is built by a person working with two AI models wired into a shared
+      room — Claude and Grok — under one rule: <strong>every check must name, in advance,
+      the result that would be bad news for us.</strong> A check that cannot produce bad news
+      is decoration.</p>
+    <p>It goes both directions, which is the only reason it works. Four specific
+      exchanges, not a general claim about machine honesty:</p>
+    <div class="cols" style="margin-top:1.4em">
+      <div>
+        <p class="who">Grok caught Claude</p>
+        <blockquote><p>A hole where a model could clear every gate and still be
+          unplaceable, because the gates ran <em>before</em> the step that changes the
+          couplings. Reproduced independently, then fixed.</p></blockquote>
+        <blockquote style="margin-top:12px"><p>And again: Claude claimed a phrase appeared
+          zero times across a vendor's PDFs. It was a text-extraction artifact — bold glyphs
+          extract doubled. Grok was right; Claude retracted.</p></blockquote>
+      </div>
+      <div>
+        <p class="who">Claude caught Grok</p>
+        <blockquote><p>A verification reported inflated z-scores with a footnote explaining
+          they were inflated. A footnote leaves wrong numbers in the table — the correction
+          has to be <em>applied</em>, per-parameter, not annotated.</p></blockquote>
+        <blockquote style="margin-top:12px"><p>And: a script reported "missing" was a stale
+          checkout. The check had validated a reconstruction rather than the tool.</p></blockquote>
+      </div>
+    </div>
+    <p style="margin-top:1.6em">The one worth pointing at is Claude's β claim
+      (<span class="hash">ec463b8</span>): a hardness result asserted to sit inside the
+      hardware's usable range. It was the answer we wanted. The check ignores that parameter
+      entirely, so the claim was unsupported — and Grok had <em>already begun writing it into
+      a document for an outside reader</em> when it was pulled. The arithmetic slip inside it
+      was trivial. The conceptual error was load-bearing and ran in the flattering direction.</p>
+    <p>Every one of these was the same shape: a <em>correct measurement wrapped in a sentence
+      the evidence did not support.</em> Tests check numbers. Nothing automated checks the
+      sentence.</p>
+    <div class="verdict" style="margin-top:1.4em">
+      <span class="tag">Attribution</span>
+      <p>To be unambiguous: <strong>the defect demonstrated on this page was in our own
+        diagnostic</strong>, not in thrml, not in any vendor's hardware or published work.
+      It is shown here on a control lattice whose exact answer has been known since 1944.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="eyebrow">Verify it yourself</p>
+    <h2>Receipts</h2>
+    <p>Every number on this page traces to a script and a commit in
+      <code>tsu-compiler</code>, an Ising-model compiler for thermodynamic sampling hardware.
+      913 tests pass.</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>Claim</th><th>Where it comes from</th><th>Commit</th></tr></thead>
+      <tbody>
+        <tr><td>Scalar blind on ordered antiferromagnet</td><td><code>audit/diagnostic_control.py</code></td><td><span class="hash">1a251b0</span></td></tr>
+        <tr><td>Free energy over sublattices</td><td><code>audit/free_energy_sublattice.py</code></td><td><span class="hash">e611c18</span></td></tr>
+        <tr><td>Per-spin verdict, 3,147 spins</td><td><code>audit/codon_sampleability.py</code></td><td><span class="hash">1a251b0</span></td></tr>
+        <tr><td>Retracted hardware claim</td><td><code>audit/findings/R22.md</code></td><td><span class="hash">ec463b8</span></td></tr>
+        <tr><td>Live sampler, <code>tsuc watch</code></td><td><code>src/tsu_compiler/live.py</code></td><td><span class="hash">5b33012</span></td></tr>
+        <tr><td><strong>This page's own sampler, checked</strong></td><td><code>audit/verify_artifact_sampler.py</code></td><td><span class="hash">47098a6</span></td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p style="margin-top:1.4em">The sampler above is an independent JavaScript implementation
+      written for this page — checkerboard Gibbs on a periodic lattice, the same algorithm the
+      compiler uses. It is not the compiler itself, and the table above is the compiler's own
+      measurements, not this page's.</p>
+    <h3 style="margin-top:1.6em">And this page was checked the same way</h3>
+    <p>A fresh sampler with nothing behind it is exactly where a sign error hides. This
+      page's update rule was transcribed back into Python and run against the same
+      brute-force reference, which does not import any of our code:</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>sign</th><th class="num">β·J</th><th class="num">this page</th><th class="num">exact</th><th class="num">difference</th></tr></thead>
+      <tbody>
+        <tr><td>ferro</td><td class="num">0.20</td><td class="num">0.2278</td><td class="num">0.2281</td><td class="num">0.0003</td></tr>
+        <tr><td>ferro</td><td class="num">0.44</td><td class="num">0.7861</td><td class="num">0.7814</td><td class="num">0.0047</td></tr>
+        <tr><td>ferro</td><td class="num">0.80</td><td class="num">0.9925</td><td class="num">0.9924</td><td class="num">0.0001</td></tr>
+        <tr><td>anti</td><td class="num">0.20</td><td class="num">−0.2284</td><td class="num">−0.2281</td><td class="num">0.0004</td></tr>
+        <tr><td>anti</td><td class="num">0.44</td><td class="num">−0.7845</td><td class="num">−0.7814</td><td class="num">0.0031</td></tr>
+        <tr><td>anti</td><td class="num">0.80</td><td class="num">−0.9923</td><td class="num">−0.9924</td><td class="num">0.0001</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p style="margin-top:1.2em">The largest gap sits essentially on the critical point, where
+      fluctuations are largest and a finite sample is least precise — the expected place for
+      it. The signs match the labels on the toggle. This covers the <em>update rule</em>;
+      the R̂ accumulators are checked separately, and the free energy histogram is
+      <strong>not checked at all</strong> — stated here rather than left for a reader to
+      assume.</p>
+
+    <h3 style="margin-top:1.6em">Then checked again, by the other model, a different way</h3>
+    <p>Exhibit I's claim is that an antiferromagnet can be deeply ordered while its uniform
+      magnetisation reads zero. Grok tested that independently — <strong>Metropolis rather
+      than Gibbs, separate code, eight seeds</strong>, 16×16 periodic, 10,000 burn and
+      50,000 production:</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>Configuration</th><th class="num">uniform |m|</th><th class="num">staggered |m<sub>s</sub>|</th><th>reading</th></tr></thead>
+      <tbody>
+        <tr><td>antiferro, β·J = 0.8</td><td class="num" style="color:var(--trust)">0.00275</td><td class="num" style="color:var(--alarm)">0.99603</td><td>frozen solid, scalar reads ~zero</td></tr>
+        <tr><td>ferro, β·J = 0.8</td><td class="num">0.99603</td><td class="num">—</td><td>ordered</td></tr>
+        <tr><td>ferro, β·J = 0.2</td><td class="num">0.084</td><td class="num">—</td><td>disordered</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p style="margin-top:1.2em">The first row <em>is</em> the exhibit, measured by a second
+      implementation: the lattice is as ordered as a magnet can get, and the number a scalar
+      diagnostic reads is <strong>0.00275</strong>. The ferromagnet at the same coupling
+      lands on 0.99603 against Onsager's infinite-volume 0.99602.</p>
+    <p>And a check neither of us set out to run: the antiferromagnet's staggered value and
+      the ferromagnet's uniform value agree to all five digits. They should — on a bipartite
+      lattice the two models map onto each other by flipping one sublattice, so those are the
+      same quantity wearing different names. Two independent runs reproducing that identity
+      is a stronger signal than either number alone.</p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>No hardware anywhere. Everything here is simulation on a CPU — or, right now,
+      in your browser. No claims are made about any device's performance.</p>
+    <p style="margin:0">Onsager's exact solution for the 2D Ising model gives
+      <code>Kc = ln(1+√2)/2 = 0.440687</code>. That is why this page can tell you, in advance,
+      which side of the slider the chains are stuck on.</p>
+  </div>
+</footer>
+
+<script>
+(function(){
+const L=16, N=L*L, CH=16, BINS=34, MINC=3, RTHRESH=1.01;
+const KC=Math.log(1+Math.SQRT2)/2;
+
+let sign=-1, betaJ=0.25, sweeps=0;
+let spins, rngs, counts, hist, nbr;
+
+// ---- deterministic per-chain RNG so a restart is reproducible ----
+function mulberry(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);
+  t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+
+// neighbour table for a periodic square lattice
+function buildNbr(){nbr=new Int32Array(N*4);
+  for(let i=0;i<L;i++)for(let j=0;j<L;j++){const k=i*L+j,b=k*4;
+    nbr[b]=((i+1)%L)*L+j; nbr[b+1]=((i-1+L)%L)*L+j;
+    nbr[b+2]=i*L+(j+1)%L; nbr[b+3]=i*L+(j-1+L)%L;}}
+
+// Welford accumulators: R-hat needs only within/between variance, so running
+// mean+M2 per chain suffices and no per-spin history is stored.
+function acc(n){return{n:0,mean:new Float64Array(n),m2:new Float64Array(n)}}
+function push(a,idx,x){a.n++;const d=x-a.mean[idx];a.mean[idx]+=d/a.n;a.m2[idx]+=d*(x-a.mean[idx])}
+let accS, accP;   // scalar (1 per chain), per-spin (N per chain)
+
+function rhat(means,vars,n){
+  // Gelman-Rubin, BDA3 form: var+ = ((n-1)/n)W + B/n
+  const m=means.length; if(n<2)return NaN;
+  let W=0,gm=0; for(let c=0;c<m;c++){W+=vars[c];gm+=means[c]} W/=m; gm/=m;
+  let B=0; for(let c=0;c<m;c++)B+=(means[c]-gm)**2; B*=n/(m-1);
+  if(W<=0)return B>0?Infinity:1;
+  const vp=((n-1)/n)*W+B/n;
+  return Math.sqrt(vp/W);
+}
+
+function reset(){
+  buildNbr();
+  spins=[]; rngs=[];
+  for(let c=0;c<CH;c++){
+    const r=mulberry(0x9E3779B9^(c*2654435761));
+    const s=new Int8Array(N);
+    for(let k=0;k<N;k++)s[k]=r()<0.5?-1:1;
+    spins.push(s); rngs.push(r);
+  }
+  counts=new Float64Array(BINS*BINS);
+  accS={n:0,mean:new Float64Array(CH),m2:new Float64Array(CH)};
+  accP=[]; for(let c=0;c<CH;c++)accP.push({n:0,mean:new Float64Array(N),m2:new Float64Array(N)});
+  hist=[]; sweeps=0;
+}
+
+// checkerboard (block) Gibbs: update one sublattice, then the other
+function sweep(c){
+  const s=spins[c], r=rngs[c];
+  for(let par=0;par<2;par++){
+    for(let i=0;i<L;i++)for(let j=0;j<L;j++){
+      if(((i+j)&1)!==par)continue;
+      const k=i*L+j,b=k*4;
+      const f=s[nbr[b]]+s[nbr[b+1]]+s[nbr[b+2]]+s[nbr[b+3]];
+      // p(up) from the local field; sign=+1 ferro, -1 anti
+      const h=sign*betaJ*f;
+      s[k]=(r()<1/(1+Math.exp(-2*h)))?1:-1;
+    }
+  }
+}
+
+function record(){
+  const mags=[];
+  for(let c=0;c<CH;c++){
+    const s=spins[c];
+    let a=0,b=0,na=0,nb=0;
+    for(let i=0;i<L;i++)for(let j=0;j<L;j++){
+      const k=i*L+j;
+      if(((i+j)&1)===0){a+=s[k];na++}else{b+=s[k];nb++}
+    }
+    a/=na; b/=nb;
+    mags.push([a,b]);
+    const tot=0.5*(a+b);
+    push(accS,c,tot);
+    const ap=accP[c]; ap.n++;
+    for(let k=0;k<N;k++){const d=s[k]-ap.mean[k];ap.mean[k]+=d/ap.n;ap.m2[k]+=d*(s[k]-ap.mean[k])}
+    const bi=Math.min(BINS-1,Math.max(0,Math.floor((a+1)/2*BINS)));
+    const bj=Math.min(BINS-1,Math.max(0,Math.floor((b+1)/2*BINS)));
+    counts[bi*BINS+bj]++;
+  }
+  return mags;
+}
+
+function diagnostics(){
+  const n=accS.n; if(n<2)return[NaN,NaN];
+  const means=[],vars=[];
+  for(let c=0;c<CH;c++){means.push(accS.mean[c]);vars.push(accS.m2[c]/(n-1))}
+  const rs=rhat(means,vars,n);
+  let worst=1;
+  const m2=new Array(CH),v2=new Array(CH);
+  for(let k=0;k<N;k++){
+    let dead=true;
+    for(let c=0;c<CH;c++){m2[c]=accP[c].mean[k];v2[c]=accP[c].m2[k]/(n-1);if(v2[c]>0)dead=false}
+    if(dead)continue;
+    const r=rhat(m2,v2,n);
+    if(isFinite(r)&&r>worst)worst=r;
+  }
+  return[rs,worst];
+}
+
+// ---- rendering ----
+const cL=document.getElementById('lattice').getContext('2d');
+const cS=document.getElementById('surface').getContext('2d');
+const cT=document.getElementById('trace');
+const ctxT=cT.getContext('2d');
+function cssvar(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim()}
+
+function drawLattice(){
+  const img=cL.createImageData(L,L), d=img.data, s=spins[0];
+  const up=hex(cssvar('--hot')), dn=hex(cssvar('--cold'));
+  for(let k=0;k<N;k++){const c=s[k]>0?up:dn,o=k*4;
+    d[o]=c[0];d[o+1]=c[1];d[o+2]=c[2];d[o+3]=255}
+  cL.putImageData(img,0,0);
+}
+function hex(h){h=h.replace('#','');return[parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16)]}
+
+function drawSurface(mags){
+  const img=cS.createImageData(BINS,BINS), d=img.data;
+  const bg=hex(cssvar('--ink')), cold=hex(cssvar('--cold')), hot=hex(cssvar('--hot'));
+  let tot=0,vis=0;
+  for(let k=0;k<counts.length;k++)if(counts[k]>=MINC){tot+=counts[k];vis++}
+  let fmin=Infinity,fmax=-Infinity;const F=new Float64Array(counts.length).fill(NaN);
+  for(let k=0;k<counts.length;k++)if(counts[k]>=MINC){
+    const f=-Math.log(counts[k]/tot);F[k]=f;if(f<fmin)fmin=f;if(f>fmax)fmax=f}
+  for(let k=0;k<counts.length;k++){
+    const o=k*4;
+    if(isNaN(F[k])){d[o]=bg[0];d[o+1]=bg[1];d[o+2]=bg[2];d[o+3]=255;continue}
+    const t=fmax>fmin?(F[k]-fmin)/(fmax-fmin):0;
+    for(let q=0;q<3;q++)d[o+q]=Math.round(cold[q]+(hot[q]-cold[q])*t);
+    d[o+3]=255;
+  }
+  cS.putImageData(img,0,0);
+  document.getElementById('cells').textContent=vis+' / '+(BINS*BINS)+' cells';
+  // chains, drawn on top in device pixels
+  cS.fillStyle='#fff';
+  for(const[a,b]of mags){
+    const x=(a+1)/2*BINS,y=(b+1)/2*BINS;
+    cS.fillRect(Math.min(BINS-1,Math.max(0,x))|0,Math.min(BINS-1,Math.max(0,y))|0,1,1);
+  }
+}
+
+function drawTrace(){
+  const w=cT.width,h=cT.height;
+  ctxT.clearRect(0,0,w,h);
+  ctxT.fillStyle=cssvar('--ink');ctxT.fillRect(0,0,w,h);
+  if(hist.length<2)return;
+  const lo=Math.log(1.0), hiv=Math.max(2,...hist.map(p=>Math.max(p[1],p[2])));
+  const hi=Math.log(hiv*1.05);
+  const X=i=>i/(hist.length-1)*(w-8)+4;
+  const Y=v=>h-6-(Math.log(Math.max(1,v))-lo)/(hi-lo)*(h-14);
+  ctxT.setLineDash([3,3]);ctxT.strokeStyle=cssvar('--faint');ctxT.lineWidth=1;
+  ctxT.beginPath();ctxT.moveTo(4,Y(RTHRESH));ctxT.lineTo(w-4,Y(RTHRESH));ctxT.stroke();
+  ctxT.setLineDash([]);
+  for(const[idx,col]of[[1,cssvar('--trust')],[2,cssvar('--alarm')]]){
+    ctxT.strokeStyle=col;ctxT.lineWidth=2;ctxT.beginPath();
+    hist.forEach((p,i)=>{const y=Y(p[idx]);i?ctxT.lineTo(X(i),y):ctxT.moveTo(X(i),y)});
+    ctxT.stroke();
+  }
+  ctxT.font='10px "IBM Plex Mono",monospace';ctxT.fillStyle=cssvar('--faint');
+  ctxT.fillText('1.01',6,Y(RTHRESH)-3);
+}
+
+function setVerdict(rs,rp){
+  const v=document.getElementById('verdict'),t=document.getElementById('vtag'),
+        x=document.getElementById('vtext');
+  const ordered=betaJ>KC, blind=ordered&&rs<=RTHRESH&&rp>RTHRESH;
+  v.classList.toggle('fire',blind);
+  if(blind){
+    t.textContent='The scalar is lying';
+    x.innerHTML='<strong>R̂ on the scalar reads '+rs.toFixed(4)+' — converged.</strong> '+
+      'The worst individual spin reads '+rp.toFixed(2)+'. The chains are frozen in two '+
+      'checkerboards that both have zero magnetisation, so the summary cannot tell them '+
+      'apart. Nothing about the chains changed between those two readings.';
+  }else if(ordered&&rp>RTHRESH){
+    t.textContent='Both caught it';
+    x.innerHTML='Above Kc, and <em>both</em> readings fire — the ferromagnet\'s two ground '+
+      'states are all-up and all-down, which the magnetisation does separate. '+
+      'Switch to antiferromagnetic at this same β·J and watch the scalar go quiet '+
+      'while the chains stay just as stuck.';
+  }else if(ordered){
+    t.textContent='Settling';
+    x.textContent='Past Kc — give the chains a moment to fall into their basins.';
+  }else{
+    t.textContent='Below Kc';
+    x.innerHTML='Both readings agree, and both are right. The chains are exploring one '+
+      'connected basin. Drag β·J up through <strong>0.440687</strong> — Onsager\'s exact '+
+      'critical point for this lattice — and keep watching the two numbers.';
+  }
+}
+
+let acc2=0;
+function frame(){
+  for(let s=0;s<2;s++){for(let c=0;c<CH;c++)sweep(c);sweeps++}
+  const mags=record();
+  const[rs,rp]=diagnostics();
+  if(accS.n%3===0){hist.push([sweeps,isFinite(rs)?rs:1,isFinite(rp)?rp:1]);if(hist.length>240)hist.shift()}
+  document.getElementById('r-scalar').textContent=isFinite(rs)?rs.toFixed(4):'—';
+  document.getElementById('r-spin').textContent=isFinite(rp)?rp.toFixed(2):'—';
+  document.getElementById('sweeps').textContent=sweeps.toLocaleString()+' sweeps';
+  drawLattice();drawSurface(mags);drawTrace();setVerdict(rs,rp);
+  requestAnimationFrame(frame);
+}
+
+document.getElementById('beta').addEventListener('input',e=>{
+  betaJ=parseFloat(e.target.value);
+  document.getElementById('betaval').textContent=betaJ.toFixed(2);
+  reset();
+});
+function setSign(s){
+  sign=s;
+  document.getElementById('b-ferro').setAttribute('aria-pressed',s>0);
+  document.getElementById('b-anti').setAttribute('aria-pressed',s<0);
+  reset();
+}
+document.getElementById('b-ferro').addEventListener('click',()=>setSign(1));
+document.getElementById('b-anti').addEventListener('click',()=>setSign(-1));
+document.getElementById('reset').addEventListener('click',reset);
+
+reset();
+requestAnimationFrame(frame);
+
+/* ---------- Exhibit II: the minimum that hid its failures ---------- */
+const NSPIN=3147, FLOOR=5000, DRAWSET=[16000,32000,64000,128000,256000];
+// tau per spin, modelled to our measured distribution: median 2.82, worst 21.37.
+// Lognormal, seeded, so the picture is the same for every visitor.
+const taus=(function(){
+  const r=mulberry(20260915), out=[];
+  for(let i=0;i<NSPIN;i++){
+    let u=0,v=0; while(u===0)u=r(); while(v===0)v=r();
+    const g=Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);
+    out.push(Math.max(1.05, 2.82*Math.exp(0.50*g)));
+  }
+  return out;
+})();
+const cSpin=document.getElementById('spins').getContext('2d');
+function exhibit2(){
+  const draws=DRAWSET[+document.getElementById('draws').value];
+  document.getElementById('drawsval').textContent=draws.toLocaleString();
+  const W=176,H=90;
+  const img=cSpin.createImageData(W,H), d=img.data;
+  const bg=hex(cssvar('--ink')), ok=hex(cssvar('--trust')), no=hex(cssvar('--faint'));
+  let excluded=0, minShown=Infinity;
+  for(let p=0;p<W*H;p++){
+    const o=p*4;
+    if(p>=NSPIN){d[o]=bg[0];d[o+1]=bg[1];d[o+2]=bg[2];d[o+3]=255;continue}
+    const ess=draws/taus[p];
+    const cert=ess>=FLOOR;
+    if(cert){if(ess<minShown)minShown=ess}else excluded++;
+    const c=cert?ok:no;
+    d[o]=c[0];d[o+1]=c[1];d[o+2]=c[2];d[o+3]=255;
+  }
+  cSpin.putImageData(img,0,0);
+  document.getElementById('cert-lab').textContent=
+    (NSPIN-excluded).toLocaleString()+' certified';
+  document.getElementById('min-shown').textContent=
+    isFinite(minShown)?Math.round(minShown).toLocaleString():'—';
+  document.getElementById('excluded').textContent=excluded.toLocaleString();
+  const v=document.getElementById('v2'), t=document.getElementById('v2tag'),
+        x=document.getElementById('v2text');
+  v.classList.toggle('fire',excluded>0);
+  if(excluded>0){
+    t.textContent='Survivorship';
+    x.innerHTML='The dashboard reads <strong>min ESS '+Math.round(minShown).toLocaleString()+
+      '</strong> — comfortably over the floor, and every spin it describes really did clear it. '+
+      'But <strong>'+excluded.toLocaleString()+' spins</strong> returned no number at all, so they '+
+      'are not in that minimum. The statistic improves as more spins fail.';
+  }else{
+    t.textContent='Now it means what it says';
+    x.innerHTML='Every one of the 3,147 spins certified, so the reported minimum really is '+
+      'the worst case. This is the only state in which that number was ever quotable.';
+  }
+}
+document.getElementById('draws').addEventListener('input',exhibit2);
+
+/* ---------- Exhibit III: outliers that were always coming ---------- */
+const cZ=document.getElementById('zplot'); const ctxZ=cZ.getContext('2d');
+let zseed=7;
+function exhibit3(){
+  const n=+document.getElementById('ncomp').value;
+  document.getElementById('ncompval').textContent=n.toLocaleString();
+  const r=mulberry(zseed), zs=[];
+  for(let i=0;i<n;i++){
+    let u=0,v=0; while(u===0)u=r(); while(v===0)v=r();
+    zs.push(Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v));
+  }
+  const w=cZ.width,h=cZ.height,mid=h/2,sc=(h/2-10)/4.2;
+  ctxZ.clearRect(0,0,w,h);
+  ctxZ.fillStyle=cssvar('--ink');ctxZ.fillRect(0,0,w,h);
+  ctxZ.strokeStyle=cssvar('--line');ctxZ.lineWidth=1;
+  ctxZ.beginPath();ctxZ.moveTo(0,mid);ctxZ.lineTo(w,mid);ctxZ.stroke();
+  ctxZ.setLineDash([3,3]);ctxZ.strokeStyle=cssvar('--faint');
+  for(const s of[3,-3]){ctxZ.beginPath();ctxZ.moveTo(0,mid-s*sc);ctxZ.lineTo(w,mid-s*sc);ctxZ.stroke()}
+  ctxZ.setLineDash([]);
+  let hits=0;
+  for(let i=0;i<n;i++){
+    const x=(i+0.5)/n*w, y=mid-zs[i]*sc, big=Math.abs(zs[i])>3;
+    if(big)hits++;
+    ctxZ.fillStyle=big?cssvar('--alarm'):cssvar('--dim');
+    ctxZ.globalAlpha=big?1:0.5;
+    ctxZ.fillRect(x-(big?1.5:0.5),y-(big?1.5:0.5),big?3:1,big?3:1);
+  }
+  ctxZ.globalAlpha=1;
+  ctxZ.font='10px "IBM Plex Mono",monospace';ctxZ.fillStyle=cssvar('--faint');
+  ctxZ.fillText('+3σ',4,mid-3*sc-4); ctxZ.fillText('−3σ',4,mid+3*sc+11);
+  document.getElementById('obs').textContent=hits;
+  document.getElementById('exp').textContent=(n*0.0027).toFixed(1);
+}
+document.getElementById('ncomp').addEventListener('input',exhibit3);
+document.getElementById('redraw').addEventListener('click',()=>{zseed=(zseed*1664525+1013904223)>>>0;exhibit3()});
+
+/* ---------- Exhibit IV: the wrong ruler (spec by Grok) ----------
+   ONE convention, per the spec: z_iid = z_true * sqrt(tau). The true null is
+   drawn ONCE and never re-rolled, so every change on screen is the ruler and
+   not the data. The inverse (correction) is deliberately NOT wired here -- it
+   belongs in the coda, so the widget teaches the cause rather than the fix. */
+const ZTRUE=(function(){
+  const r=mulberry(4062026), out=[];
+  for(let i=0;i<400;i++){
+    let u=0,v=0; while(u===0)u=r(); while(v===0)v=r();
+    out.push(Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v));
+  }
+  return out;
+})();
+const cR=document.getElementById('ruler'), ctxR=cR.getContext('2d');
+const TAU_MED=2.78, TAU_MAX=21.3;
+function exhibit4(){
+  const tau=parseFloat(document.getElementById('tau').value), k=Math.sqrt(tau);
+  document.getElementById('tauval').textContent=tau.toFixed(2);
+  document.getElementById('stretch').textContent='×'+k.toFixed(2);
+  const w=cR.width,h=cR.height,mid=h/2,LIM=8,sc=(h/2-12)/LIM;
+  ctxR.clearRect(0,0,w,h);
+  ctxR.fillStyle=cssvar('--ink');ctxR.fillRect(0,0,w,h);
+  ctxR.strokeStyle=cssvar('--line');ctxR.lineWidth=1;
+  ctxR.beginPath();ctxR.moveTo(0,mid);ctxR.lineTo(w,mid);ctxR.stroke();
+  ctxR.font='10px "IBM Plex Mono",monospace';
+  for(const g of[2,-2,4,-4]){
+    const big=Math.abs(g)===4;
+    ctxR.setLineDash(big?[2,2]:[3,5]);
+    ctxR.strokeStyle=big?cssvar('--alarm'):cssvar('--faint');
+    ctxR.globalAlpha=big?0.75:0.5;
+    ctxR.beginPath();ctxR.moveTo(0,mid-g*sc);ctxR.lineTo(w,mid-g*sc);ctxR.stroke();
+    ctxR.globalAlpha=1;
+    ctxR.fillStyle=big?cssvar('--alarm'):cssvar('--faint');
+    ctxR.fillText((g>0?'+':'')+g+'σ',4,mid-g*sc-3);
+  }
+  ctxR.setLineDash([]);
+  let g2=0,g4=0;
+  for(let i=0;i<ZTRUE.length;i++){
+    const z=ZTRUE[i]*k, a=Math.abs(z);
+    if(a>2)g2++; if(a>4)g4++;
+    const x=(i+0.5)/ZTRUE.length*w;
+    const clipped=a>LIM;
+    const y=mid-Math.max(-LIM,Math.min(LIM,z))*sc;
+    ctxR.fillStyle=a>4?cssvar('--alarm'):(a>2?cssvar('--gold'):cssvar('--dim'));
+    ctxR.globalAlpha=a>2?0.95:0.45;
+    const s=a>4?3:2;
+    ctxR.fillRect(x-s/2,y-s/2,s,s);
+    if(clipped){ctxR.fillRect(x-0.5,z>0?0:h-2,1,2)}
+  }
+  ctxR.globalAlpha=1;
+  document.getElementById('gt2').textContent=g2;
+  document.getElementById('gt4').textContent=g4;
+  for(const[id,v]of[['t-iid',1],['t-med',TAU_MED],['t-max',TAU_MAX]])
+    document.getElementById(id).setAttribute('aria-pressed',Math.abs(tau-v)<0.02);
+  const v=document.getElementById('v4'),t=document.getElementById('v4tag'),
+        x=document.getElementById('v4text');
+  v.classList.toggle('fire',g4>0);
+  if(tau<1.05){
+    t.textContent='IID ruler';
+    x.innerHTML='At τ = 1 the ruler is honest: <strong>'+g4+'</strong> points past |z| > 4, '+
+      'which is what a true null should give. Drag it to the measured values.';
+  }else if(tau<12){
+    t.textContent='Typical spin';
+    x.innerHTML='√τ = <strong>'+k.toFixed(2)+'</strong>. The same 400 null points now put '+
+      '<strong>'+g4+'</strong> past |z| > 4 and <strong>'+g2+'</strong> past |z| > 2. '+
+      'Nothing was added to the data — this is the median spin\'s autocorrelation, and this '+
+      'is what assuming independence does to it.';
+  }else{
+    t.textContent='Worst spin';
+    x.innerHTML='√τ = <strong>'+k.toFixed(2)+'</strong>, the slowest-mixing spin in the real '+
+      'model. <strong>'+g4+' of 400</strong> now read past |z| > 4 in data with no effect in '+
+      'it. A global correction using the <em>median</em> τ would have under-corrected exactly '+
+      'these — the slow spins are both the most inflated and the most likely to be reported '+
+      'as anomalies.';
+  }
+}
+document.getElementById('tau').addEventListener('input',exhibit4);
+for(const[id,v]of[['t-iid',1],['t-med',TAU_MED],['t-max',TAU_MAX]])
+  document.getElementById(id).addEventListener('click',()=>{
+    document.getElementById('tau').value=v; exhibit4();});
+
+exhibit2(); exhibit3(); exhibit4();
+})();
+</script>
