@@ -32,9 +32,32 @@ can operate.
   answer is `sqrt((n-1)/n)`, strictly below 1) and a large-offset series that
   breaks naive sum-of-squares accumulators.
 
-**NOT verified: the free energy histogram** — its binning, its `min_count` mask,
-and whether the surface it paints is supported by the draws behind it. Stated
-here rather than left for a reader to infer.
+- **The free energy histogram** — audited by Grok against this committed source
+  rather than against the page's captions, which is why the source is here at
+  all. `BINS = 34`, `MINC = 3`, `F = -ln(count/tot)` only where `count >= 3`,
+  empty cells left as background with no epsilon floor: matches
+  `audit/free_energy_sublattice.py`'s constants and mask exactly, on the same
+  chessboard coordinates. Every cell of the static table matches
+  `out/free-energy/free_energy_sublattice.json` to display rounding, including
+  the load-bearing row -- antiferromagnetic at `beta*J = 0.80`, scalar R-hat
+  1.0000, max per-spin 11.11, 7 of 1156 cells.
+
+  That audit also produced the page's one outstanding FAIL, since fixed: deep in
+  the ordered phase the panel was captioned a free energy SURFACE while only a
+  handful of cells had support. It is not a surface, and the caption now says so
+  when support collapses -- which is the result, because support collapses
+  exactly when the chains stop exploring.
+
+  The same pass measured what the usual epsilon-floor dodge would cost here:
+  **23 bins the sampler never entered, painted at F ~ 77.** That number is why
+  the mask is load-bearing rather than tidy.
+
+**All four of the page's computations are now checked against something that is
+not the page.** What remains open is stated on the page itself: the pairwise
+tau-correction behind Exhibit IV is shipped as a stated limit rather than a bad
+approximation, and the tau-corrected |z| distribution retains ~5% excess width
+consistent with windowed-Sokal truncation -- uniform across mediated and
+unmediated spins, and conservative in direction for the verdict it supports.
 
 Grok independently re-tested Exhibit I's physics with Metropolis rather than
 Gibbs, separate code, eight seeds: at `beta*J = 0.8` antiferromagnetic, uniform
