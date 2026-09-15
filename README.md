@@ -136,6 +136,32 @@ individually rather than on their average
 (`audit/findings/R20.md`, `audit/diagnostic_control.py`).
 Regenerate with `python audit/free_energy_sublattice.py`.
 
+### Watching it happen
+
+```bash
+tsuc watch --lattice 16 --sign antiferro --beta 0.60
+```
+
+![Live view: two basins fill in on the anti-diagonal while the scalar R-hat stays pinned at 1.0 and the per-spin maximum climbs](audit/watch_antiferro.gif)
+
+`tsuc watch` samples a model live and puts the free energy surface next to both
+readings of the same chains. The left panel accumulates; the right panel is the
+two diagnostics over draws. The scalar stays flat on 1.0 while the per-spin
+maximum settles around 5 — and the surface shows why: the chains split between
+two basins, visit 23 of 1,156 cells, and never cross.
+
+It works on any model (`--spec`, `--edges`) as well as the built-in lattice. The
+coordinates are the compiler's own two colour blocks, which is what makes block
+Gibbs apply in the first place; on a square lattice they are the chessboard
+sublattices. A non-bipartite model is mediated first and the title says so.
+
+Chains genuinely continue across updates (`stream_chains`, verified against the
+exact oracle and against an independent-restart baseline in
+`tests/test_stream_chains.py`). Updates cap at roughly **2.5 per second** —
+wall time is dominated by per-call dispatch into thrml rather than by sampling,
+so 400 samples per update cost about 30% more than 40. It is a live instrument,
+not a 30fps animation.
+
 ## License
 
 Apache-2.0. See `LICENSE` and `NOTICE`.

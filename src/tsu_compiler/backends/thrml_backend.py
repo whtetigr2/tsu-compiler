@@ -229,6 +229,78 @@ def sample_chains(prog: SamplingProgram, n_chains: int, n_samples: int,
     return out.astype(int)
 
 
+def stream_chains(prog: SamplingProgram, n_chains: int, batch_samples: int,
+                  n_warmup: int, steps_per_sample: int, seed: int):
+    """Yield successive batches from CONTINUING chains, forever.
+
+    `sample_chains` starts from a uniform-random state every call, so calling it
+    in a loop gives a new set of chains each time -- fine for independent runs,
+    useless for watching one set of chains evolve. This carries the state across
+    calls: each batch resumes from the last recorded configuration of the batch
+    before it, so the chains are the same chains throughout.
+
+    Shape per yield: (n_chains, batch_samples, n_spins), the same contract as
+    `sample_chains`.
+
+    TWO THINGS A CALLER MUST KNOW, because both affect what the draws mean.
+
+    The first batch gets the full `n_warmup`; every later batch gets warmup 1.
+    It cannot be 0 -- `sample_states` records BEFORE stepping at 0 (manual 4.4),
+    which would repeat the previous batch's last configuration as the next
+    batch's first. So the gap between the last sample of one batch and the first
+    of the next is `steps_per_sample + 1` steps, where every gap within a batch
+    is `steps_per_sample`. The chain is unbroken; the RECORDED series is very
+    slightly irregular at batch boundaries. At the default spacing that is a
+    25% wider gap on 1 of every `batch_samples` intervals, which is harmless for
+    a live view and is NOT something to feed an autocorrelation estimator
+    without saying so.
+
+    Throughput is dominated by per-call overhead, not by sampling: on a 256-spin
+    lattice, 400 samples per call costs about 30% more wall time than 40 (490 ms
+    vs 372 ms). So a caller wanting a live view should take LARGE batches at a
+    low update rate rather than small ones quickly -- roughly 2.5 updates per
+    second is the ceiling regardless of how little work each one does.
+    """
+    assert n_warmup > 0, \
+        "n_warmup=0 makes sample_states record BEFORE stepping; see manual 4.4"
+    if not prog.ising.edges:
+        raise ValueError(
+            "stream_chains needs a model with edges: the edgeless path draws "
+            "independent samples and has no chain state to continue")
+
+    nodes, ebm = _model(prog)
+    free_blocks = [Block([nodes[i] for i in b]) for b in prog.blocks]
+    clamped = tuple(prog.clamped)
+    if clamped:
+        clamped_blocks = [Block([nodes[i] for i in clamped])]
+        state_clamp = [jnp.asarray(
+            [bool(prog.clamp_values[i]) for i in clamped], dtype=bool)]
+    else:
+        clamped_blocks = []
+        state_clamp = []
+    program = IsingSamplingProgram(ebm, free_blocks, clamped_blocks)
+    key = jax.random.key(seed)
+    k_i, key = jax.random.split(key)
+    # uniform-random init, NOT hinton_init, which starts at the mode
+    state = [jax.random.bernoulli(k, 0.5, (n_chains, len(b)))
+             for k, b in zip(jax.random.split(k_i, len(free_blocks)),
+                             prog.blocks)]
+
+    warmup = n_warmup
+    while True:
+        sched = SamplingSchedule(n_warmup=warmup, n_samples=batch_samples,
+                                 steps_per_sample=steps_per_sample)
+        fn = jax.jit(jax.vmap(lambda i, k: sample_states(
+            k, program, sched, i, state_clamp, [Block(nodes)])))
+        k_r, key = jax.random.split(key)
+        out = np.asarray(fn(state, jax.random.split(k_r, n_chains))[0])
+        # resume from the last recorded configuration, split back per block
+        last = out[:, -1, :]
+        state = [jnp.asarray(last[:, list(b)], dtype=bool) for b in prog.blocks]
+        warmup = 1
+        yield out.astype(int)
+
+
 def sample(prog: SamplingProgram, n_chains: int, n_samples: int, n_warmup: int,
            steps_per_sample: int, seed: int) -> np.ndarray:
     chains = sample_chains(prog, n_chains, n_samples, n_warmup,

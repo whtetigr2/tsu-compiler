@@ -12,8 +12,10 @@ import numpy as np
 
 from .passes.analyse import analyse
 from .passes.encode import encode
-from .passes.lower import lower
-from .passes.route import BetaMismatchError, assert_beta_consistent
+from .passes.lower import IsingModel, lower
+from .passes.route import (BetaMismatchError, assert_beta_consistent,
+                           insert_mediators)
+from .passes.program import build_program
 from .passes.search import compile_spec
 from .preflight.check import preflight as run_preflight
 from .preflight.model import load_model
@@ -278,7 +280,70 @@ def main(argv=None) -> int:
     # honest, correct message (the flag genuinely does not exist here), so
     # a second hand-written check would just duplicate it.
 
+    # watch: sample a model live and show the free energy surface next to the
+    # two diagnostics, so a scalar reading "converged" while individual spins
+    # are stuck is something you WATCH happen rather than read about.
+    w = sub.add_parser("watch")
+    w.add_argument("--spec"); w.add_argument("--edges")
+    w.add_argument("--lattice", type=int, default=None,
+                   help="use a built-in NxN periodic zero-field Ising lattice "
+                        "instead of a model file; its exact critical point is "
+                        "known (Onsager), so the view has a right answer")
+    w.add_argument("--beta", type=float, default=None,
+                   help="override the model's beta")
+    w.add_argument("--sign", choices=("ferro", "antiferro"), default="antiferro",
+                   help="--lattice only. antiferro is the case where BOTH "
+                        "scalar order parameters go blind (R20)")
+    w.add_argument("--chains", type=int, default=16)
+    w.add_argument("--batch", type=int, default=150,
+                   help="samples per update. Large is better: wall time is "
+                        "dominated by per-call dispatch, so a small batch is "
+                        "slower AND less informative (see live.py)")
+    w.add_argument("--warmup", type=int, default=2000)
+    w.add_argument("--steps", type=int, default=4)
+    w.add_argument("--seed", type=int, default=0)
+    w.add_argument("--frames", type=int, default=None)
+    w.add_argument("--save", default=None,
+                   help="write an animated GIF instead of opening a window")
+
     a = p.parse_args(argv)
+
+    if a.cmd == "watch":
+        from .live import watch
+        if a.lattice:
+            n_side = a.lattice
+            n = n_side * n_side
+            idx = lambda i, j: (i % n_side) * n_side + (j % n_side)
+            edges = tuple(sorted({
+                (min(idx(i, j), idx(i + di, j + dj)),
+                 max(idx(i, j), idx(i + di, j + dj)))
+                for i in range(n_side) for j in range(n_side)
+                for di, dj in ((1, 0), (0, 1))
+                if idx(i, j) != idx(i + di, j + dj)}))
+            weight = 1.0 if a.sign == "ferro" else -1.0
+            model = IsingModel(
+                nodes=tuple(f"n{i}" for i in range(n)), edges=edges,
+                weights=np.full(len(edges), weight), biases=np.zeros(n),
+                beta=a.beta if a.beta is not None else 0.80, offset=0.0)
+            label = (f"{n_side}x{n_side} zero-field Ising, {a.sign}magnetic, "
+                     f"beta*J = {model.beta}  (Onsager Kc = 0.440687)")
+        else:
+            if not (a.spec or a.edges):
+                p.error("watch needs --spec, --edges, or --lattice")
+            model = load_model(spec=a.spec, edges=a.edges)
+            if a.beta is not None:
+                model = dataclasses.replace(model, beta=a.beta)
+            label = f"{len(model.nodes)} spins, beta = {model.beta}"
+        rep = analyse(model)
+        if not rep.bipartite:
+            model, _ = insert_mediators(model, rep)
+            rep = analyse(model)
+            label += f"  (mediated to {rep.n_nodes} spins)"
+        return watch(build_program(model, rep), n_chains=a.chains,
+                     batch=a.batch, warmup=a.warmup, steps=a.steps,
+                     seed=a.seed, frames=a.frames, save=a.save,
+                     title=f"tsuc watch  |  {label}  |  thrml on CPU, "
+                           f"no Z1 hardware")
 
     if a.cmd == "inspect":
         spec = load_spec(a.spec)
