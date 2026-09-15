@@ -15,6 +15,7 @@ out/*
 !out/diagnostic-control/
 !out/free-energy/
 !out/z1t-preflight/
+!out/softmax-boltzmann/
 out_check/
 worlds/
 

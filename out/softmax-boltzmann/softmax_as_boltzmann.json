@@ -1,0 +1,122 @@
+{
+  "rows": [
+    {
+      "lambda": 2.0,
+      "abs_J": 1.0,
+      "abs_b_max": 2.2,
+      "p_one_hot": 0.739878,
+      "tv_given_one_hot": 9.71445146547012e-17,
+      "J_within_cap": true,
+      "b_within_cap": true,
+      "fits_z1": true
+    },
+    {
+      "lambda": 4.0,
+      "abs_J": 2.0,
+      "abs_b_max": 4.2,
+      "p_one_hot": 0.954678,
+      "tv_given_one_hot": 4.996003610813204e-16,
+      "J_within_cap": true,
+      "b_within_cap": true,
+      "fits_z1": true
+    },
+    {
+      "lambda": 6.0,
+      "abs_J": 3.0,
+      "abs_b_max": 6.2,
+      "p_one_hot": 0.993616,
+      "tv_given_one_hot": 8.396061623727746e-16,
+      "J_within_cap": true,
+      "b_within_cap": false,
+      "fits_z1": false
+    },
+    {
+      "lambda": 8.0,
+      "abs_J": 4.0,
+      "abs_b_max": 8.2,
+      "p_one_hot": 0.999131,
+      "tv_given_one_hot": 3.677613769070831e-16,
+      "J_within_cap": true,
+      "b_within_cap": false,
+      "fits_z1": false
+    },
+    {
+      "lambda": 12.0,
+      "abs_J": 6.0,
+      "abs_b_max": 12.2,
+      "p_one_hot": 0.999984,
+      "tv_given_one_hot": 1.214306433183765e-15,
+      "J_within_cap": true,
+      "b_within_cap": false,
+      "fits_z1": false
+    },
+    {
+      "lambda": 20.0,
+      "abs_J": 10.0,
+      "abs_b_max": 20.2,
+      "p_one_hot": 1.0,
+      "tv_given_one_hot": 2.588207426157396e-15,
+      "J_within_cap": false,
+      "b_within_cap": false,
+      "fits_z1": false
+    }
+  ],
+  "clique_cost": [
+    {
+      "W": 2,
+      "bipartite": true,
+      "mediators": 0,
+      "fabric_tax": 1.0
+    },
+    {
+      "W": 3,
+      "bipartite": false,
+      "mediators": 1,
+      "fabric_tax": 1.333
+    },
+    {
+      "W": 4,
+      "bipartite": false,
+      "mediators": 2,
+      "fabric_tax": 1.5
+    },
+    {
+      "W": 8,
+      "bipartite": false,
+      "mediators": 12,
+      "fabric_tax": 2.5
+    },
+    {
+      "W": 16,
+      "bipartite": false,
+      "mediators": 56,
+      "fabric_tax": 4.5
+    }
+  ],
+  "control_failures": [],
+  "bias_required_at_lambda_8": {
+    "4": 8.0,
+    "8": 24.0,
+    "16": 56.0,
+    "32": 120.0
+  },
+  "best_fitting": {
+    "lambda": 4.0,
+    "abs_J": 2.0,
+    "abs_b_max": 4.2,
+    "p_one_hot": 0.954678,
+    "tv_given_one_hot": 4.996003610813204e-16,
+    "J_within_cap": true,
+    "b_within_cap": true,
+    "fits_z1": true
+  },
+  "z1_caps": {
+    "abs_J": 6.0,
+    "abs_b": 6.0,
+    "abs_b_provenance": "ASSUMED in target.py -- this project's working value, not an Extropic figure. The verdict below depends on it."
+  },
+  "verdict": "Softmax attention is EXACTLY a Boltzmann expectation, and the one-hot gadget reproduces it to floating-point noise. It does not fit Z1: the one-hot clique is non-bipartite, and the required bias exceeds the (assumed) cap well before the coupling does, worsening linearly in window size.",
+  "why_that_is_unsurprising": "GCA's normalised cumulative sum is elementwise and needs no cross-position normalisation, so it has no clique and no bias blow-up. This reads as something Extropic routed around, not something they missed.",
+  "open_ask": "h_max. It decides whether a softmax can live on the fabric, and it is not published.",
+  "hardware": "none -- exact enumeration"
+}
