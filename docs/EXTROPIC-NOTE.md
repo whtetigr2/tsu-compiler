@@ -49,7 +49,6 @@ Live ACF no longer fabricates τ on restart-flattened traces. Simulation writes 
 ## What this is not
 
 - Not Thermalizers (no Torx→THRML variational compiler).
-- Not a frozen-transformer energy win. That path is closed (~0.39% ceiling); see ThermoBridge 2026-08-05 memo.
 - Not silicon. Host CPU + THRML/JAX only.
 
 ## Why Extropic should care
