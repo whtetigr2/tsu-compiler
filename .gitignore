@@ -11,6 +11,7 @@ out/*
 !out/extropic-verify/
 !out/connectivity-cost/
 !out/codon-sampleability/
+!out/dtm-preflight/
 out_check/
 worlds/
 

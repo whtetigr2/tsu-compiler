@@ -1,0 +1,290 @@
+{
+  "rows": [
+    {
+      "preset": "88   (8x8)",
+      "side_len": 8,
+      "jumps": [
+        [
+          0,
+          1
+        ],
+        [
+          4,
+          1
+        ]
+      ],
+      "spins": 64,
+      "couplings": 128,
+      "max_degree": 4,
+      "bipartite": true,
+      "all_jumps_odd_parity": true,
+      "unrealisable_jumps": [],
+      "topology_fits_z1": true
+    },
+    {
+      "preset": "448  (44x44)",
+      "side_len": 44,
+      "jumps": [
+        [
+          0,
+          1
+        ],
+        [
+          4,
+          1
+        ]
+      ],
+      "spins": 1936,
+      "couplings": 3872,
+      "max_degree": 4,
+      "bipartite": true,
+      "all_jumps_odd_parity": true,
+      "unrealisable_jumps": [],
+      "topology_fits_z1": true
+    },
+    {
+      "preset": "608  (60x60)",
+      "side_len": 60,
+      "jumps": [
+        [
+          0,
+          1
+        ],
+        [
+          4,
+          1
+        ]
+      ],
+      "spins": 3600,
+      "couplings": 7200,
+      "max_degree": 4,
+      "bipartite": true,
+      "all_jumps_odd_parity": true,
+      "unrealisable_jumps": [],
+      "topology_fits_z1": true
+    },
+    {
+      "preset": "908  (90x90)",
+      "side_len": 90,
+      "jumps": [
+        [
+          0,
+          1
+        ],
+        [
+          4,
+          1
+        ]
+      ],
+      "spins": 8100,
+      "couplings": 16200,
+      "max_degree": 4,
+      "bipartite": true,
+      "all_jumps_odd_parity": true,
+      "unrealisable_jumps": [],
+      "topology_fits_z1": true
+    },
+    {
+      "preset": "4412 (44x44)",
+      "side_len": 44,
+      "jumps": [
+        [
+          0,
+          1
+        ],
+        [
+          4,
+          1
+        ],
+        [
+          10,
+          9
+        ]
+      ],
+      "spins": 1936,
+      "couplings": 5808,
+      "max_degree": 6,
+      "bipartite": true,
+      "all_jumps_odd_parity": true,
+      "unrealisable_jumps": [
+        {
+          "jump": [
+            10,
+            9
+          ],
+          "reach": 13.45
+        }
+      ],
+      "topology_fits_z1": false
+    },
+    {
+      "preset": "6016 (60x60)",
+      "side_len": 60,
+      "jumps": [
+        [
+          0,
+          1
+        ],
+        [
+          4,
+          1
+        ],
+        [
+          10,
+          9
+        ],
+        [
+          11,
+          14
+        ]
+      ],
+      "spins": 3600,
+      "couplings": 14400,
+      "max_degree": 8,
+      "bipartite": true,
+      "all_jumps_odd_parity": true,
+      "unrealisable_jumps": [
+        {
+          "jump": [
+            10,
+            9
+          ],
+          "reach": 13.45
+        },
+        {
+          "jump": [
+            11,
+            14
+          ],
+          "reach": 17.8
+        }
+      ],
+      "topology_fits_z1": false
+    },
+    {
+      "preset": "6020 (60x60)",
+      "side_len": 60,
+      "jumps": [
+        [
+          0,
+          1
+        ],
+        [
+          4,
+          1
+        ],
+        [
+          10,
+          9
+        ],
+        [
+          11,
+          14
+        ],
+        [
+          23,
+          6
+        ]
+      ],
+      "spins": 3600,
+      "couplings": 18000,
+      "max_degree": 10,
+      "bipartite": true,
+      "all_jumps_odd_parity": true,
+      "unrealisable_jumps": [
+        {
+          "jump": [
+            10,
+            9
+          ],
+          "reach": 13.45
+        },
+        {
+          "jump": [
+            11,
+            14
+          ],
+          "reach": 17.8
+        },
+        {
+          "jump": [
+            23,
+            6
+          ],
+          "reach": 23.77
+        }
+      ],
+      "topology_fits_z1": false
+    }
+  ],
+  "control_failures": [],
+  "z1_max_reach": 4.12,
+  "z1_offsets": [
+    [
+      -4,
+      -1
+    ],
+    [
+      -3,
+      2
+    ],
+    [
+      -2,
+      -3
+    ],
+    [
+      -2,
+      -1
+    ],
+    [
+      -1,
+      0
+    ],
+    [
+      -1,
+      2
+    ],
+    [
+      -1,
+      4
+    ],
+    [
+      0,
+      -1
+    ],
+    [
+      0,
+      1
+    ],
+    [
+      1,
+      -4
+    ],
+    [
+      1,
+      -2
+    ],
+    [
+      1,
+      0
+    ],
+    [
+      2,
+      1
+    ],
+    [
+      2,
+      3
+    ],
+    [
+      3,
+      -2
+    ],
+    [
+      4,
+      1
+    ]
+  ],
+  "source": "topology parameters from the public DTM reference implementation; no vendor code redistributed",
+  "hardware": "none -- structural analysis, no sampling"
+}
