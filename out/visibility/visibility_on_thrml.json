@@ -1,0 +1,63 @@
+{
+  "rows": [
+    {
+      "input": "clean",
+      "couplings": false,
+      "thrml": 0.9349,
+      "thrml_best": 1.0,
+      "numpy": 0.9583,
+      "gap": 0.0234,
+      "bipartite": true,
+      "degree": 4,
+      "pbits": 1536
+    },
+    {
+      "input": "clean",
+      "couplings": true,
+      "thrml": 0.9974,
+      "thrml_best": 1.0,
+      "numpy": 1.0,
+      "gap": 0.0026,
+      "bipartite": true,
+      "degree": 4,
+      "pbits": 1536
+    },
+    {
+      "input": "8% noise",
+      "couplings": false,
+      "thrml": 0.0938,
+      "thrml_best": 0.1042,
+      "numpy": 0.1042,
+      "gap": 0.0104,
+      "bipartite": true,
+      "degree": 4,
+      "pbits": 1536
+    },
+    {
+      "input": "8% noise",
+      "couplings": true,
+      "thrml": 0.638,
+      "thrml_best": 0.75,
+      "numpy": 0.6042,
+      "gap": 0.0339,
+      "bipartite": true,
+      "degree": 4,
+      "pbits": 1536
+    }
+  ],
+  "control_failures": [],
+  "clean_coupling_gain": 0.0625,
+  "noisy_coupling_gain": 0.5442,
+  "beta": 1.0,
+  "noise": 0.08,
+  "sampler": "thrml.block_sampling.sample_states via tsu_compiler.backends.thrml_backend.sample_chains",
+  "walls": "strong bias (-W_WALL), NOT clamped -- see audit/findings/R23",
+  "constants": {
+    "W_MONO": 3.0,
+    "W_FREE": 3.0,
+    "W_WALL": 4.0,
+    "W_COH": 1.2
+  },
+  "raycaster_role": "ground truth for scoring only",
+  "hardware": "none -- thrml on CPU/JAX"
+}

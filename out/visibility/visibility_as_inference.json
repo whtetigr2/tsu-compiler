@@ -5,69 +5,72 @@
     "max_degree": 4,
     "bipartite": true,
     "degree_within_z1": true,
-    "fits_node_budget": true,
-    "z1_degree": 16,
-    "z1_node_budget": 269568
+    "fits_node_budget": true
   },
-  "beta_sweep": [
+  "ablation": [
     {
-      "beta": 0.05,
-      "agreement_with_raycast": 0.0,
-      "exact_columns": 0,
-      "n_columns": 64,
-      "mean_abs_depth_error": 28.016,
-      "early_stops_in_free_space": 64,
-      "dont_care_tail_cells": 580
+      "variant": "full lattice",
+      "w_mono": 3.0,
+      "w_coh": 1.2,
+      "clean_input": 0.9844,
+      "noisy_input": 0.8594
     },
     {
-      "beta": 0.2,
-      "agreement_with_raycast": 0.5156,
-      "exact_columns": 33,
-      "n_columns": 64,
-      "mean_abs_depth_error": 8.594,
-      "early_stops_in_free_space": 31,
-      "dont_care_tail_cells": 102
+      "variant": "no chain coupling",
+      "w_mono": 0.0,
+      "w_coh": 1.2,
+      "clean_input": 1.0,
+      "noisy_input": 0.3594
     },
     {
-      "beta": 0.5,
-      "agreement_with_raycast": 0.9844,
-      "exact_columns": 63,
-      "n_columns": 64,
-      "mean_abs_depth_error": 0.016,
-      "early_stops_in_free_space": 1,
-      "dont_care_tail_cells": 38
+      "variant": "no coherence",
+      "w_mono": 3.0,
+      "w_coh": 0.0,
+      "clean_input": 0.9375,
+      "noisy_input": 0.3594
     },
     {
-      "beta": 1.0,
-      "agreement_with_raycast": 1.0,
-      "exact_columns": 64,
-      "n_columns": 64,
-      "mean_abs_depth_error": 0.0,
-      "early_stops_in_free_space": 0,
-      "dont_care_tail_cells": 38
-    },
-    {
-      "beta": 2.0,
-      "agreement_with_raycast": 1.0,
-      "exact_columns": 64,
-      "n_columns": 64,
-      "mean_abs_depth_error": 0.0,
-      "early_stops_in_free_space": 0,
-      "dont_care_tail_cells": 38
-    },
-    {
-      "beta": 4.0,
-      "agreement_with_raycast": 1.0,
-      "exact_columns": 64,
-      "n_columns": 64,
-      "mean_abs_depth_error": 0.0,
-      "early_stops_in_free_space": 0,
-      "dont_care_tail_cells": 38
+      "variant": "no couplings at all",
+      "w_mono": 0.0,
+      "w_coh": 0.0,
+      "clean_input": 0.9375,
+      "noisy_input": 0.3125
     }
   ],
-  "control_failures": [],
-  "encoding": "monotone depth chain; occlusion is a pairwise constraint, not a computation",
-  "raycaster_role": "ground truth for scoring only -- never used to build, seed or bias the model",
-  "scope": "2D first-hit depth. No texturing, no shading, no scene.",
+  "noise_sweep": [
+    {
+      "noise": 0.0,
+      "no_couplings": 0.9375,
+      "full_lattice": 0.9844,
+      "gain": 0.0469
+    },
+    {
+      "noise": 0.01,
+      "no_couplings": 0.7188,
+      "full_lattice": 0.9531,
+      "gain": 0.2344
+    },
+    {
+      "noise": 0.02,
+      "no_couplings": 0.5156,
+      "full_lattice": 0.9062,
+      "gain": 0.3906
+    },
+    {
+      "noise": 0.04,
+      "no_couplings": 0.3125,
+      "full_lattice": 0.8594,
+      "gain": 0.5469
+    },
+    {
+      "noise": 0.08,
+      "no_couplings": 0.125,
+      "full_lattice": 0.7031,
+      "gain": 0.5781
+    }
+  ],
+  "walls": "strong bias, NOT a clamp -- a clamp cannot be outvoted, which is what made the couplings inert in the first version (R23)",
+  "raycaster_role": "ground truth for scoring only",
+  "what_this_shows": "the lattice recovers a coherent surface from an input that is individually unreliable. On a PERFECT input it buys almost nothing, and says so -- a scan is the right tool when the answer is already in the input.",
   "hardware": "none -- simulation"
 }

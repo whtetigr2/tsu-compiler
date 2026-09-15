@@ -107,9 +107,15 @@ OUT = Path("out/visibility")
 Z1 = PROFILES["z1"]
 
 N_COLS, N_DEPTH = 64, 48
-W_MONO = 6.0          # strength of the "once stopped, stay stopped" constraint
-W_OCC = 3.0           # how strongly geometry says keep-going / stop
-W_COH = 0.6           # neighbouring columns prefer similar depth
+W_MONO = 3.0          # chain coupling along depth
+W_FREE = 3.0          # empty space says keep going
+W_WALL = 4.0          # a wall says stop -- a strong BIAS, deliberately NOT a
+                      # clamp. Clamped walls cannot be outvoted by anything, which
+                      # is what made the couplings inert in the first version of
+                      # this file (R23). A bias can be overruled by the lattice
+                      # when the input is wrong, and that is the entire point.
+W_COH = 1.2           # neighbouring columns prefer similar depth
+NOISE = 0.04          # fraction of free cells the input wrongly reports as wall
 SWEEPS, BURN = 900, 300
 
 
@@ -137,9 +143,19 @@ def exact_raycast(solid):
     return out
 
 
-def biases(solid):
-    """Per-cell field: empty space says keep going, solid says stop."""
-    return np.where(solid, -W_OCC, +W_OCC)
+def biases(observed):
+    """Per-cell field from the OBSERVED occupancy, which may be wrong."""
+    return np.where(observed, -W_WALL, +W_FREE)
+
+
+def corrupt(solid, rate, seed=7):
+    """The input a real sensor would hand you: mostly right, sometimes not.
+    Spurious walls in free space -- the failure a scan cannot recover from,
+    because it stops at the first thing it is told about."""
+    rng = np.random.default_rng(seed)
+    obs = solid.copy()
+    obs |= (rng.random(solid.shape) < rate) & (~solid)
+    return obs
 
 
 def build_ising(solid) -> IsingModel:
@@ -149,10 +165,21 @@ def build_ising(solid) -> IsingModel:
     edges, weights = [], []
     for c in range(n_cols):
         for k in range(n_depth):
-            if k + 1 < n_depth:                        # monotonicity, vertical
-                edges.append((idx(c, k), idx(c, k + 1))); weights.append(-W_MONO)
+            # SIGN AND SCALE must match sample() exactly, or the preflight
+            # weighs a different model than the one being sampled. In this
+            # project's IR a POSITIVE weight is ferromagnetic (verified in
+            # audit/diagnostic_control.py); these were written negative, i.e.
+            # antiferromagnetic, and the chain term was written at full strength
+            # where sample() applies W_MONO/2 to each of the two neighbours.
+            # Nothing measured was wrong because build_ising only ever fed the
+            # preflight -- but visibility_on_thrml.py now samples this, so it
+            # has to be the same energy.
+            if k + 1 < n_depth:                        # chain, vertical
+                edges.append((idx(c, k), idx(c, k + 1)))
+                weights.append(W_MONO / 2.0)
             if c + 1 < n_cols:                         # coherence, horizontal
-                edges.append((idx(c, k), idx(c + 1, k))); weights.append(-W_COH)
+                edges.append((idx(c, k), idx(c + 1, k)))
+                weights.append(W_COH)
     b = biases(solid).reshape(-1)
     n = n_cols * n_depth
     order = np.argsort([e[0] * n + e[1] for e in edges])
@@ -162,22 +189,16 @@ def build_ising(solid) -> IsingModel:
                       biases=b, beta=1.0, offset=0.0)
 
 
-def sample(solid, beta, sweeps=SWEEPS, burn=BURN, seed=0):
+def sample(observed, beta, w_mono=W_MONO, w_coh=W_COH,
+           sweeps=SWEEPS, burn=BURN, seed=0):
     """Chromatic block Gibbs on the (column x depth) lattice.
 
     Starts from a uniform random state -- NOT from the raycast, not from
     anything derived from it."""
     rng = np.random.default_rng(seed)
-    n_cols, n_depth = solid.shape
+    n_cols, n_depth = observed.shape
     v = rng.integers(0, 2, size=(n_cols, n_depth)).astype(np.int8)
-    # A WALL IS A CONSTRAINT, NOT A PREFERENCE. Solid cells are CLAMPED to 0:
-    # the ray cannot be still travelling where there is rock. Written first as a
-    # soft bias, which failed -- monotonicity pulls a cell toward 1 whenever the
-    # cell below it is 1, so at W_MONO > W_OCC the geometry could never stop the
-    # ray and every column reported the far wall. Clamping is both correct and
-    # what the hardware offers: `prog.clamped` is exactly this.
-    v[solid] = 0
-    bias = biases(solid)
+    bias = biases(observed)
     cc, kk = np.meshgrid(np.arange(n_cols), np.arange(n_depth), indexing="ij")
     parity = (cc + kk) % 2
     acc = np.zeros((n_cols, n_depth))
@@ -185,25 +206,19 @@ def sample(solid, beta, sweeps=SWEEPS, burn=BURN, seed=0):
     for s in range(sweeps):
         for colour in (0, 1):
             up = np.zeros_like(bias)
-            # MONOTONICITY IS ASYMMETRIC, and that is the whole point.
-            # v_k = 0 forces v_{k+1} = 0; v_k = 1 forces nothing. A symmetric
-            # ferromagnetic coupling gets this wrong -- it penalises both
-            # transitions equally, so the chain just wants to be uniform, and at
-            # any reasonable strength uniformity beats the occupancy field and
-            # every column reports the far wall. The control caught exactly that.
-            # Each clause fires in one direction only:
-            up[:, :-1] += W_MONO * v[:, 1:]              # something below is still
-                                                         # travelling -> I must be too
-            up[:, 1:] -= W_MONO * (1 - v[:, :-1])        # the cell above has stopped
-                                                         # -> I must be stopped
+            w_m, w_c = w_mono, w_coh
+            # A symmetric ferromagnetic chain. An earlier version wrote this as
+            # two one-sided clauses and called the asymmetry the mechanism; the
+            # constants cancel and it is the same thing at half strength (R23).
+            up[:, :-1] += (w_m / 2) * (2 * v[:, 1:].astype(float) - 1)
+            up[:, 1:] += (w_m / 2) * (2 * v[:, :-1].astype(float) - 1)
             # coherence with the neighbouring columns
-            up[:-1, :] += W_COH * (2 * v[1:, :] - 1)
-            up[1:, :] += W_COH * (2 * v[:-1, :] - 1)
+            up[:-1, :] += w_c * (2 * v[1:, :].astype(float) - 1)
+            up[1:, :] += w_c * (2 * v[:-1, :].astype(float) - 1)
             field = bias + up
             p = 1.0 / (1.0 + np.exp(-2.0 * beta * field))
             draw = (rng.random((n_cols, n_depth)) < p).astype(np.int8)
             v = np.where(parity == colour, draw, v)
-            v[solid] = 0                       # clamp re-applied every sweep
         if s >= burn:
             acc += v; kept += 1
     return v, acc / max(kept, 1)
@@ -239,6 +254,11 @@ def tail_ones(v):
     return int(np.sum((v[:, :-1] == 0) & (v[:, 1:] == 1)))
 
 
+def agreement(observed, truth, w_mono, w_coh, beta=1.0) -> float:
+    v, _ = sample(observed, beta, w_mono=w_mono, w_coh=w_coh)
+    return float(np.mean(decode(v) == truth))
+
+
 def main() -> int:
     OUT.mkdir(parents=True, exist_ok=True)
     solid = level_occupancy()
@@ -249,69 +269,79 @@ def main() -> int:
     lattice = {"pbits": rep.n_nodes, "edges": rep.n_edges,
                "max_degree": rep.max_degree, "bipartite": bool(rep.bipartite),
                "degree_within_z1": rep.max_degree <= Z1.degree.value,
-               "fits_node_budget": rep.n_nodes <= Z1.node_budget.value,
-               "z1_degree": Z1.degree.value,
-               "z1_node_budget": Z1.node_budget.value}
+               "fits_node_budget": rep.n_nodes <= Z1.node_budget.value}
 
-    rows, failures = [], []
-    for beta in (0.05, 0.2, 0.5, 1.0, 2.0, 4.0):
-        v, _ = sample(solid, beta)
-        got = decode(v)
-        agree = float(np.mean(got == truth))
-        rows.append({"beta": beta, "agreement_with_raycast": round(agree, 4),
-                     "exact_columns": int(np.sum(got == truth)),
-                     "n_columns": len(truth),
-                     "mean_abs_depth_error": round(float(np.mean(np.abs(got - truth))), 3),
-                     "early_stops_in_free_space": early_stops(v, truth),
-                     "dont_care_tail_cells": tail_ones(v)})
+    # ---- ABLATION. The check this file did not have, and the one that matters.
+    clean = solid
+    noisy = corrupt(solid, NOISE)
+    ablation = []
+    for lbl, wm, wc in (("full lattice", W_MONO, W_COH),
+                        ("no chain coupling", 0.0, W_COH),
+                        ("no coherence", W_MONO, 0.0),
+                        ("no couplings at all", 0.0, 0.0)):
+        ablation.append({"variant": lbl, "w_mono": wm, "w_coh": wc,
+                         "clean_input": round(agreement(clean, truth, wm, wc), 4),
+                         "noisy_input": round(agreement(noisy, truth, wm, wc), 4)})
 
+    # ---- how the gain grows with how unreliable the input is
+    sweep_rows = []
+    for rate in (0.0, 0.01, 0.02, 0.04, 0.08):
+        obs = corrupt(solid, rate)
+        bare = agreement(obs, truth, 0.0, 0.0)
+        full = agreement(obs, truth, W_MONO, W_COH)
+        sweep_rows.append({"noise": rate, "no_couplings": round(bare, 4),
+                           "full_lattice": round(full, 4),
+                           "gain": round(full - bare, 4)})
+
+    failures = []
     if not rep.bipartite:
-        failures.append("the visibility lattice came back NON-bipartite; it is a "
-                        "grid with orthogonal couplings only, so the builder is wrong")
-    hi = rows[-1]
-    if hi["agreement_with_raycast"] < 0.99:
-        failures.append(f"at beta={hi['beta']} agreement is only "
-                        f"{hi['agreement_with_raycast']:.2%}; sampling is not "
-                        f"recovering the exact solution")
-    if hi["early_stops_in_free_space"] > 0:
-        failures.append(f"{hi['early_stops_in_free_space']} columns stop in free "
-                        f"space at beta={hi['beta']} -- the ray is halting where "
-                        f"there is nothing to halt it")
-    lo = rows[0]
-    if lo["agreement_with_raycast"] > 0.5:
-        failures.append(f"at beta={lo['beta']} agreement is already "
-                        f"{lo['agreement_with_raycast']:.2%}. The answer is coming "
-                        f"from somewhere other than the energy, and this file "
-                        f"proves nothing.")
+        failures.append("the lattice is not bipartite; the builder is wrong")
+    bare_noisy = next(a for a in ablation if a["variant"] == "no couplings at all")
+    full_noisy = next(a for a in ablation if a["variant"] == "full lattice")
+    if full_noisy["noisy_input"] - bare_noisy["noisy_input"] < 0.10:
+        failures.append(
+            f"the couplings buy only "
+            f"{full_noisy['noisy_input'] - bare_noisy['noisy_input']:+.1%} on a "
+            f"noisy input. They are not load-bearing, and any claim that the "
+            f"energy performs the occlusion is unsupported -- this is exactly "
+            f"the defect recorded in audit/findings/R23.md")
+    if sweep_rows[0]["gain"] > 0.10:
+        failures.append("the couplings appear to help on a PERFECT input, which "
+                        "they should not -- a clean occupancy already contains "
+                        "the answer and a scan recovers it")
 
     (OUT / "visibility_as_inference.json").write_text(json.dumps(
-        {"lattice": lattice, "beta_sweep": rows, "control_failures": failures,
-         "encoding": "monotone depth chain; occlusion is a pairwise constraint, "
-                     "not a computation",
-         "raycaster_role": "ground truth for scoring only -- never used to "
-                           "build, seed or bias the model",
-         "scope": "2D first-hit depth. No texturing, no shading, no scene.",
+        {"lattice": lattice, "ablation": ablation, "noise_sweep": sweep_rows,
+         "walls": "strong bias, NOT a clamp -- a clamp cannot be outvoted, which "
+                  "is what made the couplings inert in the first version (R23)",
+         "raycaster_role": "ground truth for scoring only",
+         "what_this_shows": "the lattice recovers a coherent surface from an "
+                            "input that is individually unreliable. On a PERFECT "
+                            "input it buys almost nothing, and says so -- a scan "
+                            "is the right tool when the answer is already in the "
+                            "input.",
          "hardware": "none -- simulation"},
         indent=2), encoding="utf-8")
 
-    print("WHICH WALL YOU SEE, AS A SAMPLE\n")
-    print(f"  lattice: {lattice['pbits']:,} pbits, {lattice['edges']:,} couplings, "
-          f"degree {lattice['max_degree']}, bipartite {lattice['bipartite']}")
-    print(f"  Z1: degree {Z1.degree.value} -> {'within' if lattice['degree_within_z1'] else 'OVER'}; "
-          f"budget {Z1.node_budget.value:,} -> "
-          f"{'fits' if lattice['fits_node_budget'] else 'OVER'}\n")
-    print(f"  {'beta':>6}{'agrees with raycast':>22}{'exact cols':>12}"
-          f"{'mean |err|':>12}{'early stops':>13}{'tail':>7}")
-    for r in rows:
-        print(f"  {r['beta']:>6.2f}{r['agreement_with_raycast']:>21.1%}"
-              f"{r['exact_columns']:>8}/{r['n_columns']:<3}"
-              f"{r['mean_abs_depth_error']:>12.2f}"
-              f"{r['early_stops_in_free_space']:>13}{r['dont_care_tail_cells']:>7}")
+    print("ARE THE COUPLINGS LOAD-BEARING?")
     print()
-    print("  The raycaster scored these. It did not produce them: the chains")
-    print("  start uniformly random and are moved only by the energy.")
-    print("  Low beta is the control -- if agreement were high there, the answer")
-    print("  would be coming from somewhere other than the sampling.")
+    print(f"  lattice: {lattice['pbits']:,} pbits, degree {lattice['max_degree']}, "
+          f"bipartite {lattice['bipartite']}")
+    print()
+    print(f"  {'variant':<22}{'clean input':>14}{'noisy input':>14}")
+    for a in ablation:
+        print(f"  {a['variant']:<22}{a['clean_input']:>13.1%}{a['noisy_input']:>14.1%}")
+    print()
+    print(f"  {'sensor noise':>13}{'no couplings':>15}{'full lattice':>15}{'gain':>9}")
+    for r in sweep_rows:
+        print(f"  {r['noise']:>13.3f}{r['no_couplings']:>14.1%}"
+              f"{r['full_lattice']:>15.1%}{r['gain']:>+9.1%}")
+    print()
+    print("  On a PERFECT input the couplings buy almost nothing, and that is")
+    print("  the honest result: a clean occupancy already contains the answer,")
+    print("  and a linear scan recovers it. The lattice earns its keep where the")
+    print("  input is unreliable -- which is the only place sampling was ever")
+    print("  going to be worth anything.")
     if failures:
         print()
         print("CONTROL FAILURES:")
