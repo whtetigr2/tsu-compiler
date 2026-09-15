@@ -14,6 +14,7 @@ out/*
 !out/dtm-preflight/
 !out/diagnostic-control/
 !out/free-energy/
+!out/z1t-preflight/
 out_check/
 worlds/
 

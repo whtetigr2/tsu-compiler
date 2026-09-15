@@ -1,0 +1,86 @@
+{
+  "rows": [
+    {
+      "shape": "tanh_linear (MLP)",
+      "note": "feedforward only -- the bipartite CONTROL, must report 1.00x",
+      "pbits": 4096,
+      "coupling_edges": 32768,
+      "max_degree": 16,
+      "bipartite": true,
+      "mediators": 0,
+      "physical_pbits": 4096,
+      "fabric_tax": 1.0,
+      "degree_within_z1": true,
+      "z1_degree": 16,
+      "within_node_budget": true,
+      "z1_node_budget": 269568
+    },
+    {
+      "shape": "GCA, additive",
+      "note": "window couples positions ON TOP of the projection",
+      "pbits": 4096,
+      "coupling_edges": 38400,
+      "max_degree": 23,
+      "bipartite": false,
+      "mediators": 2304,
+      "physical_pbits": 6400,
+      "fabric_tax": 1.562,
+      "bipartite_after_mediation": true,
+      "degree_within_z1": false,
+      "z1_degree": 16,
+      "within_node_budget": true,
+      "z1_node_budget": 269568
+    },
+    {
+      "shape": "GCA, budgeted",
+      "note": "window shares the same N-node budget -- degree stays within Z1",
+      "pbits": 4096,
+      "coupling_edges": 19712,
+      "max_degree": 12,
+      "bipartite": false,
+      "mediators": 768,
+      "physical_pbits": 4864,
+      "fabric_tax": 1.188,
+      "bipartite_after_mediation": true,
+      "degree_within_z1": true,
+      "z1_degree": 16,
+      "within_node_budget": true,
+      "z1_node_budget": 269568
+    }
+  ],
+  "control_failures": [],
+  "scaling": {
+    "pbits_per_activation_vector": 2048,
+    "pbits_per_layer_in_plus_out": 4096,
+    "pbits_per_token_across_L4": 10240,
+    "token_positions_resident_across_L4": 26,
+    "pbits_for_full_T1024_sequence": 10485760,
+    "dies_for_full_T1024_sequence": 38.9
+  },
+  "published_config": {
+    "layers": 4,
+    "d_model": 512,
+    "seq_len": 1024,
+    "dy4p_bits": 4,
+    "sparsity": 4,
+    "window": 4
+  },
+  "measured_slice": {
+    "positions": 8,
+    "d_model": 64,
+    "why": "degree and parity are local properties and do not change with width; the node-budget question is answered by the scaling block at the published D=512 instead"
+  },
+  "coupling_cap": "NOT CHECKED -- Extropic has not published Z1T's trained weights, so no |J| verdict is available and none is claimed",
+  "source": "structural parameters from extropic.ai/writing/z1t (2026-09-04); Z1 limits from target.py",
+  "not_an_error_report": "this measures what the published connectivity costs on the published fabric; nothing here says their work is wrong",
+  "published_energy_split_nj_per_token": {
+    "z1_fabric": 8.74,
+    "fpga": 285.78,
+    "total": 294.52,
+    "z1_share_pct": 2.97,
+    "source": "extropic.ai/writing/z1t",
+    "observation": "Extropic states Z1 is responsible for only sparse tanh-linear sampling. That is the shape this preflight finds BIPARTITE. The shape it finds non-bipartite under both readings -- attention -- is the part that stayed on the FPGA. The hardware/software boundary coincides with the parity boundary.",
+    "not_a_criticism": "putting the non-bipartite part on an FPGA is a reasonable engineering choice; this is their own published figure, and it does not bear on their 14x-vs-H100 comparison, which measures a different pair of things"
+  },
+  "hardware": "none -- structural analysis only"
+}
