@@ -1,0 +1,109 @@
+{
+  "rows": [
+    {
+      "offsets": [
+        1
+      ],
+      "note": "scan only -- a path in time, bipartite by construction",
+      "max_degree": 6,
+      "degree_within_z1": true,
+      "bipartite": true,
+      "mediators": 0,
+      "fabric_tax": 1.0,
+      "reach": 1,
+      "has_even_offset": false
+    },
+    {
+      "offsets": [
+        1,
+        2,
+        3
+      ],
+      "note": "the published k=4 causal stencil",
+      "max_degree": 10,
+      "degree_within_z1": true,
+      "bipartite": false,
+      "mediators": 1536,
+      "fabric_tax": 1.375,
+      "reach": 3,
+      "has_even_offset": true
+    },
+    {
+      "offsets": [
+        1,
+        3
+      ],
+      "note": "odd taps only -- the proposal",
+      "max_degree": 8,
+      "degree_within_z1": true,
+      "bipartite": true,
+      "mediators": 0,
+      "fabric_tax": 1.0,
+      "reach": 3,
+      "has_even_offset": false
+    },
+    {
+      "offsets": [
+        1,
+        3,
+        5
+      ],
+      "note": "odd taps, extended reach, still free",
+      "max_degree": 8,
+      "degree_within_z1": true,
+      "bipartite": true,
+      "mediators": 0,
+      "fabric_tax": 1.0,
+      "reach": 5,
+      "has_even_offset": false
+    },
+    {
+      "offsets": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "note": "an earlier reading of the window, for comparison",
+      "max_degree": 11,
+      "degree_within_z1": true,
+      "bipartite": false,
+      "mediators": 2304,
+      "fabric_tax": 1.562,
+      "reach": 4,
+      "has_even_offset": true
+    }
+  ],
+  "control_failures": [],
+  "decode_working_set": {
+    "pbits_per_token_across_L4": 10240,
+    "streaming_slots_needed": 5,
+    "streaming_pbits": 51200,
+    "fits_one_die": true,
+    "headroom_x": 5.3,
+    "corrects": "z1t_preflight.py's 38.9x, which is the cost of UNROLLING T=1024 onto the fabric rather than streaming decode. The arithmetic was right; the framing implied a cost nobody would actually pay."
+  },
+  "energy_claim_check": {
+    "claim": "1.5 W static x 58.8 us ~ 88 nJ, ~30% of the FPGA bill",
+    "actual_joules": 8.82e-05,
+    "actual_nj": 88200.0,
+    "claimed_nj": 88.0,
+    "off_by_factor": 1002,
+    "verdict": "WRONG by ~1000x: 1.5 W for 58.8 us is 88.2 uJ, not 88 nJ",
+    "and_it_cannot_be_a_unit_slip_alone": "at 1.5 W a 58.8 us token would cost 88,200 nJ, which is 299x Extropic's entire published per-token budget of 294.52 nJ",
+    "implied_by_published_figures": {
+      "per_token_us": 58.82,
+      "avg_system_power_mw": 5.01,
+      "avg_fpga_power_mw": 4.86,
+      "note": "so the FPGA averages about 4.9 mW on these numbers, not 1.5 W"
+    },
+    "what_survives": "the CONCLUSION -- that the FPGA cost is orchestration and round-trips rather than arithmetic -- may well be true. It is simply not supported by this calculation.",
+    "unverifiable_here": [
+      "38 us of orchestration",
+      "38 serial hops"
+    ]
+  },
+  "proposal_credit": "rewrite proposed by Grok; this file is the check",
+  "open_question": "dropping the even tap changes the function. Whether depth recovers it is an accuracy question that only training settles, and nothing here addresses it.",
+  "hardware": "none -- structural analysis only"
+}
