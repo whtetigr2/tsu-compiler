@@ -1,0 +1,143 @@
+{
+  "demo": {
+    "cells": 25000,
+    "states": 64,
+    "neighbourhood": "4-neighbour grid, checkerboard parity",
+    "energy": "sum bias(x_i) + J*sum_edges [x_i != x_j]",
+    "source": "doom.html halfSweep() and its energy comment"
+  },
+  "potts_one_hot": [
+    {
+      "encoding": "Potts one-hot, K=2",
+      "pbits_per_cell": 2,
+      "max_degree": 5,
+      "degree_ok": true,
+      "bipartite": true,
+      "mediators_on_probe": 0,
+      "fabric_tax": 1.0,
+      "pbits_at_full_size": 50000,
+      "budget_ok": true,
+      "bias_required": 0.0,
+      "bias_ok": true,
+      "fits_z1": true
+    },
+    {
+      "encoding": "Potts one-hot, K=4",
+      "pbits_per_cell": 4,
+      "max_degree": 7,
+      "degree_ok": true,
+      "bipartite": false,
+      "mediators_on_probe": 108,
+      "fabric_tax": 1.75,
+      "pbits_at_full_size": 175000,
+      "budget_ok": true,
+      "bias_required": 8.0,
+      "bias_ok": false,
+      "fits_z1": false
+    },
+    {
+      "encoding": "Potts one-hot, K=8",
+      "pbits_per_cell": 8,
+      "max_degree": 11,
+      "degree_ok": true,
+      "bipartite": false,
+      "mediators_on_probe": 468,
+      "fabric_tax": 2.62,
+      "pbits_at_full_size": 524000,
+      "budget_ok": false,
+      "bias_required": 24.0,
+      "bias_ok": false,
+      "fits_z1": false
+    },
+    {
+      "encoding": "Potts one-hot, K=16",
+      "pbits_per_cell": 16,
+      "max_degree": 19,
+      "degree_ok": false,
+      "bipartite": false,
+      "mediators_on_probe": 2052,
+      "fabric_tax": 4.56,
+      "pbits_at_full_size": 1823999,
+      "budget_ok": false,
+      "bias_required": 56.0,
+      "bias_ok": false,
+      "fits_z1": false
+    }
+  ],
+  "hamming": [
+    {
+      "encoding": "Hamming, 1 bits = 2 states",
+      "pbits_per_cell": 1,
+      "max_degree": 4,
+      "degree_ok": true,
+      "bipartite": true,
+      "mediators_on_probe": 0,
+      "fabric_tax": 1.0,
+      "pbits_at_full_size": 25000,
+      "budget_ok": true,
+      "fits_z1": true
+    },
+    {
+      "encoding": "Hamming, 2 bits = 4 states",
+      "pbits_per_cell": 2,
+      "max_degree": 4,
+      "degree_ok": true,
+      "bipartite": true,
+      "mediators_on_probe": 0,
+      "fabric_tax": 1.0,
+      "pbits_at_full_size": 50000,
+      "budget_ok": true,
+      "fits_z1": true
+    },
+    {
+      "encoding": "Hamming, 4 bits = 16 states",
+      "pbits_per_cell": 4,
+      "max_degree": 4,
+      "degree_ok": true,
+      "bipartite": true,
+      "mediators_on_probe": 0,
+      "fabric_tax": 1.0,
+      "pbits_at_full_size": 100000,
+      "budget_ok": true,
+      "fits_z1": true
+    },
+    {
+      "encoding": "Hamming, 6 bits = 64 states",
+      "pbits_per_cell": 6,
+      "max_degree": 4,
+      "degree_ok": true,
+      "bipartite": true,
+      "mediators_on_probe": 0,
+      "fabric_tax": 1.0,
+      "pbits_at_full_size": 150000,
+      "budget_ok": true,
+      "fits_z1": true
+    },
+    {
+      "encoding": "Hamming, 8 bits = 256 states",
+      "pbits_per_cell": 8,
+      "max_degree": 4,
+      "degree_ok": true,
+      "bipartite": true,
+      "mediators_on_probe": 0,
+      "fabric_tax": 1.0,
+      "pbits_at_full_size": 200000,
+      "budget_ok": true,
+      "fits_z1": true
+    }
+  ],
+  "headroom_at_64_states": {
+    "encoding": "Hamming, 6 bits = 64 states",
+    "pbits_used": 150000,
+    "pbits_spare": 119568,
+    "die_spare_pct": 44.4,
+    "ports_used_per_node": 4,
+    "ports_spare_per_node": 12,
+    "max_cells_at_this_encoding": 44928,
+    "approx_square_side": 211
+  },
+  "control_failures": [],
+  "bias_cap_provenance": "|b| <= 6.0 is ASSUMED in target.py, not an Extropic figure. It decides the Potts verdict.",
+  "scope": "topology and capacity only. Hamming is NOT Potts -- it changes the energy, and whether the result still looks like DOOM is empirical and not answered here.",
+  "hardware": "none. The demo is browser simulation and remains so."
+}

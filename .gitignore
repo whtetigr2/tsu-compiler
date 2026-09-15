@@ -16,6 +16,7 @@ out/*
 !out/free-energy/
 !out/z1t-preflight/
 !out/softmax-boltzmann/
+!out/doom-preflight/
 out_check/
 worlds/
 
