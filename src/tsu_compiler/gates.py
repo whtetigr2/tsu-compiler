@@ -110,6 +110,26 @@ def _evaluate(ising: IsingModel, report: GraphReport, target: TargetProfile,
     # overridable). Both are gated unconditionally -- NEITHER is nested
     # inside a "does this model have any edges" check, because a model with
     # zero edges still has biases that must be gated (C2).
+    # R22 -- SCOPE OF THIS GATE, and it is a real limit worth knowing about.
+    # `peak_J` below is the RAW weight. Beta is NOT folded in, so this gate is
+    # beta-independent: a model at beta=100 with |J|=2.5 passes exactly as one
+    # at beta=1, although the distribution it specifies needs a dimensionless
+    # coupling of 250.
+    #
+    # That is not obviously wrong, because our sources do not settle what
+    # Extropic's Jmax actually bounds. Thermalizers states `|J| <= Jmax`
+    # without saying whether it caps the dimensionless product beta*J or a
+    # programmable register value at a fixed hardware operating temperature.
+    # Those readings coincide exactly at beta = 1 and diverge everywhere else.
+    #
+    # EVERY model this project has compiled or published is beta = 1.0, so no
+    # shipped verdict depends on the distinction. The consequence is narrower
+    # and specific: THIS GATE CANNOT ANSWER REPRESENTABILITY FOR A BETA-SCALED
+    # MODEL, and a beta sweep's coupling verdicts say nothing about whether the
+    # hardware could host those couplings. Do not read them that way -- see
+    # audit/findings/R22.md, where doing exactly that was caught in review.
+    # Resolving it needs a source, not an inference; until then it is an
+    # assumption-level open question like max_abs_bias.
     cap_J = target.max_abs_coupling.value
     cap_J_assumed = target.is_assumed("max_abs_coupling")
     cap_J_source = target.max_abs_coupling.source
