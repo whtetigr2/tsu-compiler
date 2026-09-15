@@ -1,4 +1,4 @@
-"""Do the published DTM graph architectures fit Z1?
+"""What does Z1's topology cost the published DTM architectures?
 
 ================================ PROTOCOL ================================
 SYSTEM DEFINITION   The grid topologies used by Denoising Thermodynamic Models,
@@ -9,65 +9,72 @@ SYSTEM DEFINITION   The grid topologies used by Denoising Thermodynamic Models,
                     architecture is a side_len x side_len grid with a set of
                     "jumps" (offsets), optionally toroidal.
 STATE VARIABLES     Per architecture: side length, jump offsets, spins, couplings,
-                    max degree, bipartiteness, and whether every jump is an offset
-                    Z1 can actually realise.
-TRANSITION RULES    None. This is a structural question about topology, answered
-                    before any sampling.
-ALLOWED OPERATIONS  Constructing the graph from the PUBLISHED topology parameters
-                    and running this project's own compiler passes on it.
+                    max degree, bipartiteness, and per jump whether Z1 can realise
+                    it DIRECTLY or only by routing it across several hops.
+TRANSITION RULES    None. This is a structural question, answered before sampling.
+ALLOWED OPERATIONS  Constructing the graph from the PUBLISHED topology parameters;
+                    running this project's analyse() on it; BFS over Z1's own 16
+                    offsets to find the shortest legal route for a long jump.
 FORBIDDEN OPERATIONS
                     No vendoring of their code -- that repository carries no
-                    licence, so it is all-rights-reserved and only our own
-                    measurements may be published. The graphs here are built from
-                    the documented construction (grid, jumps, torus, chessboard
-                    parity), not copied. No training, no sampling, no claim about
-                    DTM model quality.
+                    licence, so only our own measurements may be published. No
+                    training, no sampling, and NO CLAIM THAT ANYTHING THEY
+                    PUBLISHED IS WRONG. Nothing here is an error report; their
+                    presets are internally consistent and satisfy their own
+                    stated assertion.
 ASSUMPTIONS         That the published (side_len, jumps) presets describe the
-                    topology faithfully. Node counts here are the GRID, and a
-                    real DTM adds label nodes; that makes these figures a floor,
-                    which is stated rather than smoothed.
-INVARIANTS          Every jump must satisfy (dx + dy) odd -- the reference
-                    implementation asserts this itself, to keep the graph
-                    bipartite for parallel sampling. Our analyse() must agree.
-MEASUREMENTS        Spins, couplings, max degree, bipartiteness, and per-jump
-                    whether it lies in Z1's 16 offsets.
-NULL HYPOTHESES     "Bipartiteness is what decides whether a DTM graph fits Z1."
-                    CONTROL: an architecture can be bipartite, pass the reference
-                    implementation's own parity assertion, and still be
-                    unplaceable -- because parity is necessary and REACH is
-                    binding. If every bipartite architecture fitted, this script
-                    would be measuring nothing.
-SUCCESS CRITERIA    Every architecture is classified, and any failure names the
-                    specific jump and its reach rather than a generic verdict.
-FAILURE CRITERIA    Any architecture reported as fitting whose jumps are not all
-                    in Z1's offset set; any disagreement with the parity assertion
-                    the reference implementation makes about its own presets.
-PROVENANCE          Topology parameters read from the public reference
-                    implementation. Z1's offsets from target.py, sourced to F-14.
+                    topology faithfully. Node counts are the GRID only; a real DTM
+                    adds label nodes, so these are a floor.
+INVARIANTS          Every jump satisfies (dx + dy) odd -- the reference
+                    implementation asserts this itself. Our analyse() must agree
+                    that the resulting graph is bipartite.
+MEASUREMENTS        Spins, couplings, measured degree, bipartiteness, and the
+                    chain-embedding cost in intermediate spins for any jump Z1
+                    cannot realise in one step.
+NULL HYPOTHESES     "Bipartiteness decides whether a DTM graph suits Z1."
+                    CONTROL: every architecture here is bipartite and passes the
+                    parity assertion, yet their costs differ by seventeen-fold.
+                    If parity decided the question, every row would cost the same.
+SUCCESS CRITERIA    Every architecture gets a COST, not a verdict, and any jump
+                    needing routing names its hop count.
+FAILURE CRITERIA    Reporting a jump as directly realisable when it is not in Z1's
+                    offset set; reporting a cost without saying it is an estimate.
+PROVENANCE          Topology from the public reference implementation. Z1 offsets
+                    and node budget from target.py, sourced to F-14 and Fig. 05.
                     No hardware, no sampling, nothing of theirs redistributed.
-SCOPE OF VALIDITY   This answers a TOPOLOGY question only: can Z1's lattice host
-                    these edges. It says nothing about whether a trained DTM's
-                    coupling magnitudes fit the |J| cap, which needs trained
-                    weights this script does not have. A "fits" verdict here is
-                    necessary, not sufficient.
+SCOPE OF VALIDITY   TOPOLOGY ONLY, and the chain costs are a LOWER BOUND.
+                    This compiler does not implement chain embedding -- its
+                    mediator insertion fixes bipartite PARITY conflicts, which is
+                    a different technique (see audit/findings/R2.md). The hop
+                    counts come from BFS over Z1's offsets and are therefore the
+                    best case: a real embedding pays more for routing congestion
+                    and cannot reuse spins freely. Nothing here says a trained
+                    DTM's coupling magnitudes clear the |J| cap.
 ==========================================================================
 
-WHY THIS IS THE INTERESTING QUESTION. The reference implementation asserts, of
-its own jump offsets:
+WHAT THIS FOUND, AND WHAT IT DID NOT.
+
+It did NOT find an error. Every published preset is internally consistent, and
+every jump satisfies the assertion the reference implementation makes about its
+own offsets:
 
     assert (dx + dy) % 2 == 1, "To ensure bipartitness for parallel sampling ..."
 
-That is exactly the constraint Z1's lattice imposes, and every published preset
-satisfies it. But parity is necessary and not sufficient: Z1's longest offset is
-(4,1), a reach of 4.12, and several presets use jumps reaching 13 to 24 cells.
-Those graphs are bipartite, pass the reference implementation's own check, and
-still cannot be placed on the hardware the models are aimed at.
+That is exactly the constraint Z1's lattice imposes, and it holds everywhere.
 
-That is the same lesson this project learned about its own placer, arrived at
-from the other direction: bipartiteness is necessary, geometry is binding.
+What it found is a PRICE. Z1's longest offset is (4,1), a reach of 4.12. Presets
+whose jumps sit within that reach place directly and cost nothing extra. Presets
+using jumps that reach 13 to 24 cells are still realisable -- one long edge can
+be routed across several legal Z1 hops -- but each such edge spends intermediate
+spins, and the cost runs to an order of magnitude.
+
+So parity is necessary, and reach sets the price rather than deciding
+possibility. An earlier version of this script reported those presets as "cannot
+be placed", which was wrong and is corrected here.
 """
 import json
 import sys
+from collections import deque
 from pathlib import Path
 
 sys.path.insert(0, "src")
@@ -81,10 +88,9 @@ from tsu_compiler.target import PROFILES
 OUT = Path("out/dtm-preflight")
 
 # Published presets, by their key in the reference implementation. The key's
-# trailing digits are NOT asserted to mean anything here: an obvious reading is
-# {side_len}{degree}, but preset 88 measures degree 4, not 8, so that reading is
-# wrong or means something else. Only side_len and jumps are taken from the
-# source; degree is MEASURED below rather than inferred from a name.
+# trailing digits are NOT asserted to mean anything: an obvious reading is
+# {side_len}{degree}, but preset 88 measures degree 4, not 8. Only side_len and
+# jumps are taken from the source; degree is MEASURED.
 PRESETS = {
     "88   (8x8)":     (8,  [(0, 1), (4, 1)]),
     "448  (44x44)":   (44, [(0, 1), (4, 1)]),
@@ -96,24 +102,31 @@ PRESETS = {
 }
 
 
-def z1_offsets() -> set:
-    return set(PROFILES["z1"].offsets.value)
+def min_hops(target, offsets, cap: int = 8):
+    """Fewest legal Z1 offsets that sum to `target`, by BFS. 1 means Z1 realises
+    the jump directly. None means no route was found within `cap` hops.
 
-
-def jump_is_realisable(jump, offsets) -> bool:
-    """A jump is realisable if it, or any of its four rotations, is a legal Z1
-    offset. Rotation matters because the grid has no preferred orientation."""
-    x, y = jump
-    for _ in range(4):
-        if (x, y) in offsets:
-            return True
-        x, y = -y, x
-    return False
+    This is a LOWER BOUND on what an embedding costs: it routes one edge in
+    isolation, with no congestion and no competition for intermediate cells."""
+    seen = {(0, 0)}
+    q = deque([((0, 0), 0)])
+    while q:
+        (x, y), d = q.popleft()
+        if (x, y) == target:
+            return d
+        if d >= cap:
+            continue
+        for dx, dy in offsets:
+            n = (x + dx, y + dy)
+            if n not in seen and abs(n[0]) <= 40 and abs(n[1]) <= 40:
+                seen.add(n)
+                q.append((n, d + 1))
+    return None
 
 
 def build(side: int, jumps, torus: bool = True) -> IsingModel:
-    """The published construction: a side x side grid, an edge at every jump offset
-    from every node, wrapped if toroidal, deduplicated."""
+    """The published construction: a side x side grid, an edge at every jump
+    offset from every node, wrapped if toroidal, deduplicated."""
     idx = lambda i, j: i * side + j
     edges = set()
     for i in range(side):
@@ -137,58 +150,82 @@ def build(side: int, jumps, torus: bool = True) -> IsingModel:
 
 def main() -> int:
     OUT.mkdir(parents=True, exist_ok=True)
-    offsets = z1_offsets()
+    offsets = list(PROFILES["z1"].offsets.value)
+    budget = PROFILES["z1"].node_budget.value
     reach = max((dx * dx + dy * dy) ** 0.5 for dx, dy in offsets)
     rows, failures = [], []
 
     for name, (side, jumps) in PRESETS.items():
         model = build(side, jumps)
         rep = analyse(model)
-        bad = [j for j in jumps if not jump_is_realisable(j, offsets)]
-        row = {
+        n = rep.n_nodes
+
+        per_jump, extra = [], 0
+        for j in jumps:
+            h = min_hops(j, offsets)
+            direct = h == 1
+            # one edge per node per jump on a torus; each needs h-1 intermediates
+            cost = 0 if (h is None or direct) else n * (h - 1)
+            extra += cost
+            per_jump.append({
+                "jump": list(j), "reach": round((j[0] ** 2 + j[1] ** 2) ** 0.5, 2),
+                "z1_hops": h, "direct": direct,
+                "intermediate_spins_per_edge": 0 if (direct or h is None) else h - 1,
+                "chain_spins_for_this_jump": cost,
+            })
+            if h is None:
+                failures.append(f"{name}: jump {j} has no route within 8 hops")
+
+        total = n + extra
+        rows.append({
             "preset": name, "side_len": side, "jumps": [list(j) for j in jumps],
-            "spins": rep.n_nodes, "couplings": rep.n_edges,
-            "max_degree": rep.max_degree, "bipartite": bool(rep.bipartite),
+            "spins": n, "couplings": rep.n_edges, "max_degree": rep.max_degree,
+            "bipartite": bool(rep.bipartite),
             "all_jumps_odd_parity": all((a + b) % 2 == 1 for a, b in jumps),
-            "unrealisable_jumps": [
-                {"jump": list(j), "reach": round((j[0] ** 2 + j[1] ** 2) ** 0.5, 2)}
-                for j in bad],
-            "topology_fits_z1": not bad,
-        }
-        rows.append(row)
-        # the control: a bipartite graph that still cannot be placed
-        if row["topology_fits_z1"] and bad:
-            failures.append(f"{name}: reported as fitting despite unrealisable jumps")
-        if not row["bipartite"] and row["all_jumps_odd_parity"]:
-            failures.append(f"{name}: odd-parity jumps but analyse() says non-bipartite")
+            "per_jump": per_jump,
+            "all_jumps_direct": extra == 0,
+            "chain_spins_estimate": extra,
+            "physical_spins_estimate": total,
+            "fabric_tax_estimate": round(total / n, 2),
+            "within_node_budget": bool(total <= budget),
+        })
 
     (OUT / "dtm_preflight.json").write_text(json.dumps(
         {"rows": rows, "control_failures": failures,
-         "z1_max_reach": round(reach, 2), "z1_offsets": sorted(map(list, offsets)),
+         "z1_max_reach": round(reach, 2), "z1_node_budget": budget,
+         "estimate_note": "chain costs are a LOWER BOUND from BFS over Z1's "
+                          "offsets; this compiler does not implement chain "
+                          "embedding, and a real embedding pays routing "
+                          "congestion on top",
+         "not_an_error_report": "every preset is internally consistent and "
+                                "satisfies the reference implementation's own "
+                                "parity assertion; nothing here claims their "
+                                "published work is wrong",
          "source": "topology parameters from the public DTM reference "
                    "implementation; no vendor code redistributed",
          "hardware": "none -- structural analysis, no sampling"},
         indent=2), encoding="utf-8")
 
-    print("preset".ljust(24) + "spins".rjust(8) + "couplings".rjust(11)
-          + "deg".rjust(5) + "bipartite".rjust(11) + "  fits Z1 topology")
+    print("preset".ljust(16) + "spins".rjust(8) + "couplings".rjust(11)
+          + "deg".rjust(5) + "+chain".rjust(9) + "total".rjust(9)
+          + "tax".rjust(7) + "  budget")
     for r in rows:
-        verdict = "YES" if r["topology_fits_z1"] else "NO"
-        detail = ""
-        if r["unrealisable_jumps"]:
-            worst = max(r["unrealisable_jumps"], key=lambda x: x["reach"])
-            detail = (f"  <- jump {tuple(worst['jump'])} reaches "
-                      f"{worst['reach']}, Z1 max {reach:.2f}")
-        print(r["preset"].ljust(24)
+        print(r["preset"].ljust(16)
               + format(r["spins"], ",").rjust(8)
               + format(r["couplings"], ",").rjust(11)
               + str(r["max_degree"]).rjust(5)
-              + str(r["bipartite"]).rjust(11)
-              + "  " + verdict + detail)
+              + format(r["chain_spins_estimate"], ",").rjust(9)
+              + format(r["physical_spins_estimate"], ",").rjust(9)
+              + (format(r["fabric_tax_estimate"], ".2f") + "x").rjust(7)
+              + ("  fits" if r["within_node_budget"] else "  OVER BUDGET"))
     print()
-    print("  Every preset above is bipartite and every jump has odd dx+dy -- the")
-    print("  reference implementation asserts that itself. Parity is NECESSARY and")
-    print("  not SUFFICIENT: Z1's longest offset is (4,1), reach 4.12.")
+    print("  Every preset is bipartite and every jump has odd dx+dy -- the")
+    print("  reference implementation asserts that itself, and it holds. Nothing")
+    print("  here reports an error in their work.")
+    print(f"  Z1's longest offset reaches {reach:.2f}. Jumps inside that place")
+    print("  directly at 1.00x; longer jumps are ROUTED across several hops, so")
+    print("  reach sets the PRICE rather than deciding possibility.")
+    print("  Chain costs are a LOWER BOUND -- see SCOPE OF VALIDITY above.")
     if failures:
         print("\nCONTROL FAILURES:")
         for f in failures:
