@@ -17,6 +17,7 @@ out/*
 !out/z1t-preflight/
 !out/softmax-boltzmann/
 !out/doom-preflight/
+!out/visibility/
 out_check/
 worlds/
 

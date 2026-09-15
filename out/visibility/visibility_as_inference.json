@@ -1,0 +1,73 @@
+{
+  "lattice": {
+    "pbits": 3072,
+    "edges": 6032,
+    "max_degree": 4,
+    "bipartite": true,
+    "degree_within_z1": true,
+    "fits_node_budget": true,
+    "z1_degree": 16,
+    "z1_node_budget": 269568
+  },
+  "beta_sweep": [
+    {
+      "beta": 0.05,
+      "agreement_with_raycast": 0.0,
+      "exact_columns": 0,
+      "n_columns": 64,
+      "mean_abs_depth_error": 28.016,
+      "early_stops_in_free_space": 64,
+      "dont_care_tail_cells": 580
+    },
+    {
+      "beta": 0.2,
+      "agreement_with_raycast": 0.5156,
+      "exact_columns": 33,
+      "n_columns": 64,
+      "mean_abs_depth_error": 8.594,
+      "early_stops_in_free_space": 31,
+      "dont_care_tail_cells": 102
+    },
+    {
+      "beta": 0.5,
+      "agreement_with_raycast": 0.9844,
+      "exact_columns": 63,
+      "n_columns": 64,
+      "mean_abs_depth_error": 0.016,
+      "early_stops_in_free_space": 1,
+      "dont_care_tail_cells": 38
+    },
+    {
+      "beta": 1.0,
+      "agreement_with_raycast": 1.0,
+      "exact_columns": 64,
+      "n_columns": 64,
+      "mean_abs_depth_error": 0.0,
+      "early_stops_in_free_space": 0,
+      "dont_care_tail_cells": 38
+    },
+    {
+      "beta": 2.0,
+      "agreement_with_raycast": 1.0,
+      "exact_columns": 64,
+      "n_columns": 64,
+      "mean_abs_depth_error": 0.0,
+      "early_stops_in_free_space": 0,
+      "dont_care_tail_cells": 38
+    },
+    {
+      "beta": 4.0,
+      "agreement_with_raycast": 1.0,
+      "exact_columns": 64,
+      "n_columns": 64,
+      "mean_abs_depth_error": 0.0,
+      "early_stops_in_free_space": 0,
+      "dont_care_tail_cells": 38
+    }
+  ],
+  "control_failures": [],
+  "encoding": "monotone depth chain; occlusion is a pairwise constraint, not a computation",
+  "raycaster_role": "ground truth for scoring only -- never used to build, seed or bias the model",
+  "scope": "2D first-hit depth. No texturing, no shading, no scene.",
+  "hardware": "none -- simulation"
+}
