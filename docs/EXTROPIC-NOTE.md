@@ -38,9 +38,11 @@ Receipt `out/toy-z1/`:
 - verification: `energy_tv = 0`, `codeword_violation_rate = 0`, `execution_tv = 0.010` (noise floor 0.015), task validity 0.90
 - torx cross-check: honestly **unavailable** (PISING is exact only for a single bond)
 
-## What is already proven (internal audit, 872 tests)
+## What is already proven (internal audit, 900 tests)
 
-Energy IR / oracle / THRML agree to ~1e-16. Pre-registered χ² vs the real sampler (TV 0.012, N=10k). Mediator marginals ~1e-16. Domain-wall decode exact over full bitspace k=2..6. Independent oracle vs Wolfram to 11 sig figs.
+Energy IR / oracle / THRML agree to ~1e-16. Pre-registered χ² vs the real sampler (TV 0.012, N=10k). Mediator marginals ~1e-16 **on models small enough to enumerate exactly — a 3-spin frustrated triangle and a 5-spin odd cycle, checked against a brute-force oracle that does not import the compiler.** Domain-wall decode exact over full bitspace k=2..6. Independent oracle vs Wolfram to 11 sig figs.
+
+That mediator scope is stated deliberately. The marginal-preservation argument is algebraic and should hold at any size, but the largest case it has been *measured* on is 5 spins, while the full spike model inserts 1,878 mediator gadgets. Those are different claims, and an exact result quoted without its range is how a correct measurement turns into a sentence the evidence does not support (see `audit/findings/R20.md` for the same failure caught elsewhere in this project). Verification at full-spike scale is scoped as Check 4 in `audit/GROK_VERIFICATION_DISPATCH.md` and is **not yet done**.
 
 Live ACF no longer fabricates τ on restart-flattened traces. Simulation writes do not overwrite git-tracked receipts.
 

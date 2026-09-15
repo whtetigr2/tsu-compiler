@@ -65,6 +65,14 @@ def test_verification_says_unavailable_rather_than_guessing():
         assert isinstance(d[field], str) and d[field].startswith("unavailable"), \
             f"{field} must read 'unavailable: <reason>', not a fabricated number " \
             f"or a bare 'unavailable' with no reason -- got {d[field]!r}"
+        # `startswith("unavailable")` alone is satisfied BY the bare literal
+        # the message above promises to reject, so the reason is checked
+        # explicitly: a separator, and something after it. Found by a
+        # claims-vs-evidence audit -- the assertion did not check what its
+        # own failure message said it checked (cf. audit/findings/R20.md).
+        assert d[field].startswith("unavailable:") and d[field][12:].strip(), (
+            f"{field} is a bare 'unavailable' with no reason attached -- "
+            f"saying WHY is the entire point of the field -- got {d[field]!r}")
     for field in ("task_validity", "codeword_violation_rate"):
         assert isinstance(d[field], float) and 0.0 <= d[field] <= 1.0, \
             f"{field} needs no exact reference and must be a real measured " \
