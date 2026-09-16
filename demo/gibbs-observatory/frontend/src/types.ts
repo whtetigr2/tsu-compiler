@@ -236,6 +236,25 @@ export interface ExampleShelfItem {
   status: 'ready' | 'stub' | 'missing' | string
   message: string | null
   receipt: ReceiptSummary | null
+  /** Written name. Never the directory name. */
+  plain_name: string
+  /**
+   * True only when an oracle test compiles this workload. Derived from
+   * backend/app/verified_workloads.py, never typed into a catalog, so the
+   * badge cannot claim more than the test suite enforces.
+   */
+  verified: boolean
+  /** What does the verifying, and at what placement effort. */
+  verified_by: string | null
+  published_by: string | null
+  one_line: string | null
+  /** The real-world question, before any physics. */
+  problem: string | null
+  /** How that question becomes an energy. Written out. */
+  math: string | null
+  /** What it costs on Z1. Measured, not estimated. */
+  hardware: string | null
+  citation: string | null
 }
 
 export const DEFAULT_PARAMS: SimParams = {

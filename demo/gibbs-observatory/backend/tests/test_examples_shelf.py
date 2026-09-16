@@ -111,3 +111,42 @@ def test_each_verified_workload_has_its_spec_on_disk(record):
     assert spec.is_file(), (
         f"{record.shelf_id} is advertised as a verified workload but its "
         f"program {spec} does not exist")
+
+
+def test_the_api_carries_the_material_the_detail_pane_renders():
+    """Data only the API can see is not shipped.
+
+    The shelf gained each verified workload's problem, math, measured hardware
+    cost and citation, and for a while none of it reached the screen. These
+    fields are the contract the picker's detail pane renders, so losing one
+    silently empties a section of the UI rather than failing anywhere.
+    """
+    from fastapi.testclient import TestClient
+
+    from backend.app.main import app
+
+    payload = TestClient(app).get("/api/examples").json()
+    items = {e["id"]: e for e in payload["examples"]}
+
+    for record in VERIFIED_WORKLOADS:
+        item = items[record.shelf_id]
+        for field in ("plain_name", "one_line", "problem", "math", "hardware",
+                      "citation", "verified_by", "published_by"):
+            assert item.get(field), (
+                f"{record.shelf_id} reaches the UI without {field}; the detail "
+                f"pane would render an empty section")
+        assert item["verified"] is True
+        assert item["plain_name"] != item["id"], (
+            "the picker leads with plain_name, which must not be the "
+            "directory name")
+
+
+def test_unverified_examples_still_carry_a_name_and_a_description():
+    """The detail pane falls back to these, so they cannot be empty."""
+    from fastapi.testclient import TestClient
+
+    from backend.app.main import app
+
+    for item in TestClient(app).get("/api/examples").json()["examples"]:
+        assert item.get("plain_name"), f"{item['id']} has no plain_name"
+        assert item.get("notes"), f"{item['id']} has no description"

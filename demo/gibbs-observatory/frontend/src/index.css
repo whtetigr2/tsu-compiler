@@ -1742,3 +1742,93 @@ button.btn.ghost {
 .ebm-loss-block {
   margin-top: 0.35rem;
 }
+
+/* ---- Example picker -------------------------------------------------- */
+/* Two panes: what you can open, and what the thing on the left actually is.
+   The detail pane exists because the shelf carries each verified workload's
+   problem, math, measured hardware cost and citation, and none of it used to
+   reach the screen. */
+.drawer.picker { width: min(1040px, 96vw); }
+.picker-body {
+  display: grid;
+  grid-template-columns: minmax(260px, 340px) 1fr;
+  gap: 1.25rem;
+  align-items: start;
+}
+.picker-list { min-width: 0; }
+.picker-detail {
+  min-width: 0;
+  border-left: 1px solid var(--border-subtle);
+  padding-left: 1.25rem;
+}
+.picker-detail h4 {
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+  letter-spacing: var(--tracking-tight);
+}
+.picker-detail h5 {
+  margin: 1rem 0 0.3rem;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-mute);
+}
+.picker-detail p { margin: 0; font-size: 0.86rem; line-height: 1.55; }
+.detail-lead { color: var(--text-dim); }
+.detail-citation { color: var(--text-dim); font-size: 0.8rem; }
+.detail-math {
+  margin: 0;
+  padding: 0.65rem 0.75rem;
+  background: var(--bg);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  line-height: 1.5;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+.verified-line {
+  margin: 0 0 0.5rem !important;
+  font-size: 0.78rem !important;
+  color: var(--text-dim);
+}
+.chip.verified {
+  background: var(--phosphor-soft);
+  border-color: var(--phosphor-dim);
+  color: var(--phosphor);
+  letter-spacing: 0.06em;
+}
+.example-row {
+  display: flex !important;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6rem;
+  width: 100%;
+  text-align: left;
+}
+.example-row.focused {
+  border-color: var(--phosphor-dim);
+  background: var(--phosphor-soft);
+}
+.example-name { font-size: 0.86rem; }
+.example-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+  font-size: 0.72rem;
+}
+.picker-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--border-subtle);
+}
+@media (max-width: 860px) {
+  .picker-body { grid-template-columns: 1fr; }
+  .picker-detail { border-left: 0; padding-left: 0; border-top: 1px solid var(--border-subtle); padding-top: 1rem; }
+}
