@@ -1,5 +1,5 @@
 import type { BatchPayload } from '../types'
-import { Sparkline } from './Sparkline'
+import { TracePlot } from './TracePlot'
 import { StatValue } from './StatValue'
 
 interface Props {
@@ -27,7 +27,8 @@ export function MetricsPanel({ batch }: Props) {
           <span>ρ₁ {e ? fmt(e.lag1_autocorr, 3) : 'unavailable'}</span>
           <span>ESS <StatValue value={e?.ess} reason={e?.ess_reason} digits={0} /></span>
         </div>
-        <Sparkline data={batch?.history.energy ?? []} color="#3ee0b0" />
+        <TracePlot data={batch?.history.energy ?? []} label="energy over sweeps"
+                   color="#7ec8c0" step={batch?.step} />
       </div>
 
       <div className="metric-card">
@@ -39,7 +40,9 @@ export function MetricsPanel({ batch }: Props) {
           <span>ρ₁ {m ? fmt(m.lag1_autocorr, 3) : 'unavailable'}</span>
           <span>ESS <StatValue value={m?.ess} reason={m?.ess_reason} digits={0} /></span>
         </div>
-        <Sparkline data={batch?.history.magnetization ?? []} color="#4cc9f0" />
+        <TracePlot data={batch?.history.magnetization ?? []}
+                   label="magnetization over sweeps" color="#4cc9f0"
+                   step={batch?.step} />
       </div>
 
       <div className="metric-card">

@@ -1,6 +1,6 @@
 import type { BatchPayload, LangMode, ReceiptInspect } from '../../types'
 import { label, tip } from '../../lib/glossary'
-import { Sparkline } from '../Sparkline'
+import { TracePlot } from '../TracePlot'
 
 interface Props {
   batch: BatchPayload | null
@@ -31,7 +31,8 @@ export function ScopeView({ batch, receipt, lang }: Props) {
             <span>std {fmt(e?.std, 2)}</span>
             <span>ρ₁ {fmt(e?.lag1_autocorr, 3)}</span>
           </div>
-          <Sparkline data={batch?.history.energy ?? []} color="#3ee0b0" />
+          <TracePlot data={batch?.history.energy ?? []} label="energy over sweeps"
+                     color="#7ec8c0" step={batch?.step} />
         </div>
         <div className="metric-card">
           <div className="title">{label('mag', lang)}</div>
@@ -41,7 +42,9 @@ export function ScopeView({ batch, receipt, lang }: Props) {
             <span>std {fmt(m?.std, 3)}</span>
             <span>ρ₁ {fmt(m?.lag1_autocorr, 3)}</span>
           </div>
-          <Sparkline data={batch?.history.magnetization ?? []} color="#4cc9f0" />
+          <TracePlot data={batch?.history.magnetization ?? []}
+                     label="magnetization over sweeps" color="#4cc9f0"
+                     step={batch?.step} />
         </div>
         <div className="metric-card">
           <div className="title" title={tip('ess')}>
