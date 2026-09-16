@@ -75,6 +75,40 @@ def _check_thrml() -> tuple[str, bool, str]:
             f"sampled an 8-spin bipartite model, drew {shape}")
 
 
+def _check_service() -> tuple[str, bool, str]:
+    """Compile through the SERVICE the application uses, not a direct import.
+
+    This check exists because of a real failure. `_check_compiler` imports the
+    compiler itself and passed inside a frozen bundle whose application could
+    not compile anything: the service discovers the compiler by hunting for a
+    directory on disk, and a bundle has none. The binary self-tested clean,
+    opened, served every asset, and reported the compiler unavailable.
+
+    A check that does not travel the path the product travels can pass while
+    the product is broken.
+    """
+    try:
+        from backend.app.program_service import preflight_program, tsu_status
+    except Exception as exc:  # pragma: no cover - import failure path
+        return ("service", False, f"unavailable: import failed: {exc!r}")
+
+    status = tsu_status()
+    if not status.get("importable"):
+        return ("service", False,
+                f"unavailable: the service reports the compiler as not "
+                f"importable: {status.get('error') or status}")
+
+    spec = resource_root() / "programs" / ORACLE_PROGRAM
+    try:
+        res = preflight_program(spec.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return ("service", False, f"unavailable: preflight_program raised: "
+                                  f"{exc!r}")
+    return ("service", res.get("verdict") == "ok",
+            f"compiled {ORACLE_PROGRAM} through the API service, verdict "
+            f"{res.get('verdict')}")
+
+
 def _check_frontend() -> tuple[str, bool, str]:
     try:
         dist = frontend_dist()
@@ -85,7 +119,8 @@ def _check_frontend() -> tuple[str, bool, str]:
 
 def run_selftest() -> tuple[int, list[str]]:
     """Run every check. Returns (exit_code, report_lines)."""
-    checks = (_check_compiler(), _check_thrml(), _check_frontend())
+    checks = (_check_compiler(), _check_service(), _check_thrml(),
+              _check_frontend())
     lines = ["Thermodynamic Workbench -- self-test", ""]
     failed = 0
     for name, ok, detail in checks:

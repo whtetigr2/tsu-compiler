@@ -144,8 +144,36 @@ def discover_tsu_root() -> Path | None:
     return None
 
 
+def _already_importable_root() -> Path | None:
+    """The directory holding `tsu_compiler/`, if the package already imports.
+
+    Directory discovery cannot see two perfectly good installations: a frozen
+    PyInstaller bundle, where the package lives inside the archive and no such
+    directory exists anywhere on disk, and an ordinary `pip install`, where it
+    sits in site-packages rather than beside the Observatory. In both the
+    import works and the hunt returns nothing, so the import is tried first.
+
+    Returns None rather than raising, so the caller still falls back to
+    discovery when the package genuinely is not importable.
+    """
+    try:
+        import tsu_compiler
+    except Exception:
+        return None
+    spec_file = getattr(tsu_compiler, "__file__", None)
+    if spec_file:
+        return Path(spec_file).resolve().parent.parent
+    # Namespace package or a frozen loader with no __file__: importable all
+    # the same, and the path is not needed once it imports.
+    return Path(sys.prefix)
+
+
 def ensure_tsu_importable() -> Path:
-    """Insert tsu package root on sys.path; raise if not found."""
+    """Make `tsu_compiler` importable and return the root that holds it."""
+    already = _already_importable_root()
+    if already is not None:
+        return already
+
     root = discover_tsu_root()
     if root is None:
         raise ProgramServiceError(
@@ -544,26 +572,30 @@ def read_spec_yaml(receipt_id: str, *, root: Path | str | None = None) -> dict[s
 
 
 def tsu_status() -> dict[str, Any]:
-    root = discover_tsu_root()
+    # Do not gate this on `discover_tsu_root()` finding a directory. A frozen
+    # bundle and a pip install both import cleanly with nothing to discover,
+    # and gating here reported "importable: false" on a packaged application
+    # whose compiler worked perfectly -- the UI said the product was dead
+    # while it was alive.
+    root: Path | None = None
     importable = False
     version = None
     err = None
-    if root is not None:
-        try:
-            ensure_tsu_importable()
-            import tsu_compiler
+    try:
+        root = ensure_tsu_importable()
+        import tsu_compiler
 
-            importable = True
-            version = getattr(tsu_compiler, "__version__", None)
-            if version is None:
-                try:
-                    import importlib.metadata as md
+        importable = True
+        version = getattr(tsu_compiler, "__version__", None)
+        if version is None:
+            try:
+                import importlib.metadata as md
 
-                    version = md.version(DISTRIBUTION_NAME)
-                except Exception:  # noqa: BLE001
-                    version = "0.1.0 (path)"
-        except ProgramServiceError as exc:
-            err = str(exc)
+                version = md.version(DISTRIBUTION_NAME)
+            except Exception:  # noqa: BLE001
+                version = "0.1.0 (path)"
+    except ProgramServiceError as exc:
+        err = str(exc)
     return {
         "tsu_root": str(root) if root else None,
         "importable": importable,
