@@ -22,7 +22,6 @@ import { ScopeView } from './components/views/ScopeView'
 import { SpinsView } from './components/views/SpinsView'
 import { NotepadView } from './components/views/NotepadView'
 import { StateSpaceView } from './components/views/StateSpaceView'
-import { AlloyLabView } from './components/views/AlloyLabView'
 import { EbmLabView } from './components/views/EbmLabView'
 import { useGibbsSocket } from './hooks/useGibbsSocket'
 import { exportSnapshot } from './lib/snapshot'
@@ -174,9 +173,7 @@ export default function App() {
     setParams(next)
     clearError()
     reset(next)
-    if (id === 'prog_alloy_ordering_8x8') {
-      setView('alloylab')
-    } else if (id === 'prog_ebm_bars_stripes') {
+    if (id === 'prog_ebm_bars_stripes') {
       setView('ebmlab')
     } else {
       setView('overview')
@@ -322,17 +319,6 @@ export default function App() {
         <NotepadView receipt={receipt} onApplyReceipt={selectReceipt} />
       )
       break
-    case 'alloylab':
-      stage = (
-        <AlloyLabView
-          graph={graph}
-          batch={batch}
-          receipt={receipt}
-          lang={lang}
-          onLoadAlloyReceipt={() => void selectReceipt('prog_alloy_ordering_8x8')}
-        />
-      )
-      break
     case 'ebmlab':
       stage = (
         <EbmLabView
@@ -357,7 +343,6 @@ export default function App() {
     scope: 'Scope',
     statespace: 'State space',
     notepad: 'Thermodynamic Program notepad',
-    alloylab: 'Distribution Lab · Ordering Alloy',
     ebmlab: 'EBM Lab · Bars & Stripes RBM 4×4',
   }
 
@@ -427,7 +412,7 @@ export default function App() {
           <div className="stage-header">
             <div className="hero-title-block">
               <span className="hero-eyebrow">
-                {view === 'overview' ? 'Compiled Ising program' : view === 'alloylab' ? 'Original Observatory gift' : view === 'ebmlab' ? 'First AI-shaped thermo demo' : 'Observatory view'}
+                {view === 'overview' ? 'Compiled Ising program' : view === 'ebmlab' ? 'Trained model, bars and stripes' : 'Observatory view'}
               </span>
               <h2 className="hero-title">
                 {viewTitle[view] ?? view}
@@ -476,20 +461,8 @@ export default function App() {
               ) : null}
             </div>
           </div>
-          {receipt?.id === 'prog_alloy_ordering_8x8' && view !== 'alloylab' ? (
-            <div className="alloy-open-banner" role="note">
-              <span>Alloy receipt loaded</span>
-              <button
-                type="button"
-                className="btn tiny phosphor"
-                onClick={() => setView('alloylab')}
-              >
-                Open in Alloy Lab
-              </button>
-            </div>
-          ) : null}
           {receipt?.id === 'prog_ebm_bars_stripes' && view !== 'ebmlab' ? (
-            <div className="alloy-open-banner" role="note">
+            <div className="lab-open-banner" role="note">
               <span>EBM bars-and-stripes loaded</span>
               <button
                 type="button"

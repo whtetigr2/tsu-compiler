@@ -26,12 +26,6 @@ from .snapshot import (
     build_snapshot_slice,
     claim_hygiene_payload,
 )
-from .distribution_lab import (
-    ALLOY_RECEIPT_ID,
-    batch_decode,
-    decode_sample,
-    load_alloy_weights_from_receipt,
-)
 from .ebm_bars_stripes import (
     ARTIFACT_DIR,
     CAPTION as EBM_CAPTION,
@@ -401,126 +395,16 @@ async def ws_stream(ws: WebSocket) -> None:
 
 
 
-class AlloyDecodeBody(BaseModel):
-    """Decode one occupancy / spin vector into Distribution Lab metrics."""
-
-    state: list[float | int | bool] = Field(..., min_length=1)
-    width: int = Field(8, ge=2, le=32)
-    height: int = Field(8, ge=2, le=32)
-    receipt_id: str | None = None
-    energy_ising: float | None = None
-
-
-class AlloyBatchBody(BaseModel):
-    """Sample N configs via SamplerEngine and decode/rank as alloy gallery."""
-
-    n: int = Field(16, ge=1, le=64)
-    width: int = Field(8, ge=2, le=32)
-    height: int = Field(8, ge=2, le=32)
-    receipt_id: str | None = ALLOY_RECEIPT_ID
-    rank_by: str = "abs_m_s"
-    top_k: int = Field(8, ge=1, le=64)
-    beta: float | None = Field(None, ge=0.01, le=5.0)
-    warmup: int = Field(40, ge=0, le=2000)
-    steps_per_sample: int = Field(4, ge=1, le=32)
-    seed: int | None = None
-    use_engine_state: bool = False
-    states: list[list[float | int | bool]] | None = None
-
-
-@app.post("/api/lab/alloy/decode")
-def api_alloy_decode(body: AlloyDecodeBody) -> dict[str, Any]:
-    """Decode a single state into occupancy grid + order metrics."""
-    rid = body.receipt_id or ALLOY_RECEIPT_ID
-    weights = load_alloy_weights_from_receipt(rid)
-    decoded = decode_sample(
-        body.state,
-        width=body.width,
-        height=body.height,
-        weights=weights,
-        ising_energy=body.energy_ising,
-    )
-    return {"ok": True, "decoded": decoded, "receipt_id": rid}
-
-
-@app.post("/api/lab/alloy/batch")
-def api_alloy_batch(body: AlloyBatchBody) -> dict[str, Any]:
-    """Batch-sample (or accept states) and return ranked alloy gallery + histogram."""
-    rid = body.receipt_id or ALLOY_RECEIPT_ID
-    weights = load_alloy_weights_from_receipt(rid)
-    energies: list[float] | None = None
-    states: list[list] = []
-
-    if body.states:
-        states = [list(s) for s in body.states]
-    elif body.use_engine_state and _engine.state is not None and _engine.state.last_state is not None:
-        st = _engine.state.last_state.astype(int).tolist()
-        states = [st]
-        batch = _engine.sample_batch(n_samples=body.n, warmup=0)
-        states = batch.get("states") or states
-        energies = batch.get("energies")
-    else:
-        # Reset shared engine onto the alloy receipt (or keep current if matching)
-        cfg = SamplerConfig(
-            receipt_id=rid,
-            size=max(body.width, body.height),
-            beta=float(body.beta) if body.beta is not None else 0.8,
-            warmup=body.warmup,
-            steps_per_sample=body.steps_per_sample,
-            batch_size=body.n,
-            seed=int(body.seed) if body.seed is not None else 0,
-        )
-        _engine.reset(cfg)
-        batch = _engine.sample_batch(n_samples=body.n, warmup=body.warmup)
-        states = batch.get("states") or []
-        energies = batch.get("energies")
-
-    if not states:
-        raise HTTPException(status_code=400, detail="no states to decode")
-
-    # Shape check: only world sites for WxH grid
-    n_sites = body.width * body.height
-    trimmed = []
-    for s in states:
-        flat = list(s)[:n_sites]
-        if len(flat) < n_sites:
-            flat = flat + [0] * (n_sites - len(flat))
-        trimmed.append(flat)
-
-    result = batch_decode(
-        trimmed,
-        width=body.width,
-        height=body.height,
-        weights=weights,
-        energies=energies,
-        rank_by=body.rank_by,
-        top_k=body.top_k,
-    )
-    result["ok"] = True
-    result["receipt_id"] = rid
-    result["n_sampled"] = len(trimmed)
-    return result
-
-
-@app.get("/api/lab/alloy/info")
-def api_alloy_info() -> dict[str, Any]:
-    """Static caption + default receipt for the Alloy Distribution Lab."""
-    return {
-        "ok": True,
-        "name": "Distribution Lab",
-        "program": "alloy_ordering_8x8",
-        "receipt_id": ALLOY_RECEIPT_ID,
-        "caption": "Distribution Lab · binary ordering alloy · THRML sim · not silicon",
-        "honesty": "JAX/THRML software sim, not Extropic silicon",
-        "physics": {
-            "lattice": "8x8 square",
-            "species": {"0": "A (Cu-like)", "1": "B (Zn-like)"},
-            "coupling": "antiferromagnetic NN, prefer unlike neighbours",
-            "order_parameter": "staggered m_s",
-        },
-    }
-
-
+# The Alloy Distribution Lab was removed. It was a view hardwired to one
+# 8x8 program, with three endpoints of its own, showing order parameters
+# (staggered magnetization, short-range order, configuration energy) that
+# are not alloy-specific at all: they are general readings any model can
+# have. A bespoke lab per model is the opposite of a pluggable decoder.
+#
+# The MODEL stays. programs/alloy_ordering_8x8.yaml and its receipt are a
+# known-answer test case: an antiferromagnetic checkerboard has a Bragg
+# peak at (pi, pi), which is the cleanest possible check that a structure
+# factor view works.
 
 class EbmTrainBody(BaseModel):
     """Optional short retrain (lite) or no-op load of existing checkpoint."""

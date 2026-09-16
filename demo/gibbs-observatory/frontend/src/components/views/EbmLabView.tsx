@@ -111,13 +111,13 @@ function Gauge({
   const pct = Math.max(0, Math.min(100, (Math.abs(value) / max) * 100))
   const display = format ? format(value) : value.toFixed(3)
   return (
-    <div className="alloy-gauge">
-      <div className="alloy-gauge-head">
+    <div className="lab-gauge">
+      <div className="lab-gauge-head">
         <span className="k">{label}</span>
         <span className="v mono">{display}</span>
       </div>
-      <div className="alloy-gauge-track">
-        <div className="alloy-gauge-fill" style={{ width: `${pct}%`, background: ACCENT }} />
+      <div className="lab-gauge-track">
+        <div className="lab-gauge-fill" style={{ width: `${pct}%`, background: ACCENT }} />
       </div>
     </div>
   )
@@ -252,13 +252,13 @@ export function EbmLabView({ graph, receipt, lang: _lang, onLoadEbmReceipt }: Pr
   const metrics = selected || samples[0] || null
 
   return (
-    <div className="view alloy-lab-view ebm-lab-view">
-      <div className="alloy-caption ebm-honesty">
+    <div className="view lab-lab-view ebm-lab-view">
+      <div className="lab-caption ebm-honesty">
         THRML/JAX SIM · trained RBM · not Extropic silicon · not Z1T
       </div>
 
       {!isEbm ? (
-        <div className="alloy-side" style={{ marginBottom: '0.75rem' }}>
+        <div className="lab-side" style={{ marginBottom: '0.75rem' }}>
           <p className="dim" style={{ margin: 0 }}>
             Load the bars-and-stripes RBM receipt (4×4 visibles + hiddens) to sample through SamplerEngine.
           </p>
@@ -270,10 +270,10 @@ export function EbmLabView({ graph, receipt, lang: _lang, onLoadEbmReceipt }: Pr
         </div>
       ) : null}
 
-      <div className="alloy-layout ebm-layout">
-        <div className="alloy-hero">
+      <div className="lab-layout ebm-layout">
+        <div className="lab-hero">
           <BinaryTile grid={hero} size={280} title="Selected 4×4 visibles" highlight />
-          <div className="alloy-species-legend">
+          <div className="lab-species-legend">
             <span>
               <span style={{ color: ON }}>■</span> 1 (on)
             </span>
@@ -283,8 +283,8 @@ export function EbmLabView({ graph, receipt, lang: _lang, onLoadEbmReceipt }: Pr
           </div>
         </div>
 
-        <div className="alloy-side">
-          <h3 className="alloy-side-title">Bars &amp; stripes decode (4×4 RBM)</h3>
+        <div className="lab-side">
+          <h3 className="lab-side-title">Bars &amp; stripes decode (4×4 RBM)</h3>
           <Gauge label="bar/stripe score" value={metrics?.bar_stripe_score ?? 0} />
           <Gauge label="row purity" value={metrics?.row_purity ?? 0} />
           <Gauge label="col purity" value={metrics?.col_purity ?? 0} />
@@ -318,18 +318,18 @@ export function EbmLabView({ graph, receipt, lang: _lang, onLoadEbmReceipt }: Pr
 
           {lossCurve.length > 0 ? (
             <div className="ebm-loss-block">
-              <div className="alloy-gallery-head">
+              <div className="lab-gallery-head">
                 <h3>Train loss (CD moment L1)</h3>
               </div>
               <Sparkline data={lossCurve} color={ACCENT} height={56} />
             </div>
           ) : null}
 
-          <div className="alloy-batch-controls">
+          <div className="lab-batch-controls">
             <label className="dim">
               N{' '}
               <input
-                className="alloy-n-input mono"
+                className="lab-n-input mono"
                 type="number"
                 min={4}
                 max={64}
@@ -358,17 +358,17 @@ export function EbmLabView({ graph, receipt, lang: _lang, onLoadEbmReceipt }: Pr
         </div>
       </div>
 
-      <div className="alloy-gallery-section">
-        <div className="alloy-gallery-head">
+      <div className="lab-gallery-section">
+        <div className="lab-gallery-head">
           <h3>Train examples</h3>
           <span className="dim mono">pure bars ∪ stripes</span>
         </div>
-        <div className="alloy-gallery ebm-gallery">
+        <div className="lab-gallery ebm-gallery">
           {dataTiles.slice(0, 12).map((g, i) => (
             <button
               key={`d${i}`}
               type="button"
-              className="alloy-thumb ebm-thumb"
+              className="lab-thumb ebm-thumb"
               onClick={() => {
                 const h = g.length
                 const w = g[0]?.length ?? h
@@ -391,19 +391,19 @@ export function EbmLabView({ graph, receipt, lang: _lang, onLoadEbmReceipt }: Pr
         </div>
       </div>
 
-      <div className="alloy-gallery-section">
-        <div className="alloy-gallery-head">
+      <div className="lab-gallery-section">
+        <div className="lab-gallery-head">
           <h3>Model samples</h3>
           <span className="dim mono">decode → 4×4 visibles</span>
         </div>
-        <div className="alloy-gallery ebm-gallery">
+        <div className="lab-gallery ebm-gallery">
           {samples.slice(0, 16).map((s, i) => {
             const g = s.image || s.occupancy || null
             return (
               <button
                 key={`s${i}`}
                 type="button"
-                className={`alloy-thumb ebm-thumb ${selected === s ? 'active' : ''}`}
+                className={`lab-thumb ebm-thumb ${selected === s ? 'active' : ''}`}
                 onClick={() => setSelected(s)}
                 title={s.is_pure ? 'pure bar/stripe' : `score ${s.bar_stripe_score?.toFixed(2)}`}
               >
