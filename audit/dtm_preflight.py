@@ -72,6 +72,8 @@ So parity is necessary, and reach sets the price rather than deciding
 possibility. An earlier version of this script reported those presets as "cannot
 be placed", which was wrong and is corrected here.
 """
+# NO-PREFLIGHT: checks published DTM topologies inline against target.PROFILES; its committed results predate preflight() and rewriting would invalidate them.
+
 import json
 import sys
 from collections import deque

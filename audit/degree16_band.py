@@ -41,6 +41,8 @@ adequate.
 Either outcome is reported. A confirmation means a documented conclusion of this
 project was an artifact of a default nobody chose deliberately.
 """
+# NO-PREFLIGHT: pre-registered and committed before its run; it reads target.PROFILES and analyse() directly, and rewriting it to route through preflight() would alter a protocol that was fixed in advance.
+
 import sys
 import json
 import math

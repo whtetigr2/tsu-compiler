@@ -8,7 +8,7 @@
     "thrml_vs_truth_best": 1.0,
     "thrml_vs_page_best": 1.0,
     "page_vs_truth": 1.0,
-    "seconds": 3.0
+    "seconds": 2.7
   },
   "creature_with_bilateral_coupling": {
     "bipartite": false,

@@ -70,6 +70,8 @@ periodic field, all bits coupled the same. It must come out looking like noise
 and measuring like noise. If the interesting recipes did not separate from it on
 the statistics below, this file would be showing pareidolia rather than texture.
 """
+# NO-PREFLIGHT: surface appearance only. The model is sampled for how it looks, and is never proposed for a fabric, so the gates have nothing to decide.
+
 import json
 import sys
 from pathlib import Path

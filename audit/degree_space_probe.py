@@ -32,6 +32,8 @@ Run with the project's pinned interpreter, from the repo root:
     PYTHONIOENCODING=utf-8 "C:/Users/whtet/AppData/Local/Python/pythoncore-3.14-64/python.exe" \
         audit/degree_space_probe.py
 """
+# NO-PREFLIGHT: reads target.PROFILES and analyse() directly across many candidate topologies; its recorded comparison predates the preflight front door and would change if rewritten.
+
 from __future__ import annotations
 
 import itertools

@@ -19,6 +19,8 @@ trusting the existing test"):
       signs (J<0 valley used by route.py's own docstring worked example,
       and J>0) and two beta values are tried.
 """
+# NO-PREFLIGHT: asks whether a representation is correct against the enumerating oracle. There is no hardware, precision or convergence question in it.
+
 from __future__ import annotations
 
 import itertools

@@ -75,6 +75,9 @@ the current token plus the window plus the pool -- about five token slots, or
 51,200 pbits, which fits one die with 5.3x headroom. The 38.9x is a prefill
 number wearing a decode number's clothes.
 """
+# NO-PREFLIGHT: reconstructs a Z1T-shaped layer and checks its stencil against
+#   target.PROFILES inline; the committed offset-set result predates preflight().
+
 import json
 import sys
 from pathlib import Path

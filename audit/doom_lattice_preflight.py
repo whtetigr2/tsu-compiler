@@ -83,6 +83,8 @@ textures sit at small Hamming distance and the energy starts expressing
 something Potts cannot: that some disagreements matter more than others. That is
 a design question, and it is the interesting one.
 """
+# NO-PREFLIGHT: checks degree, caps and parity inline against target.PROFILES; its committed results predate preflight() and rewriting would invalidate them.
+
 import itertools
 import json
 import sys

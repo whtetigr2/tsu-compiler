@@ -59,6 +59,26 @@ from tsu_compiler.backends.thrml_backend import sample_chains
 from tsu_compiler.passes.analyse import analyse
 from tsu_compiler.passes.lower import IsingModel
 from tsu_compiler.passes.program import build_program
+from tsu_compiler.regime import analyse_regime
+from tsu_compiler.target import Sourced, TargetProfile
+
+# The target this whole file is asking about. Every field is Sourced, and
+# "vendor" here means published vendor documentation, not a project guess.
+_S = lambda v, q="": Sourced(v, "vendor", q)
+HITACHI = TargetProfile(
+    name="hitachi-cmos-asic",
+    degree=_S(8, "King's graph: orthogonal plus diagonal neighbours"),
+    offsets=_S(tuple(), "problems are submitted as grid coords [x0,y0,x1,y1,p]"),
+    bipartite=_S(False, "King's graph closes odd cycles through its diagonals"),
+    schedule=_S("annealing", "temperature schedule is user-settable"),
+    max_abs_coupling=_S(7.0, "coefficients rescaled to [-7, +7]"),
+    max_abs_bias=_S(7.0, "same integer range applies to biases"),
+    coupling_bits=_S(4, "4-bit ASIC variant"),
+    node_budget=_S(61952, "two-chip business-card unit, February 2019"),
+    connected_fabric=_S(True, ""),
+    coupling_parameters=Sourced(float("inf"), "unmeasured", ""),
+    per_edge_independent_J=_S(True, "a per-edge coefficient p is submitted"),
+)
 
 OUT = Path("out/game")
 STATE = OUT / "gamestate.json"
@@ -167,6 +187,22 @@ def main() -> int:
     print()
     print("  The largest coefficient is the wall bias at 4.0, so the scale")
     print(f"  cannot exceed {LIMIT}/4.0 = {LIMIT / 4.0:.2f} without clipping it.")
+    print()
+
+    # The compiler already answers the precision question, and answers it
+    # better than arithmetic written here would: the risk quantisation poses is
+    # two DISTINCT couplings landing on the same level, which is exactly what
+    # analyse_regime measures as gap / step.
+    m_float, _ = visibility_model(vis)
+    rep_float = analyse(m_float)
+    rr = analyse_regime(rep_float, HITACHI, weights=m_float.weights)
+    print("  tsu_compiler.regime.analyse_regime, against the Hitachi profile:")
+    print(f"    coupling utilisation : {rr.coupling_utilisation:.3f}")
+    print(f"    precision headroom   : "
+          f"{rr.precision_headroom:.3f}" if rr.precision_headroom is not None
+          else f"    precision headroom   : {rr.precision_headroom_note}")
+    print(f"    regime               : {rr.regime}")
+    print(f"    basis                : {rr.basis}")
     print()
 
     NOISE = 0.08

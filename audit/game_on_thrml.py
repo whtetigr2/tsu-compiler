@@ -68,6 +68,8 @@ from tsu_compiler.backends.thrml_backend import sample_chains
 from tsu_compiler.passes.analyse import analyse
 from tsu_compiler.passes.lower import IsingModel
 from tsu_compiler.passes.program import build_program
+from tsu_compiler.preflight.check import preflight
+from tsu_compiler.target import PROFILES
 
 OUT = Path("out/game")
 STATE = OUT / "gamestate.json"
@@ -166,6 +168,17 @@ def main() -> int:
     print()
     model = build_visibility(vis)
     rep = analyse(model)
+    # The front door, rather than a hand-rolled degree/cap check. It carries
+    # gate provenance (max_abs_bias is ASSUMED, not a sourced Extropic fact),
+    # mediator count, placement, node budget, and the distinct-coupling count
+    # against the die's programmable-parameter budget.
+    pf = preflight(model, PROFILES["z1"])
+    print(f"  preflight vs z1: {pf.verdict}  "
+          f"(mediators {pf.mediators}, placed {pf.placed}, "
+          f"{pf.distinct_couplings} distinct |J|)")
+    for g in pf.gates:
+        if g.status != "ok":
+            print(f"    GATE {g.name}: {g.status} -- {g.note}")
     print(f"  {rep.n_nodes:,} spins, {len(model.edges):,} couplings, "
           f"degree {rep.max_degree}, bipartite {rep.bipartite}, "
           f"{rep.colour_blocks} colour blocks")

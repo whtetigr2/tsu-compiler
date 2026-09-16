@@ -94,6 +94,8 @@ from tsu_compiler.backends.thrml_backend import sample_chains
 from tsu_compiler.passes.analyse import analyse
 from tsu_compiler.passes.lower import IsingModel
 from tsu_compiler.passes.program import build_program
+from tsu_compiler.preflight.check import preflight
+from tsu_compiler.target import PROFILES
 
 # The constants are IMPORTED, not retyped. If they drift, the two files stop
 # describing the same model and the cross-check below stops meaning anything.
@@ -189,6 +191,17 @@ def main() -> int:
     truth = exact_raycast(solid)
     clean = solid
     noisy = corrupt(solid, NOISE)
+
+    # The front door for the hardware question, rather than a hand-rolled
+    # degree/cap check. Carries gate provenance, mediators, placement, node
+    # budget and the distinct-coupling count in one call.
+    pf = preflight(build(clean, BETA), PROFILES["z1"])
+    print(f"preflight vs z1: {pf.verdict} (mediators {pf.mediators}, "
+          f"placed {pf.placed}, {pf.distinct_couplings} distinct |J|)")
+    for g in pf.gates:
+        if g.status != "ok":
+            print(f"  GATE {g.name}: {g.status} -- {g.note}")
+    print()
 
     rows = []
     for label, observed in (("clean", clean), (f"{NOISE:.0%} noise", noisy)):

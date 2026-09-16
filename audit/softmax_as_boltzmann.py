@@ -102,6 +102,8 @@ fits moves with it.
 That makes h_max a specific, answerable question worth asking, and gives it a
 concrete reason: it decides whether a softmax can live on the fabric at all.
 """
+# NO-PREFLIGHT: checks the one-hot pointer against Z1's degree and cap inline from target.PROFILES; the finding is about the bias cap and predates preflight().
+
 import itertools
 import json
 import sys

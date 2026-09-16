@@ -91,6 +91,8 @@ WHAT THE RAYCASTER IS FOR HERE. Scoring, and nothing else. It never touches the
 state, the biases or the initial configuration. If it did, this file would prove
 nothing at all.
 """
+# NO-PREFLIGHT: the numpy reference implementation; it builds an IsingModel only so the preflight in visibility_on_thrml.py can weigh the same energy.
+
 import json
 import sys
 from pathlib import Path
