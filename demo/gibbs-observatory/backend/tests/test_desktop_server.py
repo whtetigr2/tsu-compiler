@@ -5,6 +5,7 @@ needs Node installed. Mounting the built output onto the same FastAPI app
 removes that requirement entirely -- and it must do so without shadowing any
 API route, which is what the ordering test below pins.
 """
+import re
 import sys
 from pathlib import Path
 
@@ -74,3 +75,36 @@ def test_build_desktop_app_keeps_the_real_health_endpoint():
     r = TestClient(app).get("/api/health")
     assert r.status_code == 200
     assert r.json()["service"] == "gibbs-observatory"
+
+
+def test_build_desktop_app_actually_serves_the_frontend_at_root():
+    """The real app, not a bare FastAPI, must serve the page at "/".
+
+    Checking only /api/health on the assembled app is not enough: a stale
+    Observatory backend answers health identically and 404s at "/", which is
+    exactly how a broken mount hides. This asserts on the thing that differs.
+    """
+    try:
+        app = build_desktop_app()
+    except FrontendMissingError:
+        pytest.skip("frontend not built in this checkout")
+    r = TestClient(app).get("/")
+    assert r.status_code == 200, (
+        "the assembled desktop app 404s at '/' -- the static mount did not "
+        "take effect on the real application object")
+    assert "<!doctype html>" in r.text.lower()
+
+
+def test_build_desktop_app_serves_hashed_assets():
+    """index.html is worthless if its script and stylesheet 404."""
+    try:
+        app = build_desktop_app()
+    except FrontendMissingError:
+        pytest.skip("frontend not built in this checkout")
+    client = TestClient(app)
+    html = client.get("/").text
+    assets = re.findall(r'(?:src|href)="(/assets/[^"]+)"', html)
+    assert assets, "index.html references no /assets/ files; build looks wrong"
+    for path in assets:
+        r = client.get(path)
+        assert r.status_code == 200, f"{path} did not load ({r.status_code})"

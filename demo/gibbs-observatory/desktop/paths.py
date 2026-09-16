@@ -27,6 +27,21 @@ def resource_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
+def ensure_compiler_importable() -> None:
+    """Put the compiler on the import path when running from source.
+
+    Frozen, `tsu_compiler` is collected into the bundle and is already
+    importable. From source it lives in the repository's `src/`, four levels
+    up, and relying on the caller to set PYTHONPATH would mean the application
+    could not simply be double-clicked.
+    """
+    if is_frozen():
+        return
+    src = resource_root().parents[1] / "src"
+    if src.is_dir() and str(src) not in sys.path:
+        sys.path.insert(0, str(src))
+
+
 def frontend_dist() -> Path:
     """The directory holding the built `index.html`.
 
