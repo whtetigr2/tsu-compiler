@@ -30,12 +30,10 @@ Compilation runs entirely on host CPU. The block-Gibbs sampling loop is executed
 [THRML](https://github.com/extropic-ai/thrml) on JAX, and `provenance.json` records
 the backend so an artifact is never mistaken for a hardware measurement.
 
-## Install
+## Requirements
 
-    pip install -e .
-
-Requires Python 3.11+, with `thrml` and `extro-torx` available. Installs as
-`tsu-compiler`, with `tsuc` as a short alias.
+Python 3.11 or newer, with `thrml` and `extro-torx` available. The package
+provides the `tsu-compiler` command and `tsuc` as a short alias.
 
 ## Quick example
 
