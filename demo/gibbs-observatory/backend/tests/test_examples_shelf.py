@@ -150,3 +150,61 @@ def test_unverified_examples_still_carry_a_name_and_a_description():
     for item in TestClient(app).get("/api/examples").json()["examples"]:
         assert item.get("plain_name"), f"{item['id']} has no plain_name"
         assert item.get("notes"), f"{item['id']} has no description"
+
+
+@pytest.mark.parametrize("record", VERIFIED_WORKLOADS,
+                         ids=[r.shelf_id for r in VERIFIED_WORKLOADS])
+def test_the_prose_matches_the_receipt_the_user_actually_opens(record):
+    """Two numbers describing the same thing must not disagree on screen.
+
+    Caught by looking at the rendered picker. Beside each name it shows the
+    receipt's spin count, and the detail pane shows a written description of the
+    hardware cost. For the eight-position codon workload those read 32 and 16.
+
+    Both were true, about different things. `preflight.model.load_model` hardcodes
+    domain-wall encoding, while `passes.search.compile_spec` searches encodings
+    and selected ONE-HOT when the shipped receipt was produced. Same spec, two
+    different models, two different spin counts.
+
+    This pins the written description to the receipt on disk, so the two numbers
+    the interface shows side by side come from the same compile.
+    """
+    import json
+
+    receipt_dir = ROOT / "receipts" / record.shelf_id
+    if not receipt_dir.is_dir():
+        pytest.skip(f"{record.shelf_id} has no packaged receipt here")
+
+    metrics = json.loads((receipt_dir / "metrics.json").read_text(encoding="utf-8"))
+    assert metrics["n_nodes"] == record.receipt_spins, (
+        f"{record.shelf_id}: the shelf says {record.receipt_spins} spins but "
+        f"the receipt has {metrics['n_nodes']}. The picker shows the receipt's "
+        f"number beside the name and the description's number underneath it.")
+
+    passes_path = receipt_dir / "passes.json"
+    if passes_path.is_file():
+        passes = json.loads(passes_path.read_text(encoding="utf-8"))
+        selected = [c for c in passes.get("candidates", [])
+                    if c.get("state") == "SELECTED"]
+        if selected:
+            assert selected[0]["encoding"] == record.receipt_encoding, (
+                f"{record.shelf_id}: shelf says {record.receipt_encoding!r}, "
+                f"receipt was compiled {selected[0]['encoding']!r}")
+        mediators = (passes.get("mediation") or {}).get("mediator_count")
+        if mediators is not None:
+            assert mediators == record.receipt_mediators, (
+                f"{record.shelf_id}: shelf says {record.receipt_mediators} "
+                f"mediators, receipt has {mediators}")
+
+
+def test_the_spin_count_beside_the_name_matches_the_written_description():
+    """The two places a spin count appears in the picker must agree."""
+    by_id = {item["id"]: item for item in examples_shelf()}
+    for record in VERIFIED_WORKLOADS:
+        item = by_id[record.shelf_id]
+        shown = (item.get("receipt") or {}).get("n_nodes")
+        if shown is None:
+            continue
+        assert shown == record.receipt_spins, (
+            f"{record.shelf_id}: picker shows {shown} spins beside the name, "
+            f"the description is written for {record.receipt_spins}")

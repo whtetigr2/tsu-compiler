@@ -1,0 +1,349 @@
+RUNNING LIST - the Workbench, the compiler, and the game
+Single source of truth. Add your own entries at the bottom.
+
+Plain language on purpose. Where a claim rests on a measurement, it says where
+the measurement lives rather than repeating the number.
+
+Last updated 2026-09-16.
+
+
+================================================================================
+THE WORKBENCH - WHAT WE DECIDED TO BUILD
+================================================================================
+
+One program. Authoring, compilation, sampling, diagnostics and rendering for
+Ising machines. Ships as a single Windows application. Runs offline. Needs no
+account, no network, no Extropic hardware.
+
+The shape is Blender: a viewport that dominates, editors instead of screens, a
+pipeline you click through stage by stage, and Python driving all of it.
+
+The design is written down in
+  docs/superpowers/specs/2026-09-16-thermodynamic-workbench-design.md
+and the first slice is planned in
+  docs/superpowers/plans/2026-09-16-workbench-slice-0-downloadable-executable.md
+
+The governing rule, which is also the acceptance test:
+  NOTHING SHIPS THAT ONLY AN AGENT CAN INVOKE. Every script in audit/ is a
+  missing button. A feature is not done when the measurement is correct. It is
+  done when somebody who has never met this repo can click something and get it.
+
+The decision that settled the chassis: LATTICE is Tkinter, which cannot reach
+the GPU at all, and most of its layout code is scar tissue from fighting that.
+The Observatory is a web stack where GPU rendering is simply available. So the
+Observatory gets re-shelled and LATTICE gets absorbed, panel by panel, rather
+than rewritten.
+
+
+================================================================================
+THE WORKBENCH - WORKING NOW
+================================================================================
+
+It is a real downloadable program
+  - A folder you can hand to somebody. No Python, no Node, no terminal, no
+    network, nothing to install. Double-click and a native window opens.
+  - Verified by copying it outside the repo, to a directory with no source and
+    no virtual environment, and running it there. It compiled one of Extropic's
+    published workloads over its own API.
+  - NOT yet verified on a machine that has never had Python or Node installed.
+    That is the strongest check and it has not been done.
+  - About 405 MB, because JAX and SciPy are heavy. That is the real price of
+    "needs nothing", and it is worth paying.
+
+It checks itself
+  - A self-test runs inside the frozen program, with no window, and exits with a
+    pass or fail code. Four checks: the compiler imports and returns a real
+    verdict, the same compile works through the API the app actually uses, THRML
+    draws real samples, and the interface files are present.
+  - The build refuses to report success unless the FROZEN program passes that
+    self-test. Not the source. The thing you would send someone.
+  - The build also refuses if the binary is older than the source, because a
+    build was caught reporting success without having run.
+
+The examples shelf is a shelf now, not a directory listing
+  - Fifteen examples with written names instead of thirty-three directory names.
+    "Cut a seven node ring in two" rather than prog_maxcut_cycle7.
+  - Three are marked VERIFIED. Those are problems Extropic published, and the
+    badge is DERIVED from a standing test that compiles each one. It cannot be
+    typed on. Add a demo without a test and it gets no badge; delete the test
+    and the badge disappears.
+  - Each verified one carries, on screen: the real problem in plain words, the
+    math written out, what it costs on the chip, and where it came from. Every
+    figure there was measured by running the compiler, not estimated.
+  - Working receipts and parameter sweeps are still reachable, behind a
+    disclosure that says what they are.
+
+Housekeeping
+  - The Alloy Lab is retired. It was a whole view plus three API endpoints wired
+    to one program, with no tests on any of them, showing readings that were not
+    alloy-specific at all. The MODEL stays as a test case.
+  - Em dashes are gone from everything you read on screen. They are correct
+    writing and they now read as machine output, which is a fair trade.
+
+
+================================================================================
+THE WORKBENCH - STILL TO DO
+================================================================================
+
+The frame
+  - Menu bar, workspace tabs, split panes, and a dropdown that turns any pane
+    into any editor. Three workspaces: Build, Observe, Render.
+  - Existing views become editor types rather than whole screens.
+
+The loop
+  - Type, paste, or point at a file, all equal. Format sniffed, never asked for.
+  - Cheap checks run live as you type. Expensive placement runs on demand. Same
+    split as a viewport preview versus a final render.
+  - THE REFUSAL SCREEN IS A DESIGNED SCREEN. Anyone can print "failed". Ours
+    says which limit, the measured value, the cap, whether that cap is
+    Extropic's published figure or our assumption, and what to change.
+
+The game inside it
+  - Program contract, decoder contract, pointer-locked viewport, input as
+    clamping. This is the slice that proves the architecture, because the game
+    exercises every layer at once.
+  - Good news found while cleaning: the decoder viewport already exists in
+    prototype. The Alloy and EBM labs shared seventeen of nineteen style rules,
+    which means they were one view with two decoders all along.
+
+The instruments
+  - Roughly two thirds of them already exist as scripts in audit/ with no
+    window. In order: structure factor, the critical point sweep, the ablation
+    runner, then the rest.
+  - Structure factor is the one that will make people stop scrolling. A live
+    Fourier transform of the lattice: static when hot, a bright ring blooming
+    near the critical point, sharp spots below it. Real measurement, looks like
+    a sensor display.
+  - The ablation runner belongs on the front page. It is a button that tries to
+    prove your own model is doing nothing.
+
+Then
+  - Absorb LATTICE, retire lattice_app.py.
+  - Decide the name. "Workbench" is a placeholder.
+  - Decide where a 405 MB download lives, and whether to pay for code signing so
+    Windows does not warn strangers about it.
+
+
+================================================================================
+THE COMPILER - WHAT IT DOES
+================================================================================
+
+You hand it a problem written as an energy model, and it tells you whether that
+problem will physically fit on a thermodynamic chip, and if not, exactly which
+limit it broke and by how much.
+
+Two ways to hand it a problem:
+  - A written program (YAML) describing a grid and some rules
+  - A raw edge list, for models whose numbers ARE data rather than rules. The
+    game needs this one, because its numbers come from the level in front of you
+    and change every frame.
+
+
+================================================================================
+COMPILER - WORKING NOW
+================================================================================
+
+Checks it runs on a model
+  - Degree: does any spin need more neighbours than the chip has
+  - Coupling and bias caps: are any numbers too strong for the hardware
+  - Colourability: can the chip update the model in alternating blocks
+  - Node budget: does it fit on the die at all
+  - Placement: can it be physically laid out on the chip's wiring
+  - Mediators: inserts helper spins where a connection cannot be made directly
+  - Precision: warns when two different couplings would round to the same value
+
+Honesty machinery, which is the part that makes it worth anything
+  - Every limit says whether it is a PUBLISHED Extropic figure or OUR assumption.
+    They are never shown the same way.
+  - A missing measurement reads "unavailable" with a reason. It never guesses.
+  - Receipts are replayable. Somebody else can re-run what we ran.
+  - Retractions are kept next to results instead of being edited out.
+
+Checked against things we did not write
+  - Extropic's own THRML library samples our models and gets the same answers.
+    Noted in audit/game_on_thrml.py
+  - Extropic's three published workloads compile through it, and that is now a
+    permanent test. If one stops compiling, we broke something.
+  - Full test suite passes. Around a thousand tests across both halves.
+
+
+================================================================================
+COMPILER - STILL TO DO
+================================================================================
+
+Packaging
+  - Write the installer. The pip instructions are already removed.
+  - Decide: publish to PyPI, or just reserve the name.
+
+Real capability gaps
+  - THE BIG ONE: it cannot place a model built on the chip's own wiring pattern.
+    The most hardware-native model it is possible to write is the one thing it
+    refuses. Not a hardware limit. The layout is provably valid, the search just
+    cannot find it, because the chip's wiring has no local structure to grow an
+    answer from. Needs a different method, not a bigger budget.
+    Written up in audit/findings/R25.md
+  - Because of that, a LEARNED creature model is blocked. Hand-designed models
+    compile; models where every connection has its own trained number do not.
+
+Open questions we cannot answer ourselves
+  - Can Z1 give every connection its own independently set strength? Roughly ten
+    connections share each programmable setting and the sharing pattern is
+    unpublished. Hand-designed models do not care. Learned ones care completely.
+  - Can Hitachi's chip hold a steady temperature, or only cool toward an answer?
+    That decides whether a port gives us real samples or only optimisation.
+
+
+================================================================================
+THE GAME - WORKING NOW
+================================================================================
+
+Your original list, kept:
+  1. Map is hand drawn
+  2. Coordinates are hand typed
+  3. (moved to the to-do list, see "creatures cannot find their way")
+  4. Mobs have bodies with anatomy
+  5. Mobs will die when shot
+  6. Shooting works
+  7. Player movement works
+  8. Player can be hurt
+  9. Flash when shooting works
+  10. Player can pick up health
+  11. Walls render as stone walls
+  12. Doors open
+  13. Doors render as wood grain doors
+  14. Doors now slide open properly
+
+What is actually being sampled, which is the part that makes it unusual
+  15. Which wall you can see is decided by a lattice settling, not by tracing a
+      ray. No raycaster anywhere in the path that produces the picture.
+  16. What a wall is made of comes from a handful of numbers per material. There
+      are no images in the entire thing. Stored pixels: zero.
+  17. Creature bodies condense out of a random start. Same species numbers plus
+      one seed per creature, so every individual is different.
+  18. A creature's build and its willingness to charge come from ONE energy.
+      Heavier ones commit sooner, and the effect vanishes when you switch that
+      coupling off.
+  19. Every term in the creature's decision to advance is load-bearing. Remove
+      distance, sight, or the pack term and they stop reaching you.
+  20. Creatures wake when they can see you, not on a timer.
+  21. Pack behaviour: creatures pull each other into a charge. A lone one is much
+      slower to commit than one with company.
+  22. A door is a wall the lattice is unsure of while it swings, so the opening
+      is rendered by the sampler rather than switched on at a threshold.
+  23. Doors retract into the jamb one cell at a time, so the gap widens from one
+      side. Real movement, not a fade.
+  24. Shots are resolved against the depth the lattice settled on, so turning up
+      the sensor noise reaches your aim.
+  25. Sensor noise slider and a couplings on/off button, so the lattice's whole
+      contribution is something you can switch off and watch disappear.
+  26. Creature spawns are checked against the level every frame. Three of them
+      were sitting inside solid walls, unable to move or see.
+  27. Runs at full speed in a browser.
+  28. Console tools to re-run every claim the page makes.
+
+
+================================================================================
+THE GAME - STILL TO DO
+================================================================================
+
+Creature behaviour
+  - CREATURES CANNOT FIND THEIR WAY. They walk straight at you and slide along
+    walls. No pathfinding and no memory: lose line of sight and they stop where
+    they are, indefinitely. Biggest gap in how they feel.
+  - Give them a last-known-position so they keep coming when you break sight.
+  - The "break sideways" term does nothing measurable. Fix it or remove it.
+
+World
+  - Map is hand drawn and coordinates hand typed. Could be generated.
+  - Doors slide sideways rather than rising, because the renderer has no sense of
+    height. A rising door needs the renderer to understand vertical space.
+  - No sound. No level progression, no exit, no objective. One creature type.
+
+Presentation
+  - Creature attacks have no visual tell, you just lose health.
+  - visibility.html still runs the old, badly tuned coherence value, so its
+    published numbers understate what the method can do.
+
+
+================================================================================
+THINGS WE GOT WRONG AND FIXED
+================================================================================
+
+This is the good part. Keep it.
+
+  - Claimed the energy enforced what you can see. It did not. The couplings were
+    doing nothing and a plain scan was producing the answer. Found by switching a
+    term off. audit/findings/R23.md
+  - A coupling strength was about half its best value. Cost nothing on a clean
+    picture, cost a lot on a noisy one, so nothing looked wrong on screen.
+    audit/findings/R24.md
+  - The creature model was using an illegal move, updating two connected spins at
+    the same time. Found by handing the model to Extropic's library.
+  - Three creatures were spawned inside walls.
+  - A published Extropic workload was reported as a failure because the layout
+    search gave up too early.
+  - The creature decision was saturated: it said yes on essentially every tick,
+    so none of its inputs mattered.
+  - The old GibbsObservatory.exe was never a program. It was a bootstrapper that
+    needed Python AND Node already installed, then spent minutes building an
+    environment. You could not have sent it to anyone.
+  - The app handed itself a port another process was already using, so the window
+    never opened and you got ninety seconds of silence. Windows lets you do that,
+    Linux does not, which is why it was invisible until it shipped.
+  - The packaged app opened, served every file perfectly, and could not compile
+    anything. It looked for the compiler as a FOLDER on disk, and a packaged
+    program has no folders. This also broke anyone who installed the compiler
+    normally.
+  - The self-test passed on that broken build, because it imported the compiler
+    directly while the app reaches it through a service. A CHECK THAT DOES NOT
+    TRAVEL THE PATH THE PRODUCT TRAVELS CAN PASS WHILE THE PRODUCT IS BROKEN.
+  - A build failed and reported success, leaving the previous program in place,
+    which then passed its own self-test because it was a working build of older
+    code. Nearly reported as green.
+  - A shelf entry claimed to be Extropic's published work while nothing proved it
+    compiled. A new test caught the contradiction.
+
+The pattern in all of these: the measurement was fine and the SENTENCE about it
+was wrong. The check that catches it is always the same. Turn a piece off and see
+whether the answer changes.
+
+
+================================================================================
+IDEAS PARKED, NOT STARTED
+================================================================================
+
+"Sign Flip" - a side paper
+  A punctuation mark changed what it signals. The em dash used to mean care and
+  now reads as machine output, which flipped a coupling from positive to negative
+  on trust. That is a sign flip in the Ising sense and in the social sense at the
+  same time.
+
+  It is only a paper if THE NUMBERS COME FROM DATA. A three-node model with
+  hand-typed couplings tells you about the numbers you typed. That is the R23
+  mistake with a new coat on.
+
+  The shape that would work:
+    1. Measure em dash rate over time in something timestamped. arXiv full text
+       and Wikipedia revision history both work and both are free. Google Books
+       Ngrams does NOT, it stops in 2019.
+    2. Fit a model with couplings estimated rather than chosen.
+    3. Test it against a null model on data it has not seen.
+    4. Ablate. Zero the coupling. If nothing degrades, the coupling was not doing
+       the work and the story about it is wrong.
+    5. Control: measure a punctuation mark with no AI association the same way.
+       If both move, it is corpus drift and there is no finding.
+
+  Where our toolkit earns its place: if the fitted model has hidden structure,
+  sampling it is the expensive part, which is what a TSU is for, and preflight
+  answers whether it would fit Z1.
+
+  One correction worth keeping: parameter uncertainty and thermal noise are
+  different things. The chip samples states at fixed couplings. It does not
+  absorb not knowing what the couplings are. Feed it a guess and it will sample
+  the wrong model very fast.
+
+
+================================================================================
+YOUR NOTES BELOW THIS LINE
+================================================================================
+

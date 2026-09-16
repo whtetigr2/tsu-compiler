@@ -53,6 +53,16 @@ class VerifiedWorkload:
     iters: int
     expect_mediators: bool
 
+    # What the SHIPPED RECEIPT contains, which is what the user opens. These
+    # are checked against the receipt on disk by a test, because the numbers in
+    # `hardware` above and the spin count the picker shows beside the name come
+    # from different places and were caught disagreeing: the receipt for the
+    # eight-position workload is one-hot encoded, while a fresh preflight is
+    # domain-wall, and the two produce different models of the same spec.
+    receipt_encoding: str
+    receipt_spins: int
+    receipt_mediators: int
+
 
 _ISING = (
     "Everything lowers to the same energy: E(s) = sum_i b_i s_i + "
@@ -93,13 +103,17 @@ VERIFIED_WORKLOADS: tuple[VerifiedWorkload, ...] = (
             "positions both take the rare synonym, which is the repeat-like "
             "case.\n" + _ISING),
         hardware=(
-            "12 spins, max degree 4, non-bipartite, so 6 mediator spins are "
-            "inserted to make the update schedule legal. Places at 6 restarts "
+            "The shipped receipt is domain-wall encoded: 12 spins for the six "
+            "positions, plus 6 mediator spins inserted to make the update "
+            "schedule legal, so 18 in total. Max degree 4. Places at 6 restarts "
             "and 40,000 iterations in well under a second. Every Z1 gate "
             "passes: degree, coupling cap, bias cap, colouring, node budget."),
         restarts=6,
         iters=40_000,
         expect_mediators=True,
+        receipt_encoding="domain_wall",
+        receipt_spins=18,
+        receipt_mediators=6,
     ),
     VerifiedWorkload(
         shelf_id="prog_ecology_lotka_lite",
@@ -137,6 +151,9 @@ VERIFIED_WORKLOADS: tuple[VerifiedWorkload, ...] = (
         restarts=6,
         iters=40_000,
         expect_mediators=False,
+        receipt_encoding="domain_wall",
+        receipt_spins=16,
+        receipt_mediators=0,
     ),
     VerifiedWorkload(
         shelf_id="prog_seq_design_longer",
@@ -155,20 +172,31 @@ VERIFIED_WORKLOADS: tuple[VerifiedWorkload, ...] = (
             "a scaling question honestly: does this still compile when the "
             "sequence grows, and what does it cost?"),
         math=(
-            "Eight positions over three synonyms, 16 spins under domain-wall "
-            "encoding. Same terms as the shorter instance, with adjacent-pair "
-            "penalties on every neighbouring pair rather than a subset, plus a "
-            "milder +0.35 penalty on a second synonym pairing.\n" + _ISING),
+            "Eight positions over three synonyms. Same terms as the shorter "
+            "instance, with adjacent-pair penalties on every neighbouring pair "
+            "rather than a subset, plus a milder +0.35 penalty on a second "
+            "synonym pairing.\n"
+            "  ENCODING MATTERS HERE, and this is the one place two numbers on "
+            "screen were caught disagreeing. The compiler searches encodings "
+            "and chose ONE-HOT for the shipped receipt: three spins per "
+            "position, 24 in total. Domain-wall would use two per position, "
+            "16, and also compiles. They are different models of the same "
+            "problem, so the count depends on which one you are looking at.\n"
+            + _ISING),
         hardware=(
-            "16 spins, max degree 4, non-bipartite, 8 mediators. This one does "
-            "NOT place at the cheapest budget. It needs 24 restarts and "
+            "The shipped receipt is one-hot encoded: 24 spins for the eight "
+            "positions plus 8 mediators, so 32 in total. Max degree 4. This one "
+            "does NOT place at the cheapest budget. It needs 24 restarts and "
             "250,000 iterations, roughly 25 seconds. That refusal at low effort "
-            "is honest and the application escalates automatically rather than "
+            "is honest, and the application escalates automatically rather than "
             "reporting a failure. Every Z1 gate passes at both budgets: the "
             "constraint is search effort, not hardware."),
         restarts=24,
         iters=250_000,
         expect_mediators=True,
+        receipt_encoding="one_hot",
+        receipt_spins=32,
+        receipt_mediators=8,
     ),
 )
 
