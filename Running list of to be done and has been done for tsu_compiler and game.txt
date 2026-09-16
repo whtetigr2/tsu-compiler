@@ -73,6 +73,37 @@ The examples shelf is a shelf now, not a directory listing
   - Working receipts and parameter sweeps are still reachable, behind a
     disclosure that says what they are.
 
+Statistics you can trust
+  - The effective sample size shown live is now the compiler's own reviewed
+    estimator, and when a chain is too short to support one it says so instead
+    of printing a number. Every ESS this program used to show was one the
+    project would have refused to publish.
+  - A missing value says "unavailable" and hovering says why, rather than
+    rendering nothing.
+
+The ablation runner, on screen
+  - Three buttons: zero the couplings, zero the biases, or change nothing.
+    The last is the control and it is visible on purpose, so you can see that
+    ablating nothing lands below the threshold. If it did not, the noise floor
+    would be wrong and no other result there would mean anything.
+  - Compares against the noise floor, the difference between two runs of the
+    same model under different seeds, never against zero.
+  - Measured on the tesseract: couplings 3.4x the floor, biases 14.3x, nothing
+    0.0x.
+
+The lattice in three dimensions
+  - Spins as spheres, edges drawn, drag to orbit and scroll to zoom, colour
+    tracking state while THRML samples.
+  - Says whether you are looking at ONE DRAW or a MEAN over the batch, because
+    those look alike and mean different things.
+  - Says whether the positions come from the compiler's placement or from a
+    layout computed for drawing. Neither is where anything sits on silicon.
+
+A tesseract
+  - Sixteen spins wired as a four-dimensional cube. Compiles with no helper
+    spins in a fiftieth of a second. Nothing in the viewer knows this shape, so
+    it is a real test that an arbitrary topology can be loaded and drawn.
+
 Housekeeping
   - The Alloy Lab is retired. It was a whole view plus three API endpoints wired
     to one program, with no tests on any of them, showing readings that were not
@@ -302,6 +333,21 @@ This is the good part. Keep it.
     code. Nearly reported as green.
   - A shelf entry claimed to be Extropic's published work while nothing proved it
     compiled. A new test caught the contradiction.
+  - The live effective sample size was computed from a lag-1 approximation and
+    printed confidently for chains far too short to support it. The compiler's
+    own estimator refuses below a threshold this interface can never reach, so
+    every ESS ever displayed was one we would not publish.
+  - The compiler called a model HARDWARE INFEASIBLE when its own failure record
+    said the placement SEARCH had run out of time. Given more search it places,
+    and it is 25% smaller on the chip than the one that shipped instead. A
+    timer was being reported as a fact about Extropic's silicon.
+  - The strongest regression test in the project was compiling the workloads
+    under one fixed representation, so it never checked the representation
+    search at all, and never compiled the model the shelf actually ships.
+  - Removing em dashes turned 49 no-value placeholders into stray commas.
+    Found by reading the rendered screen, not the diff.
+  - "unavailable" is eleven characters and the metric slots were sized for
+    short numbers, so it overlapped the next column.
 
 The pattern in all of these: the measurement was fine and the SENTENCE about it
 was wrong. The check that catches it is always the same. Turn a piece off and see
