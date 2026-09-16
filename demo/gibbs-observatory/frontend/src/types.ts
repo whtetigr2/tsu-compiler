@@ -12,8 +12,8 @@ export type NavView =
   | 'residuals'
   | 'scope'
   | 'notepad'
-  | 'alloylab'
   | 'ebmlab'
+  | 'ablation'
   | 'worlds'
 
 export interface SimParams {

@@ -3,6 +3,7 @@ import type { NavView, ReceiptInspect, SimParams } from '../types'
 const ITEMS: { id: NavView; label: string; phase?: string }[] = [
   { id: 'overview', label: 'Overview' },
   { id: 'ebmlab', label: 'EBM Lab' },
+  { id: 'ablation', label: 'Ablation' },
   { id: 'spins', label: 'Spins' },
   { id: 'couplings', label: 'Couplings' },
   { id: 'connectivity', label: 'Connectivity' },

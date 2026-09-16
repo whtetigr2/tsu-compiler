@@ -22,6 +22,7 @@ import { ScopeView } from './components/views/ScopeView'
 import { SpinsView } from './components/views/SpinsView'
 import { NotepadView } from './components/views/NotepadView'
 import { StateSpaceView } from './components/views/StateSpaceView'
+import { AblationView } from './components/views/AblationView'
 import { EbmLabView } from './components/views/EbmLabView'
 import { useGibbsSocket } from './hooks/useGibbsSocket'
 import { exportSnapshot } from './lib/snapshot'
@@ -319,6 +320,9 @@ export default function App() {
         <NotepadView receipt={receipt} onApplyReceipt={selectReceipt} />
       )
       break
+    case 'ablation':
+      stage = <AblationView receipt={receipt} />
+      break
     case 'ebmlab':
       stage = (
         <EbmLabView
@@ -343,6 +347,7 @@ export default function App() {
     scope: 'Scope',
     statespace: 'State space',
     notepad: 'Thermodynamic Program notepad',
+    ablation: 'Ablation runner',
     ebmlab: 'EBM Lab · Bars & Stripes RBM 4×4',
   }
 
