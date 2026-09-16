@@ -144,3 +144,53 @@ def test_cheap_programs_are_not_made_slow_by_the_ceiling():
     assert res["placement_escalated"] is False, (
         "a program that places on the first tier must not climb the ladder")
     assert len(res["placement_attempts"]) == 1
+
+
+@pytest.mark.parametrize("record", VERIFIED_WORKLOADS,
+                         ids=[w.shelf_id for w in VERIFIED_WORKLOADS])
+def test_the_real_compile_path_selects_the_encoding_the_receipt_shipped(record):
+    """Compile the way the product compiles, not through a fixed encoding.
+
+    audit/findings/R26.md. Every other test in this file calls
+    `preflight(load_model(spec=...))`, and `load_model` hardcodes "domain_wall".
+    So the project's strongest regression signal proved these specs compile
+    under ONE encoding, never exercised the encoding search, and did not compile
+    the model the shelf actually ships. A change that broke one-hot selection
+    would have left it green.
+
+    `compile_spec` searches SLICE_ENCODINGS and selects among the feasible
+    candidates by physical p-bit count. It is what produced the receipts, so
+    this is the only test that puts encoding selection under test at all.
+    """
+    from tsu_compiler.passes.search import compile_spec
+    from tsu_compiler.spec import load_spec
+    from tsu_compiler.target import PROFILES
+
+    spec = PROGRAMS / f"{record.spec_stem}.yaml"
+    comp = compile_spec(load_spec(str(spec)), PROFILES["z1"], allow_assumed=True)
+
+    assert comp.verdict == "COMPILED", (
+        f"{record.shelf_id} does not compile through the real path: "
+        f"{comp.verdict}. Note that EFFORT means the placement search ran out "
+        f"of budget, which is not a hardware refusal.")
+
+    selected = [c for c in comp.repset.candidates if c.state.name == "SELECTED"]
+    assert len(selected) == 1, f"expected one selected candidate, got {selected}"
+    assert selected[0].encoding == record.receipt_encoding, (
+        f"{record.shelf_id}: the shipped receipt is "
+        f"{record.receipt_encoding!r} but the compiler now selects "
+        f"{selected[0].encoding!r}. Either the receipt is stale or selection "
+        f"changed. Both need a person to look, not a test to be adjusted.")
+
+
+def test_encoding_selection_is_exercised_at_all():
+    """At least one workload must select something other than the default.
+
+    Without this, every assertion above could pass against a compiler that had
+    quietly stopped searching and always returned domain_wall.
+    """
+    encodings = {w.receipt_encoding for w in VERIFIED_WORKLOADS}
+    assert len(encodings) > 1, (
+        f"every verified workload ships the same encoding ({encodings}), so "
+        f"the tests above cannot tell a working encoding search from one that "
+        f"returns a constant")
