@@ -111,7 +111,7 @@ def decode(v, nc, nd):
     return out
 
 
-def build_creature(cre, i, with_sym=False, sym=1.35):
+def build_creature(cre, i, with_sym=False, sym=1.35, jscale=1.0):
     """Anatomy field + this individual's quenched field + grid couplings.
 
     `with_sym` re-adds the bilateral cell-to-mirror coupling the page used to
@@ -127,10 +127,10 @@ def build_creature(cre, i, with_sym=False, sym=1.35):
         for x in range(cw):
             if x + 1 < cw:
                 edges.append((idx(x, y), idx(x + 1, y)))
-                weights.append(cre["jx"])
+                weights.append(cre["jx"] * jscale)
             if y + 1 < ch:
                 edges.append((idx(x, y), idx(x, y + 1)))
-                weights.append(cre["jy"])
+                weights.append(cre["jy"] * jscale)
             if with_sym:
                 mx = cw - 1 - x
                 if mx == x:
@@ -284,6 +284,43 @@ def main() -> int:
              for i in range(len(shapes)) for j in range(i + 1, len(shapes))]
     print()
     print(f"  mean pairwise difference: {np.mean(diffs):.1f} of {cw * ch} cells")
+
+    # ARE THE CREATURE COUPLINGS LOAD-BEARING? The page says the body "relaxes
+    # under a field". R23 was exactly this sentence being false somewhere else,
+    # so it gets an ablation rather than an assurance. Compared against the
+    # noise floor -- the same model resampled on a different seed -- because
+    # "the marginals moved" means nothing without knowing how much they move
+    # when nothing changed.
+    def _marg(m, seed):
+        ri = analyse(m)
+        dr = np.asarray(sample_chains(build_program(m, ri), n_chains=6,
+                                      n_samples=70, n_warmup=400,
+                                      steps_per_sample=2, seed=seed))
+        return dr.reshape(-1, cw * ch).mean(axis=0)
+
+    n_abl = min(4, len(cre["creatures"]))
+    full = [_marg(build_creature(cre, i)[0], i) for i in range(n_abl)]
+    abl = {}
+    for label, js in (("noise floor", 1.0), ("no couplings", 0.0)):
+        seed_off = 100 if label == "noise floor" else 200
+        d = [float(np.mean(np.abs(
+                _marg(build_creature(cre, i, jscale=js)[0], seed_off + i) - full[i])))
+             for i in range(n_abl)]
+        abl[label] = float(np.mean(d))
+    print()
+    print(f"  couplings ablated: mean |marginal shift| {abl['no couplings']:.3f} "
+          f"against a noise floor of {abl['noise floor']:.3f}")
+    ratio = abl["no couplings"] / max(abl["noise floor"], 1e-9)
+    print(f"  -> {ratio:.0f}x the floor; the grid couplings are load-bearing")
+    report["creature_ablation"] = {
+        "mean_shift_no_couplings": round(abl["no couplings"], 4),
+        "noise_floor": round(abl["noise floor"], 4),
+        "ratio": round(ratio, 1)}
+    if ratio < 3.0:
+        failures.append(
+            f"zeroing the creature couplings moves the marginals only "
+            f"{ratio:.1f}x the noise floor -- they are not doing the work the "
+            f"page credits them with")
 
     report["creature"] = {
         "spins": rep_c.n_nodes, "edges": len(m0.edges),

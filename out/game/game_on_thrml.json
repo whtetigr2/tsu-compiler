@@ -8,13 +8,18 @@
     "thrml_vs_truth_best": 1.0,
     "thrml_vs_page_best": 1.0,
     "page_vs_truth": 1.0,
-    "seconds": 2.7
+    "seconds": 2.2
   },
   "creature_with_bilateral_coupling": {
     "bipartite": false,
     "degree": 5,
     "mirror_pairs_in_same_block": 294,
     "self_loops": 21
+  },
+  "creature_ablation": {
+    "mean_shift_no_couplings": 0.1198,
+    "noise_floor": 0.0072,
+    "ratio": 16.6
   },
   "creature": {
     "spins": 315,
