@@ -11,16 +11,28 @@ from backend.app.receipt_loader import (
 from backend.app.sampler_engine import SamplerConfig, SamplerEngine
 
 
-def test_examples_shelf_has_small_elev_and_codon_stub():
+def test_examples_shelf_reports_packaged_examples_as_ready():
     shelf = examples_shelf()
     by_id = {e["id"]: e for e in shelf}
     assert by_id["small"]["status"] == "ready"
     assert by_id["small"]["packaged"] is True
     assert by_id["elev_band"]["status"] == "ready"
     assert by_id["elev_band"]["packaged"] is True
-    assert by_id["codon_opt"]["status"] == "stub"
-    assert by_id["codon_opt"]["packaged"] is False
-    assert "not packaged" in (by_id["codon_opt"]["message"] or "")
+
+
+def test_the_codon_opt_stub_is_gone_from_the_shelf():
+    """It was an entry whose only behaviour was to refuse.
+
+    `codon_opt` was a legacy shelf id flagged as Extropic's published work while
+    nothing proved it compiled, sitting beside `prog_codon_opt_tiny`, which is
+    the same problem actually packaged and actually verified. Two near-identical
+    ids where only one is real was the most confusing thing on the shelf, and
+    the walkthrough spent a step explaining it.
+    """
+    ids = {e["id"] for e in examples_shelf()}
+    assert "codon_opt" not in ids
+    assert "prog_codon_opt_tiny" in ids, (
+        "the real codon workload must still be on the shelf")
 
 
 def test_list_receipts_excludes_codon_stub_dir():

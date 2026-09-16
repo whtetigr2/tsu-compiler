@@ -41,13 +41,18 @@ pytest.importorskip("tsu_compiler", reason="compiler not importable")
 from tsu_compiler.preflight.check import preflight  # noqa: E402
 from tsu_compiler.preflight.model import load_model  # noqa: E402
 
-# (shelf id, yaml stem, restarts, iters, expect_mediators)
-# The effort figures are measured, not guessed: the first two place inside the
-# Observatory's own default, the third does not and its real budget is recorded.
+# The workloads and their measured placement budgets come from
+# backend/app/verified_workloads.py, which is ALSO what the examples shelf reads
+# to decide which entries carry the "verified" badge. One list, so the claim the
+# application makes on screen and the claim this suite enforces cannot drift
+# apart. Add a workload there and it is tested here automatically; it cannot be
+# advertised as verified without being tested.
+sys.path.insert(0, str(ROOT))
+from backend.app.verified_workloads import VERIFIED_WORKLOADS  # noqa: E402
+
 EXTROPIC = [
-    ("prog_codon_opt_tiny", "codon_opt_tiny", 6, 40_000, True),
-    ("prog_ecology_lotka_lite", "ecology_lotka_lite", 6, 40_000, False),
-    ("prog_seq_design_longer", "seq_design_longer", 24, 250_000, True),
+    (w.shelf_id, w.spec_stem, w.restarts, w.iters, w.expect_mediators)
+    for w in VERIFIED_WORKLOADS
 ]
 
 

@@ -9,7 +9,7 @@ interface Props {
 }
 
 function fmt(x: number | null | undefined, d = 3) {
-  if (x == null || !Number.isFinite(x)) return '—'
+  if (x == null || !Number.isFinite(x)) return ', '
   return x.toFixed(d)
 }
 
@@ -20,7 +20,7 @@ export function ScopeView({ batch, receipt, lang }: Props) {
   return (
     <div className="view scope-view">
       <div className="view-caption">
-        Scope rack — live series. ESS only when honest (receipt contract).
+        Scope rack, live series. ESS only when honest (receipt contract).
       </div>
       <div className="scope-grid">
         <div className="metric-card">

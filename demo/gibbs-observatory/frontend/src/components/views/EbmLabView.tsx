@@ -62,7 +62,7 @@ function BinaryTile({
   if (!grid || !grid.length) {
     return (
       <div className="ebm-tile empty" style={{ width: size, height: size, background: BG }}>
-        <span className="dim">—</span>
+        <span className="dim">, </span>
       </div>
     )
   }
@@ -345,7 +345,7 @@ export function EbmLabView({ graph, receipt, lang: _lang, onLoadEbmReceipt }: Pr
               className="btn tiny"
               disabled={trainBusy}
               onClick={() => void onRetrainLite()}
-              title="Short PCD retrain — does not recompile receipt"
+              title="Short PCD retrain, does not recompile receipt"
             >
               {trainBusy ? 'Training…' : 'Retrain lite'}
             </button>
@@ -387,7 +387,7 @@ export function EbmLabView({ graph, receipt, lang: _lang, onLoadEbmReceipt }: Pr
               <BinaryTile grid={g} size={72} />
             </button>
           ))}
-          {!dataTiles.length ? <span className="dim">No cached data tiles — run train script.</span> : null}
+          {!dataTiles.length ? <span className="dim">No cached data tiles, run train script.</span> : null}
         </div>
       </div>
 
@@ -417,7 +417,7 @@ export function EbmLabView({ graph, receipt, lang: _lang, onLoadEbmReceipt }: Pr
 
       <p className="dim" style={{ fontSize: '0.78rem', marginTop: '0.5rem' }}>
         RBM (not pairwise): train → export V↔H Ising → compile/receipt → inspect/sample/decode visibles.
-        Won&apos;t beat ImageNet — proves the loop. {info?.dataset?.positive ?? ''}
+        Won&apos;t beat ImageNet, proves the loop. {info?.dataset?.positive ?? ''}
       </p>
     </div>
   )

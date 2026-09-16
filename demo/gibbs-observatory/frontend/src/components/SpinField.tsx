@@ -232,7 +232,7 @@ export function SpinField({
         }
       }
     } else if (graph.layout === 'receipt' || (graph.mediator_idx?.length ?? 0) > 0) {
-      // Dual-panel: World (left) · Fabric Tax / mediators (right) — equal dignity
+      // Dual-panel: World (left) · Fabric Tax / mediators (right), equal dignity
       const pad = 14
       const gap = 10
       const hasMeds = medSet.size > 0
@@ -414,7 +414,7 @@ export function SpinField({
           const up = spins[i] === 1
           ctx.beginPath()
           ctx.arc(x, y, rMed, 0, Math.PI * 2)
-          // Phosphor family fill — mediators are first-class fabric tax nodes
+          // Phosphor family fill, mediators are first-class fabric tax nodes
           ctx.fillStyle = up ? MED_UP : MED_DOWN
           ctx.fill()
           const inActive =

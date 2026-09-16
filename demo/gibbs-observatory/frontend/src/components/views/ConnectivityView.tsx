@@ -71,7 +71,7 @@ export function ConnectivityView({ receipt, lang }: Props) {
   return (
     <div className="view connectivity-view">
       <div className="view-caption">
-        Fabric Tax — logical vs physical · click a mediated pair or physical edge
+        Fabric Tax, logical vs physical · click a mediated pair or physical edge
         for {label('mediators', lang)} callout
       </div>
       <div className="fabric-grid">

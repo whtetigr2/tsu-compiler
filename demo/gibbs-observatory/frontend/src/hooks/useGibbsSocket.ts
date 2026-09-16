@@ -72,11 +72,11 @@ export function useGibbsSocket() {
         return
       }
       // Browsers often fire a generic error event right before close during
-      // proxy/HMR blips — don't leave a sticky "WebSocket error".
+      // proxy/HMR blips, don't leave a sticky "WebSocket error".
       const reason =
         ev.code === 1000
           ? null
-          : `Disconnected (code ${ev.code}${ev.reason ? `: ${ev.reason}` : ''}) — reconnecting…`
+          : `Disconnected (code ${ev.code}${ev.reason ? `: ${ev.reason}` : ''}), reconnecting…`
       if (reason) setError(reason)
       else setError(null)
       setStatus('reconnecting')
@@ -87,7 +87,7 @@ export function useGibbsSocket() {
 
     ws.onerror = () => {
       // onclose always follows; avoid sticky vague "WebSocket error"
-      setError((prev) => prev ?? 'WebSocket transport issue — waiting for reconnect…')
+      setError((prev) => prev ?? 'WebSocket transport issue, waiting for reconnect…')
     }
 
     ws.onmessage = (ev) => {
@@ -142,7 +142,7 @@ export function useGibbsSocket() {
       ws.send(JSON.stringify(payload))
       return true
     }
-    setError('Not connected — message queued only after reconnect + reset')
+    setError('Not connected, message queued only after reconnect + reset')
     return false
   }, [])
 

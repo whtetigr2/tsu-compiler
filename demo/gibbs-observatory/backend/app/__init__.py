@@ -1,1 +1,1 @@
-"""Gibbs Observatory backend — THRML/JAX Ising sampler API."""
+"""Gibbs Observatory backend, THRML/JAX Ising sampler API."""

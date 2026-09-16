@@ -40,7 +40,7 @@ export function OverviewView({
               : 'logical vs physical connectivity available'}
           </span>
           <span className="dim">
-            — open Connectivity for {label('mediators', lang)} callouts
+          , open Connectivity for {label('mediators', lang)} callouts
           </span>
         </div>
       ) : null}
@@ -64,7 +64,7 @@ export function OverviewView({
             <div>
               <span className="k">spins</span>
               <span className="v mono">
-                {receipt?.spins.n_nodes ?? graph?.n_nodes ?? '—'}
+                {receipt?.spins.n_nodes ?? graph?.n_nodes ?? ', '}
                 {receipt?.spins.mediators != null
                   ? ` (${receipt.spins.world} world + ${receipt.spins.mediators} ${label('mediators', lang)})`
                   : ''}
@@ -73,13 +73,13 @@ export function OverviewView({
             <div>
               <span className="k">edges</span>
               <span className="v mono">
-                {receipt?.edges.count ?? graph?.edges.length ?? '—'}
+                {receipt?.edges.count ?? graph?.edges.length ?? ', '}
               </span>
             </div>
             <div>
               <span className="k">{label('beta', lang)}</span>
               <span className="v mono">
-                {receipt?.beta ?? graph?.params.beta ?? '—'}
+                {receipt?.beta ?? graph?.params.beta ?? ', '}
                 {receipt?.beta_fixed ? ' FIXED' : ''}
               </span>
             </div>

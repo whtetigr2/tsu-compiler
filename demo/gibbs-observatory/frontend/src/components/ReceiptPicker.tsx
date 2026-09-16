@@ -58,7 +58,7 @@ export function ReceiptPicker({
                   <span className="dim">
                     {ex.title}
                     {ex.receipt?.n_nodes != null ? ` · ${ex.receipt.n_nodes} spins` : ''}
-                    {disabled && ex.message ? ` — ${ex.message}` : ''}
+                    {disabled && ex.message ? `, ${ex.message}` : ''}
                   </span>
                 </button>
               </li>
@@ -84,7 +84,7 @@ export function ReceiptPicker({
                 <span className="mono">{r.id}</span>
                 <span className="chip">{r.verdict ?? '?'}</span>
                 <span className="dim">
-                  {r.encoding ?? '—'} · {r.n_nodes ?? '?'} spins
+                  {r.encoding ?? ', '} · {r.n_nodes ?? '?'} spins
                 </span>
               </button>
             </li>

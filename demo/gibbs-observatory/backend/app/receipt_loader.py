@@ -9,6 +9,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .verified_workloads import by_shelf_id
+
 # Default curated shelf (relative to repo root when running from box)
 DEFAULT_RECEIPTS_ROOT = Path(__file__).resolve().parents[2] / "receipts"
 
@@ -262,7 +264,7 @@ def load_receipt(receipt_id: str, root: Path | str | None = None) -> dict[str, A
         color0 = [int(i) for i in blocks[0]]
         color1 = [int(i) for i in blocks[1]]
     elif n_spins:
-        # fallback bipartite guess unavailable — leave empty rather than invent
+        # fallback bipartite guess unavailable, leave empty rather than invent
         color0, color1 = [], []
 
     thrml_ok = program_drives_thrml(program)
@@ -284,7 +286,7 @@ def load_receipt(receipt_id: str, root: Path | str | None = None) -> dict[str, A
             if isinstance(t, dict) and "value" in t:
                 frontier[out_key] = t["value"]
 
-    # Logical vs physical (Fabric Tax) — only from real fields
+    # Logical vs physical (Fabric Tax), only from real fields
     connectivity: dict[str, Any] = {
         "logical": {},
         "physical": {},
@@ -376,7 +378,7 @@ def load_receipt(receipt_id: str, root: Path | str | None = None) -> dict[str, A
             "active_block from the live WS stream highlights which colour updates.",
         ]
         if color0 or color1
-        else ["No chromatic blocks in program.json — schedule timeline unavailable."],
+        else ["No chromatic blocks in program.json, schedule timeline unavailable."],
     }
 
     payload: dict[str, Any] = {
@@ -439,7 +441,7 @@ def load_receipt(receipt_id: str, root: Path | str | None = None) -> dict[str, A
         "sampling": sampling,
         "files_available": available,
         "files_unavailable": unavailable,
-        "label": "JAX/THRML simulation — not Extropic silicon",
+        "label": "JAX/THRML simulation, not Extropic silicon",
         "claim_badges": [
             "software / THRML+JAX",
             "documented Z1 caps (assumed fields marked)",
@@ -514,39 +516,39 @@ def receipt_to_graph_arrays(receipt_id: str, root: Path | str | None = None) -> 
 _SHELF_CATALOG: list[dict[str, Any]] = [
     {
         "id": "small",
-        "title": "Toy grid (small)",
+        "title": "Starter grid",
         "source": "local compile / Lattice receipts/small",
         "kind": "curated",
         "extropic": False,
-        "notes": "Default fast receipt; mediated domain-wall toy.",
+        "notes": "The quickest thing to open. A small grid that needs helper spins, so you can see mediators without waiting.",
     },
     {
         "id": "elev_band",
-        "title": "Elevation band",
+        "title": "Terrain height bands",
         "source": "Lattice demo receipts/elev_band",
         "kind": "curated",
         "extropic": False,
-        "notes": "COMPILED bipartite band; no mediators; THRML-ready.",
+        "notes": "Land elevation sorted into bands. Bipartite, so it needs no helper spins and the update schedule is exact.",
     },
     {
         "id": "prog_alloy_ordering_8x8",
-        "title": "Ordering alloy 8×8 (Distribution Lab)",
+        "title": "Two metals settling into a pattern",
         "source": "programs/alloy_ordering_8x8.yaml → receipts/prog_alloy_ordering_8x8",
         "kind": "curated",
         "extropic": False,
         "status": "ready",
         "packaged": True,
-        "notes": "Original Observatory gift — Bragg–Williams / Ising ordering alloy. Not Extropic codon.",
+        "notes": "A binary alloy where unlike neighbours are preferred, so the grid orders into a checkerboard. The textbook antiferromagnet, and the cleanest test case for a structure factor.",
     },
     {
         "id": "prog_ebm_bars_stripes",
-        "title": "EBM bars-and-stripes 6×6 (first AI demo)",
+        "title": "Learned bars and stripes",
         "source": "programs/ebm_bars_stripes.yaml → receipts/prog_ebm_bars_stripes",
         "kind": "curated",
         "extropic": False,
         "status": "ready",
         "packaged": True,
-        "notes": "Trained pairwise Ising on classic bars-and-stripes. Train→compile→EBM Lab. THRML/JAX SIM — not silicon.",
+        "notes": "A model whose couplings were TRAINED rather than written by hand, on the classic bars-and-stripes shapes. Simulation on CPU, not silicon.",
     },
     {
         "id": "prog_codon_opt_tiny",
@@ -558,11 +560,11 @@ _SHELF_CATALOG: list[dict[str, Any]] = [
     },
     {
         "id": "prog_number_partition",
-        "title": "Number partition",
+        "title": "Split numbers into two equal piles",
         "source": "programs/number_partition.yaml → receipts/prog_number_partition",
         "kind": "curated",
         "extropic": False,
-        "notes": "Classic Ising partition; n=12 → 3D state space OK.",
+        "notes": "Given a list of numbers, divide them into two groups whose totals match as closely as possible.",
     },
     {
         "id": "prog_ecology_lotka_lite",
@@ -574,19 +576,19 @@ _SHELF_CATALOG: list[dict[str, Any]] = [
     },
     {
         "id": "prog_jobshop_tiny",
-        "title": "Job-shop lite 3×2",
+        "title": "Schedule jobs across machines",
         "source": "programs/jobshop_tiny.yaml → receipts/prog_jobshop_tiny",
         "kind": "curated",
         "extropic": False,
-        "notes": "Manufacturing assignment + contention; Z1 COMPILED.",
+        "notes": "Assign jobs to machines when they compete for the same slots. A small manufacturing scheduling problem.",
     },
     {
         "id": "prog_market_binary_factors",
-        "title": "Banded market factors",
+        "title": "Linked market moves",
         "source": "programs/market_binary_factors.yaml → receipts/prog_market_binary_factors",
         "kind": "curated",
         "extropic": False,
-        "notes": "Sparse factor graph (not dense K20); degree ≪ 16.",
+        "notes": "Assets that move together, wired as a sparse factor graph rather than an all-to-all one, so the degree stays well inside the cap.",
     },
     {
         "id": "prog_seq_design_longer",
@@ -598,52 +600,50 @@ _SHELF_CATALOG: list[dict[str, Any]] = [
     },
     {
         "id": "prog_knapsack_tiny",
-        "title": "Tiny knapsack",
+        "title": "Pack a bag under a weight limit",
         "source": "programs/knapsack_tiny.yaml → receipts/prog_knapsack_tiny",
         "kind": "curated",
         "extropic": False,
-        "notes": "0/1 knapsack soft capacity; resource allocation.",
+        "notes": "Choose which items to take when they will not all fit. Capacity is a soft penalty rather than a hard rule.",
     },
     {
         "id": "prog_sat_3tiny",
-        "title": "Tiny 3-SAT (Rosenberg)",
+        "title": "Satisfy a set of logic clauses",
         "source": "programs/sat_3tiny.yaml → receipts/prog_sat_3tiny",
         "kind": "curated",
         "extropic": False,
-        "notes": "3-SAT via pairwise + auxiliary QUBO reduction.",
+        "notes": "A logic puzzle where every clause must come out true. Three-way clauses are reduced to pairwise terms using helper variables.",
     },
     {
         "id": "prog_maxcut_cycle7",
-        "title": "Max-Cut C7",
+        "title": "Cut a seven node ring in two",
         "source": "programs/maxcut_cycle7.yaml → receipts/prog_maxcut_cycle7",
         "kind": "curated",
         "extropic": False,
-        "notes": "Odd-cycle Max-Cut; one mediator.",
+        "notes": "Split a ring of seven into two groups so that as many links as possible cross between them. An odd ring cannot be split cleanly, so it needs one helper spin.",
     },
     {
         "id": "prog_roster_shift_conflicts",
-        "title": "Roster shift conflicts",
+        "title": "Staff a shift rota without clashes",
         "source": "programs/roster_shift_conflicts.yaml → receipts/prog_roster_shift_conflicts",
         "kind": "curated",
         "extropic": False,
-        "notes": "Smallest mediated scheduling demo.",
+        "notes": "Assign people to shifts when some pairs cannot work together. The smallest scheduling example that needs helper spins.",
     },
     {
         "id": "prog_placement_8x8_exclusion",
-        "title": "Placement 8×8 exclusion",
+        "title": "Place items so none touch",
         "source": "programs/placement_8x8_exclusion.yaml → receipts/prog_placement_8x8_exclusion",
         "kind": "curated",
         "extropic": False,
-        "notes": "Hard-core packing; n=64 (2D state space, not 3D).",
+        "notes": "Fit items onto a grid where no two may be adjacent. A packing problem over 64 cells.",
     },
-    {
-        "id": "codon_opt",
-        "title": "codon_opt (legacy stub id)",
-        "source": "use prog_codon_opt_tiny instead",
-        "kind": "stub",
-        "extropic": True,
-        "notes": "Legacy shelf id — real receipt is prog_codon_opt_tiny.",
-    },
+    # The `codon_opt` stub was removed. It was a shelf entry whose only
+    # behaviour was to refuse, flagged as Extropic's published work while
+    # nothing proved it compiled, and it sat next to `prog_codon_opt_tiny`,
+    # which is the same problem actually packaged and actually verified. Two
+    # near-identical ids where one is real was the single most confusing thing
+    # on the shelf, and the walkthrough had to spend a step explaining it.
 ]
 
 
@@ -655,7 +655,7 @@ def derive_fabric_tax(
     """Derive mediator callouts from physical edges (degree-2 mediators).
 
     When each mediator connects exactly two non-mediator (world) spins, treat
-    that pair as a mediated logical interaction. Labeled derived — not a
+    that pair as a mediated logical interaction. Labeled derived, not a
     receipt field.
     """
     med_set = {int(i) for i in mediator_nodes}
@@ -667,7 +667,7 @@ def derive_fabric_tax(
             "pairs": [],
             "by_edge_key": {},
             "notes": [
-                "No mediators in program.json — Fabric Tax click-to-mediator unavailable."
+                "No mediators in program.json. Fabric Tax click-to-mediator unavailable."
                 if not med_set
                 else "No edges to derive mediation pairs from."
             ],
@@ -856,7 +856,7 @@ def derive_residuals(
         # already covered by gates usually; skip duplicate unless gate missing
         pass
 
-    # Verification transport / TV — surface as unavailable strings, never invent numbers
+    # Verification transport / TV, surface as unavailable strings, never invent numbers
     for key in ("energy_tv", "execution_tv", "cross_check_tv", "execution_noise_floor"):
         val = verification.get(key)
         if val is None:
@@ -902,12 +902,17 @@ def examples_shelf(root: Path | str | None = None) -> list[dict[str, Any]]:
     for entry in _SHELF_CATALOG:
         eid = entry["id"]
         packaged = eid in on_disk
-        # codon_opt dir may exist with README only — still stub
+        # codon_opt dir may exist with README only, still stub
         stub = entry.get("kind") == "stub" or (
             not packaged
             and not (base / eid / "program.json").is_file()
             and not (base / eid / "passes.json").is_file()
         )
+        # "Verified" is DERIVED from oracle-test coverage, never typed into the
+        # catalog. A workload carries the badge only because a standing test
+        # compiles it and fails if that stops working, so the claim on screen
+        # and the claim the suite enforces cannot drift apart.
+        workload = by_shelf_id(eid)
         item = {
             **entry,
             "packaged": packaged and not stub,
@@ -918,25 +923,28 @@ def examples_shelf(root: Path | str | None = None) -> list[dict[str, Any]]:
                 else None
             ),
             "receipt": on_disk.get(eid) if packaged and not stub else None,
+            "verified": workload is not None,
+            "verified_by": (
+                f"oracle test, compiles at {workload.restarts} restarts / "
+                f"{workload.iters:,} iterations"
+                if workload else None),
+            "published_by": workload.source if workload else None,
+            "plain_name": workload.plain_name if workload else entry["title"],
+            "one_line": workload.one_line if workload else None,
+            # A verified workload's own plain sentence wins over the catalog
+            # note, so every consumer gets the same language rather than the
+            # shelf and the detail panel describing it differently.
+            "notes": workload.one_line if workload else entry.get("notes"),
+            "problem": workload.problem if workload else None,
+            "math": workload.math if workload else None,
+            "hardware": workload.hardware if workload else None,
+            "citation": workload.citation if workload else None,
         }
         out.append(item)
-    # Also surface any on-disk receipts not in catalog
-    catalog_ids = {e["id"] for e in _SHELF_CATALOG}
-    for rid, meta in on_disk.items():
-        if rid in catalog_ids:
-            continue
-        out.append(
-            {
-                "id": rid,
-                "title": rid,
-                "source": meta.get("path"),
-                "kind": "local",
-                "extropic": False,
-                "notes": "On-disk receipt not in curated catalog.",
-                "packaged": True,
-                "status": "ready",
-                "message": None,
-                "receipt": meta,
-            }
-        )
+    # Deliberately NOT appending every receipt found on disk. Doing so put
+    # working artifacts on the shelf titled with their directory names --
+    # `sweep_highk_biome_infeasible`, `notepad_smoke` -- beside the curated
+    # demos, which made a demo shelf into a directory listing. Those receipts
+    # are still reachable by opening one directly; they are not examples of
+    # what the toolkit does.
     return out

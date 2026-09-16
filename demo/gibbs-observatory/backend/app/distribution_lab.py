@@ -1,4 +1,4 @@
-"""Distribution Lab — binary ordering alloy decode + batch score.
+"""Distribution Lab, binary ordering alloy decode + batch score.
 
 Original Observatory gift (not Extropic codon). Maps 0/1 lattice states to
 occupancy, staggered order parameter, short-range order, concentration, and
@@ -160,7 +160,7 @@ def decode_sample(
         "energy_ising": ising_energy,
         "sample_index": sample_index,
         "labels": {"0": "A", "1": "B"},
-        "honesty": "JAX/THRML software sim — not Extropic silicon",
+        "honesty": "JAX/THRML software sim, not Extropic silicon",
     }
 
 
@@ -227,7 +227,7 @@ def batch_decode(
         "best": ranked[0] if ranked else None,
         "rank_by": rank_by,
         "caption": "Distribution Lab · binary ordering alloy · THRML sim · not silicon",
-        "honesty": "JAX/THRML software sim — not Extropic silicon",
+        "honesty": "JAX/THRML software sim, not Extropic silicon",
     }
 
 

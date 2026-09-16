@@ -18,7 +18,7 @@ export const WALKTHROUGH_STEPS: WalkthroughStep[] = [
     id: 'mission',
     title: 'Mission',
     body:
-      'Gibbs Observatory inspects a compiled thermodynamic sampling program — not a world generator. Load a receipt, read gates / spins / couplings / connectivity, then stream live THRML block-Gibbs draws. Worlds stay demoted in the menu.',
+      'This inspects a compiled thermodynamic sampling program. Open an example, read its gates, spins, couplings and connectivity, then watch THRML sample it live. Everything on screen is computed on your CPU, not on Extropic hardware.',
     target: '[data-tour="brand"]',
     view: 'overview',
   },
@@ -26,7 +26,7 @@ export const WALKTHROUGH_STEPS: WalkthroughStep[] = [
     id: 'program-bar',
     title: 'Workflow + program meta',
     body:
-      'The workflow strip (Receipt → Inspect → Sample → Compare) and program meta show the loaded receipt path, encoding, β (FIXED when mediated), kernel, and compile verdict. COMPILED means the receipt passed gates and is ready to sample — still software / THRML, not silicon.',
+      'The workflow strip (Receipt → Inspect → Sample → Compare) and program meta show the loaded receipt path, encoding, β (FIXED when mediated), kernel, and compile verdict. COMPILED means the receipt passed gates and is ready to sample, still software / THRML, not silicon.',
     target: '[data-tour="program-bar"]',
     view: 'overview',
   },
@@ -34,7 +34,7 @@ export const WALKTHROUGH_STEPS: WalkthroughStep[] = [
     id: 'receipts',
     title: 'Open a receipt',
     body:
-      '☰ → File → Open receipt… or Open Extropic example… loads curated shelves under receipts/. Start with small (packaged default). Stubs like codon_opt refuse until a real receipt is packaged — we do not invent program.json.',
+      'Menu → File → Open example loads the shelf. Start with "Starter grid", which is the quickest. Three of the examples are marked VERIFIED: those are problems Extropic published, and a standing test compiles each one, so the badge means somebody can check it rather than that we typed it.',
     target: '[data-tour="menu-burger"]',
   },
   {
@@ -65,7 +65,7 @@ export const WALKTHROUGH_STEPS: WalkthroughStep[] = [
     id: 'connectivity',
     title: 'Connectivity · Fabric Tax',
     body:
-      'Connectivity contrasts logical vs physical graphs. Click a mediated pair or physical edge for a mediator callout — Fabric Tax is derived from program.json, not a separate energy claim.',
+      'Connectivity contrasts logical vs physical graphs. Click a mediated pair or physical edge for a mediator callout, Fabric Tax is derived from program.json, not a separate energy claim.',
     target: '[data-tour="nav-connectivity"]',
     view: 'connectivity',
   },
@@ -81,14 +81,14 @@ export const WALKTHROUGH_STEPS: WalkthroughStep[] = [
     id: 'transport',
     title: 'Run · Pause · Step',
     body:
-      'Primary Run THRML sampler lives in the Experiment rail; footer mirrors Run / Step / Reset plus seed and speed. CPU / THRML · silicon Unavailable stays honest — simulation only.',
+      'Primary Run THRML sampler lives in the Experiment rail; footer mirrors Run / Step / Reset plus seed and speed. CPU / THRML · silicon Unavailable stays honest, simulation only.',
     target: '[data-tour="experiment-rail"]',
   },
   {
     id: 'lang',
     title: 'Sci | Prog',
     body:
-      'Toggle Sci vs Prog labels in the top bar. Numbers stay identical — only the glossary wording changes (β ↔ temperature scale, J ↔ coupling, etc.).',
+      'Toggle Sci vs Prog labels in the top bar. Numbers stay identical, only the glossary wording changes (β ↔ temperature scale, J ↔ coupling, etc.).',
     target: '[data-tour="lang-toggle"]',
   },
   {
@@ -111,7 +111,7 @@ export const WALKTHROUGH_STEPS: WalkthroughStep[] = [
     id: 'snapshot',
     title: 'Snapshot',
     body:
-      'File → Save snapshot (or footer) exports a PNG of the stage plus a JSON receipt slice. Use it for demos — still simulation traces only. Restart this tour anytime from Help → Start walkthrough…',
+      'File → Save snapshot, or the footer, exports a PNG of the stage plus a JSON slice of the receipt. These are simulation traces. Restart this tour any time from Help → Start walkthrough.',
     target: '[data-tour="footer-bar"]',
     view: 'overview',
   },

@@ -19,7 +19,7 @@ export function ClaimHygienePanel({ receipt, compact = false }: Props) {
       {!compact ? (
         <p className="empty-hint">
           Always honest: this panel lists standing prohibitions and live claim
-          badges. Software / THRML only — no silicon, no energy claims.
+          badges. Software / THRML only, no silicon, no energy claims.
         </p>
       ) : null}
 
@@ -43,18 +43,18 @@ export function ClaimHygienePanel({ receipt, compact = false }: Props) {
         <div className="flag ok">runtime: software / THRML+JAX</div>
         <div className="flag ok">silicon: none</div>
         <div className={`flag ${betaFixed ? 'ok' : 'info'}`}>
-          β: {receipt?.beta ?? '—'}
+          β: {receipt?.beta ?? ', '}
           {betaFixed ? ' FIXED (mediated)' : ' editable (unmediated)'}
         </div>
         <div className={`flag ${essAvailable ? 'ok' : 'warn'}`}>
           ESS:{' '}
           {essAvailable
-            ? `available (${ess?.value ?? '—'})`
+            ? `available (${ess?.value ?? ', '})`
             : ess?.reason
-              ? `unavailable — ${ess.reason}`
+              ? `unavailable, ${ess.reason}`
               : 'diagnostic only / contract check'}
         </div>
-        <div className="flag ok">energy: simulation traces only — no joule claims</div>
+        <div className="flag ok">energy: simulation traces only, no joule claims</div>
       </div>
     </div>
   )

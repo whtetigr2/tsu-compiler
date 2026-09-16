@@ -24,7 +24,7 @@ const GLOSSARY: Record<string, { sci: string; prog: string; tip: string }> = {
   ess: {
     sci: 'ESS',
     prog: 'effective samples',
-    tip: 'Effective sample size — only shown when the receipt contract allows.',
+    tip: 'Effective sample size, only shown when the receipt contract allows.',
   },
   tv: {
     sci: 'TV',

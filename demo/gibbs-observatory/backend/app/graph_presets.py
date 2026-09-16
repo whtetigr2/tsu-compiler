@@ -143,7 +143,7 @@ def build_sparse(n: int = 40, degree_cap: int = 16, seed: int = 0) -> GraphSpec:
         edges.append((a, b))
         deg[i] += 1
         deg[j] += 1
-    # clamp a small "boundary" — highest-degree nodes on color0 side
+    # clamp a small "boundary", highest-degree nodes on color0 side
     order = sorted(color0, key=lambda u: -int(deg[u]))
     clamp = order[: max(2, n // 10)]
     return GraphSpec(
@@ -174,7 +174,7 @@ def build_from_receipt_arrays(data: dict) -> GraphSpec:
     color0 = list(data.get("color0") or [])
     color1 = list(data.get("color1") or [])
     if not color0 and not color1:
-        # last-resort bipartite split for THRML blocks (even/odd) — only if
+        # last-resort bipartite split for THRML blocks (even/odd), only if
         # receipt omitted blocks; prefer real chromatic blocks when present.
         color0 = list(range(0, n, 2))
         color1 = list(range(1, n, 2))

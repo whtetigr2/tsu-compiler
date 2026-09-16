@@ -53,7 +53,7 @@ function deflate(centered: Vec[], axis: Vec): Vec[] {
 
 /**
  * Project sample rows onto the first `k` principal components.
- * Spins expected as ±1 or 0/1 — values are used as-is (no invented energies).
+ * Spins expected as ±1 or 0/1, values are used as-is (no invented energies).
  */
 export function pcaProject(rows: Vec[], k: 2 | 3 = 2): {
   coords: number[][]

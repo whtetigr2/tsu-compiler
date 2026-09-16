@@ -6,7 +6,7 @@ interface Props {
 }
 
 function fmt(v: number | null | undefined, d = 3): string {
-  if (v == null || !Number.isFinite(v)) return '—'
+  if (v == null || !Number.isFinite(v)) return ', '
   return Number.isInteger(v) ? String(v) : v.toFixed(d)
 }
 
@@ -55,7 +55,7 @@ export function ResidualsView({ receipt }: Props) {
   return (
     <div className="view residuals-view">
       <div className="view-caption">
-        Residuals MVP — derived headroom / connectivity deltas · no invented receipt
+        Residuals MVP, derived headroom / connectivity deltas · no invented receipt
         fields
         {res.has_receipt_residual_matrix
           ? ''

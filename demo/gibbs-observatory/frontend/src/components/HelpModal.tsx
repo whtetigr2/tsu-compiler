@@ -64,7 +64,7 @@ const UI_MAP: { id: string; title: string; blurb: string }[] = [
     id: 'scope',
     title: 'Scope',
     blurb:
-      'Streaming scope for energy / magnetization traces from simulation — diagnostic curves, not joule product claims.',
+      'Streaming scope for energy / magnetization traces from simulation, diagnostic curves, not joule product claims.',
   },
   {
     id: 'notepad',
@@ -76,7 +76,7 @@ const UI_MAP: { id: string; title: string; blurb: string }[] = [
     id: 'worlds',
     title: 'Worlds (drawer)',
     blurb:
-      'Demoted world-gen / World Studio. Available from ☰ or the left-rail Worlds entry — not part of the hero path.',
+      'Demoted world-gen / World Studio. Available from ☰ or the left-rail Worlds entry, not part of the hero path.',
   },
   {
     id: 'rails',
@@ -161,11 +161,11 @@ export function HelpModal({
             </p>
             <p className="empty-hint">
               Hero path: Extropic / curated example → Overview → Connectivity (Fabric Tax) →
-              Spins. Worlds / World Studio stay demoted in the menu — not required for the
+              Spins. Worlds / World Studio stay demoted in the menu, not required for the
               first 10 seconds.
             </p>
             <p className="empty-hint warn-inline">
-              JAX/THRML simulation — not Extropic silicon. Mediated β is FIXED. No joule /
+              JAX/THRML simulation, not Extropic silicon. Mediated β is FIXED. No joule /
               energy product claims.
             </p>
             <p className="empty-hint">
@@ -201,7 +201,7 @@ export function HelpModal({
 
         {tab === 'uimap' ? (
           <div className="help-pane">
-            <p className="empty-hint">Left-nav views and chrome — one or two sentences each.</p>
+            <p className="empty-hint">Left-nav views and chrome, one or two sentences each.</p>
             <dl className="ui-map">
               {UI_MAP.map((row) => (
                 <div key={row.id} className="ui-map-row">
@@ -233,7 +233,7 @@ export function HelpModal({
             <p>
               Sampling is JAX + THRML on CPU in this Observatory. The amber badge and footer
               meta always say so. If a receipt is not THRML-ready, the program bar / banner
-              explains the fallback — we do not silently pretend.
+              explains the fallback, we do not silently pretend.
             </p>
             <h4>Notepad compile (optional)</h4>
             <p className="empty-hint">

@@ -3,7 +3,7 @@ import type { BatchPayload, ReceiptInspect } from '../types'
 export const STANDING_PROHIBITIONS: { id: string; text: string }[] = [
   {
     id: 'no_silicon',
-    text: 'No silicon execution claims — software / THRML+JAX only',
+    text: 'No silicon execution claims, software / THRML+JAX only',
   },
   {
     id: 'no_energy',
@@ -104,16 +104,16 @@ export function captureStagePng(stageEl: HTMLElement | null): {
   ctx.fillRect(0, 0, w, h)
   ctx.fillStyle = '#3ee0b0'
   ctx.font = '16px monospace'
-  ctx.fillText('Gibbs Observatory — stage snapshot', 24, 40)
+  ctx.fillText('Gibbs Observatory, stage snapshot', 24, 40)
   ctx.fillStyle = '#9aa7bd'
   ctx.font = '13px monospace'
   const caption =
     stageEl.querySelector('.view-caption, .stage-header')?.textContent?.trim() ||
-    'No canvas in active view — metadata JSON still exported'
+    'No canvas in active view, metadata JSON still exported'
   const lines = caption.slice(0, 240).match(/.{1,70}/g) ?? [caption]
   lines.forEach((line, i) => ctx.fillText(line, 24, 80 + i * 20))
   ctx.fillStyle = '#f0b429'
-  ctx.fillText('JAX/THRML simulation — not Extropic silicon', 24, h - 28)
+  ctx.fillText('JAX/THRML simulation, not Extropic silicon', 24, h - 28)
   try {
     const dataUrl = off.toDataURL('image/png')
     const bin = atob(dataUrl.split(',')[1] ?? '')
@@ -166,10 +166,10 @@ export function buildLocalSnapshotSlice(
     active_block: batch?.active_block ?? meta.active_block ?? null,
     view: meta.view,
     png_filename: pngFilename,
-    label: 'JAX/THRML simulation — not Extropic silicon',
+    label: 'JAX/THRML simulation, not Extropic silicon',
     notes: [
       'PNG is client-captured from the main stage canvas/view.',
-      'This JSON is a receipt slice only — no sim sample dumps.',
+      'This JSON is a receipt slice only, no sim sample dumps.',
       'Do not commit snapshot downloads into git receipts/.',
     ],
   }
@@ -228,6 +228,6 @@ export async function exportSnapshot(opts: {
     json: jsonName,
     message: blob
       ? `Saved ${filename} (${method}) + ${jsonName}`
-      : `Saved ${jsonName} (no PNG — open a canvas view)`,
+      : `Saved ${jsonName} (no PNG, open a canvas view)`,
   }
 }

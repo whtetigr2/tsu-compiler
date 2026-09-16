@@ -143,7 +143,7 @@ def health() -> dict[str, Any]:
         "service": "gibbs-observatory",
         "backend": "thrml+jax",
         "version": APP_VERSION,
-        "label": "JAX/THRML simulation — not Extropic silicon",
+        "label": "JAX/THRML simulation, not Extropic silicon",
         "tsu": tsu_status(),
     }
 
@@ -511,11 +511,11 @@ def api_alloy_info() -> dict[str, Any]:
         "program": "alloy_ordering_8x8",
         "receipt_id": ALLOY_RECEIPT_ID,
         "caption": "Distribution Lab · binary ordering alloy · THRML sim · not silicon",
-        "honesty": "JAX/THRML software sim — not Extropic silicon",
+        "honesty": "JAX/THRML software sim, not Extropic silicon",
         "physics": {
             "lattice": "8x8 square",
             "species": {"0": "A (Cu-like)", "1": "B (Zn-like)"},
-            "coupling": "antiferromagnetic NN — prefer unlike neighbours",
+            "coupling": "antiferromagnetic NN, prefer unlike neighbours",
             "order_parameter": "staggered m_s",
         },
     }
@@ -577,7 +577,7 @@ def api_ebm_train(body: EbmTrainBody) -> dict[str, Any]:
         "paths": result.get("paths"),
         "honesty": EBM_HONESTY,
         "model_kind": "rbm",
-        "note": "Lite retrain only — full train via scripts/train_bars_stripes_ebm.py --compile",
+        "note": "Lite retrain only, full train via scripts/train_bars_stripes_ebm.py --compile",
     }
 
 

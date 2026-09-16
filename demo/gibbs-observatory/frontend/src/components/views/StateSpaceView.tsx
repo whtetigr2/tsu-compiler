@@ -71,7 +71,7 @@ export function StateSpaceView({ graph, batch, receipt, lang: _lang }: Props) {
 
   const projection = useMemo(() => {
     if (samples.length < 2) {
-      return { coords: [] as number[][], hint: 'need ≥2 distinct recent samples — run/step the sampler' }
+      return { coords: [] as number[][], hint: 'need ≥2 distinct recent samples, run/step the sampler' }
     }
     const k = large ? 2 : 3
     const { coords, explainedHint } = pcaProject(samples, k as 2 | 3)
@@ -194,7 +194,7 @@ export function StateSpaceView({ graph, batch, receipt, lang: _lang }: Props) {
   return (
     <div className="view statespace-view">
       <div className="view-caption">
-        State space · n={n || '—'} spins
+        State space · n={n || ', '} spins
         {large ? (
           <>
             {' '}
@@ -210,7 +210,7 @@ export function StateSpaceView({ graph, batch, receipt, lang: _lang }: Props) {
           <strong>Full state-space 3D unavailable for this model.</strong>
           <p>
             n = {n} exceeds the honest limit (n≤{STATE_SPACE_3D_MAX_SPINS}). A complete
-            configuration space has size 2^{n} — we will not fake a full embedding.
+            configuration space has size 2^{n}, we will not fake a full embedding.
             Showing a <em>2D PCA projection of recent sample vectors only</em> (live
             THRML draws), not the Boltzmann landscape over all states.
           </p>
@@ -218,7 +218,7 @@ export function StateSpaceView({ graph, batch, receipt, lang: _lang }: Props) {
       ) : (
         <div className="ok-banner">
           Small model (n≤{STATE_SPACE_3D_MAX_SPINS}): 3D PCA / sample embedding of recent
-          spin vectors. This is an embedding of observed samples — not an exhaustive
+          spin vectors. This is an embedding of observed samples, not an exhaustive
           enumeration of 2^{n} unless n is tiny and you have enough draws.
         </div>
       )}
@@ -235,7 +235,7 @@ export function StateSpaceView({ graph, batch, receipt, lang: _lang }: Props) {
         />
       </div>
       <p className="empty-hint mono">{projection.hint} · samples={samples.length}</p>
-      <p className="claim-chip">JAX/THRML simulation — not Extropic silicon</p>
+      <p className="claim-chip">JAX/THRML simulation, not Extropic silicon</p>
     </div>
   )
 }

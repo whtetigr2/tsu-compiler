@@ -3,7 +3,7 @@
 Wires the Observatory to an importable ``tsu`` package. Discovery order:
 ``TSU_ROOT`` env, then sibling dirs ``tsu-compiler`` / ``tsu-compiler-review``,
 then a legacy box path fallback. Ideal-first compile is
-``tsu_compiler.passes.search.compile_spec`` — same path as ``tsuc compile``.
+``tsu_compiler.passes.search.compile_spec``, same path as ``tsuc compile``.
 
 Standing prohibitions enforced here:
 - no silent apply without a COMPILED receipt on disk
@@ -29,7 +29,7 @@ def _tsu_root_candidates() -> list[Path]:
     """Candidate directories that may *contain* the ``tsu`` package.
 
     Paul's layout: ``Documents/tsu-compiler/demo/gibbs-observatory`` with the
-    package at ``Documents/tsu-compiler/src/tsu`` — so we must walk up to the
+    package at ``Documents/tsu-compiler/src/tsu``, so we must walk up to the
     compiler root and accept a ``src/`` layout, not only a top-level ``tsu/``.
     """
     repo = Path(__file__).resolve().parents[2]  # gibbs-observatory/
@@ -262,7 +262,7 @@ def preflight_edges(edges_json: str, *, allow_assumed: bool = False) -> dict[str
         try:
             model = load_model(edges=str(tmp))
         except ValueError as exc:
-            raise ProgramServiceError(f"edge list refused — {exc}") from exc
+            raise ProgramServiceError(f"edge list refused, {exc}") from exc
         except Exception as exc:  # noqa: BLE001
             raise ProgramServiceError(
                 f"edge list load failed: {type(exc).__name__}: {exc}") from exc
@@ -330,9 +330,9 @@ def _preflight_model(model, *, allow_assumed: bool = False,
             {"restarts": attempts[-1]["restarts"], "iters": attempts[-1]["iters"]}
             if attempts else None),
         "placement_escalated": len(attempts) > 1,
-        "label": "JAX/THRML simulation — not Extropic silicon",
+        "label": "JAX/THRML simulation, not Extropic silicon",
         "notes": [
-            "Preflight only — no receipt written; Apply is still forbidden.",
+            "Preflight only, no receipt written; Apply is still forbidden.",
             "Ideal-first compile is a separate action (Compile).",
         ],
     }
@@ -348,7 +348,7 @@ def preflight_program(yaml_text: str, *, allow_assumed: bool = False) -> dict[st
         try:
             model = load_model(spec=str(path))
         except ValueError as exc:
-            raise ProgramServiceError(f"preflight refused — {exc}") from exc
+            raise ProgramServiceError(f"preflight refused, {exc}") from exc
         except Exception as exc:  # noqa: BLE001
             raise ProgramServiceError(
                 f"spec load failed: {type(exc).__name__}: {exc}") from exc
@@ -446,7 +446,7 @@ def compile_program(
         if inspect and isinstance(inspect.get("gates"), list):
             gates = inspect["gates"]
         elif hasattr(comp, "gates") and comp.gates:
-            # Fallback — structure varies; leave empty rather than invent
+            # Fallback, structure varies; leave empty rather than invent
             gates = []
 
         med = None
@@ -477,7 +477,7 @@ def compile_program(
                 "Multiple encodings can be viable; one is SELECTED by ranking "
                 "(physical p-bit count, then colour blocks, then |J|max; ties by "
                 "declaration order). VIABLE_NOT_SELECTED means a runner-up that also "
-                "fit — not a failure."
+                "fit, not a failure."
                 if any(c.get("state") == "VIABLE_NOT_SELECTED" for c in cand_rows)
                 else None
             ),
@@ -486,11 +486,11 @@ def compile_program(
             "bipartite": bipartite,
             "n_nodes": n_nodes,
             "elapsed_seconds": round(elapsed, 4),
-            "label": "JAX/THRML simulation — not Extropic silicon",
+            "label": "JAX/THRML simulation, not Extropic silicon",
             "notes": [
                 "Ideal-first compile (tsu_compiler.passes.search.compile_spec).",
                 "Apply loads this receipt into the sampler only when verdict is COMPILED.",
-                "Large / non-bipartite specs may be slow or fail placement — errors are shown, not invented.",
+                "Large / non-bipartite specs may be slow or fail placement, errors are shown, not invented.",
             ],
             "limits": {
                 "heavy_specs": "8×8 mediated lattices can take tens of seconds; failures surface as errors.",
@@ -513,24 +513,24 @@ def apply_program(
     path = base / receipt_id
     if not path.is_dir():
         raise ProgramServiceError(
-            f"Apply refused — no receipt directory for {receipt_id!r}. "
+            f"Apply refused, no receipt directory for {receipt_id!r}. "
             "Compile (ideal-first) must succeed first."
         )
     try:
         payload = load_receipt(receipt_id, root=base)
     except FileNotFoundError as exc:
         raise ProgramServiceError(
-            f"Apply refused — receipt {receipt_id!r} incomplete: {exc}"
+            f"Apply refused, receipt {receipt_id!r} incomplete: {exc}"
         ) from exc
     verdict = payload.get("verdict")
     if verdict != "COMPILED":
         raise ProgramServiceError(
-            f"Apply refused — receipt verdict is {verdict!r}, not COMPILED. "
+            f"Apply refused, receipt verdict is {verdict!r}, not COMPILED. "
             "No silent apply without a successful ideal-first compile receipt."
         )
     if not payload.get("sampling", {}).get("thrml_ready"):
         raise ProgramServiceError(
-            f"Apply refused — receipt {receipt_id!r} is not THRML-ready "
+            f"Apply refused, receipt {receipt_id!r} is not THRML-ready "
             f"({payload.get('sampling', {}).get('banner')})."
         )
     return {
@@ -542,7 +542,7 @@ def apply_program(
         "n_nodes": (payload.get("spins") or {}).get("n_nodes"),
         "beta": payload.get("beta"),
         "beta_fixed": payload.get("beta_fixed"),
-        "label": "JAX/THRML simulation — not Extropic silicon",
+        "label": "JAX/THRML simulation, not Extropic silicon",
         "notes": [
             "Load this receipt_id into the sampler the same way as curated 'small'.",
         ],

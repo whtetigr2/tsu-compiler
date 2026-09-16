@@ -645,7 +645,7 @@ button, input, select { font-family: inherit; letter-spacing: inherit; }
   vertical-align: middle;
 }
 
-/* Overview — hero-first */
+/* Overview, hero-first */
 .overview-view { padding-top: 0.25rem; }
 .overview-grid {
   display: grid;
@@ -1026,7 +1026,7 @@ button.btn.ghost {
 }
 .stub-panel h3 { margin: 0 0 0.5rem; }
 
-/* Connectivity / fabric / schedule / residuals — token remap */
+/* Connectivity / fabric / schedule / residuals, token remap */
 .fabric-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1226,7 +1226,7 @@ button.btn.ghost {
   box-shadow: 0 0 0 1px var(--phosphor-glow);
 }
 
-/* Phase 3 — notepad + state space */
+/* Phase 3, notepad + state space */
 .notepad-view { display: flex; flex-direction: column; gap: 0.65rem; height: 100%; }
 .notepad-head { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; }
 .notepad-head h3 { margin: 0 0 0.25rem; font-size: 1rem; letter-spacing: var(--tracking-tight); }
@@ -1310,7 +1310,7 @@ button.btn.ghost {
   background: #0c0e10;
 }
 
-/* Phase 4 — help / claim / fabric */
+/* Phase 4, help / claim / fabric */
 .help-tabs {
   display: flex;
   gap: 0.35rem;

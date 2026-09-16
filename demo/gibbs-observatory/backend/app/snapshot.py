@@ -1,4 +1,4 @@
-"""Snapshot metadata helpers — JSON receipt slice only (no sim dumps)."""
+"""Snapshot metadata helpers, JSON receipt slice only (no sim dumps)."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ APP_VERSION = "0.5.0"
 STANDING_PROHIBITIONS: list[dict[str, str]] = [
     {
         "id": "no_silicon",
-        "text": "No silicon execution claims — software / THRML+JAX only",
+        "text": "No silicon execution claims, software / THRML+JAX only",
     },
     {
         "id": "no_energy",
@@ -67,7 +67,7 @@ def claim_hygiene_payload(
                 "ok": True,
                 "badge": "software / THRML only",
                 "detail": receipt.get("label")
-                or "JAX/THRML simulation — not Extropic silicon",
+                or "JAX/THRML simulation, not Extropic silicon",
             }
         )
         live.append(
@@ -110,7 +110,7 @@ def claim_hygiene_payload(
         "standing_prohibitions": STANDING_PROHIBITIONS,
         "claim_badges": badges,
         "live": live,
-        "label": "JAX/THRML simulation — not Extropic silicon",
+        "label": "JAX/THRML simulation, not Extropic silicon",
     }
 
 
@@ -119,7 +119,7 @@ def build_snapshot_slice(
     *,
     client: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Compact JSON for download — never includes sample dumps or full program.json."""
+    """Compact JSON for download, never includes sample dumps or full program.json."""
     client = client or {}
     spins = (receipt or {}).get("spins") or {}
     gates = (receipt or {}).get("gates") or []
@@ -157,10 +157,10 @@ def build_snapshot_slice(
         "active_block": client.get("active_block"),
         "view": client.get("view"),
         "png_filename": client.get("png_filename"),
-        "label": "JAX/THRML simulation — not Extropic silicon",
+        "label": "JAX/THRML simulation, not Extropic silicon",
         "notes": [
             "PNG is client-captured from the main stage canvas/view.",
-            "This JSON is a receipt slice only — no sim sample dumps.",
+            "This JSON is a receipt slice only, no sim sample dumps.",
             "Do not commit snapshot downloads into git receipts/.",
         ],
     }

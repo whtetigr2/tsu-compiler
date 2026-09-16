@@ -8,7 +8,7 @@ interface Props {
 }
 
 function previewIndices(idxs: number[], limit = 24): string {
-  if (!idxs.length) return '—'
+  if (!idxs.length) return ', '
   const head = idxs.slice(0, limit).join(', ')
   return idxs.length > limit ? `${head}, … (+${idxs.length - limit})` : head
 }
@@ -37,7 +37,7 @@ export function ScheduleView({ receipt, batch, lang }: Props) {
           <h3>Schedule</h3>
           <p className="empty-hint">
             {(schedule?.notes ?? []).join(' ') ||
-              'No chromatic blocks in program.json — timeline unavailable.'}
+              'No chromatic blocks in program.json, timeline unavailable.'}
           </p>
         </div>
       </div>
@@ -50,7 +50,7 @@ export function ScheduleView({ receipt, batch, lang }: Props) {
     <div className="view schedule-view">
       <div className="view-caption">
         {label('blocks', lang)} timeline · kernel{' '}
-        <span className="mono">{kernel ?? '—'}</span>
+        <span className="mono">{kernel ?? ', '}</span>
         {active != null ? (
           <>
             {' '}

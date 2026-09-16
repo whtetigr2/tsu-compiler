@@ -127,7 +127,7 @@ class SamplerEngine:
             if free1:
                 free_blocks.append(Block(free1))
             if not free_blocks:
-                # fallback: nothing free — keep tiny free set
+                # fallback: nothing free, keep tiny free set
                 free_blocks = [Block([nodes[i] for i in graph.color0[:1]])]
             clamped_blocks = [Block(clamped_nodes)]
             clamp_state = [
@@ -178,7 +178,7 @@ class SamplerEngine:
         """Update dynamic params. Structure-changing flags trigger full reset."""
         cfg = self.config
         structure_change = False
-        # Receipt-backed mediated models: β is FIXED — ignore beta patches
+        # Receipt-backed mediated models: β is FIXED, ignore beta patches
         beta_locked = bool(cfg.receipt_id) and (
             self.state is not None and self.state.graph.beta_fixed
         )
@@ -268,7 +268,7 @@ class SamplerEngine:
                 "size": cfg.size,
                 "receipt_id": cfg.receipt_id,
             },
-            "label": "JAX/THRML simulation — not Extropic silicon",
+            "label": "JAX/THRML simulation, not Extropic silicon",
         }
 
     def _assemble_full_state(self, free_states: list[jnp.ndarray]) -> np.ndarray:
@@ -384,5 +384,5 @@ class SamplerEngine:
             "receipt_id": cfg.receipt_id,
             "sampling_fallback": cfg.sampling_fallback,
             "sampling_banner": banner,
-            "label": "JAX/THRML simulation — not Extropic silicon",
+            "label": "JAX/THRML simulation, not Extropic silicon",
         }

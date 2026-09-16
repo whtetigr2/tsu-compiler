@@ -373,7 +373,7 @@ export function AlloyLabView({
             label="E_config (YAML weights)"
             value={hero ? Math.abs(hero.energy_config) : 0}
             max={30}
-            format={() => (hero ? hero.energy_config.toFixed(2) : '—')}
+            format={() => (hero ? hero.energy_config.toFixed(2) : ', ')}
           />
           {hero?.energy_ising != null ? (
             <p className="empty-hint mono">E_ising {Number(hero.energy_ising).toFixed(3)}</p>

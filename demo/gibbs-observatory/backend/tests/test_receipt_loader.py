@@ -35,7 +35,7 @@ def test_load_small_normalized():
     assert len(payload["edges"]["weights"]) == 576
     assert payload["sampling"]["thrml_ready"] is True
     assert payload["sampling"]["banner"] is None
-    assert payload["label"] == "JAX/THRML simulation — not Extropic silicon"
+    assert payload["label"] == "JAX/THRML simulation, not Extropic silicon"
 
 
 def test_program_drives_thrml():

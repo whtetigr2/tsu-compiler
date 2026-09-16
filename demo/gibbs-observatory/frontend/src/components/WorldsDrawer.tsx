@@ -20,7 +20,7 @@ export function WorldsDrawer({ open, onClose }: Props) {
           </button>
         </header>
         <p>
-          <strong>World Studio demoted — Phase 2+</strong>
+          <strong>World Studio demoted, Phase 2+</strong>
         </p>
         <p className="empty-hint">
           Worlds / world-gen are intentionally off the hero path. Gibbs Observatory

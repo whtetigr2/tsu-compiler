@@ -154,7 +154,7 @@ export function NotepadView({ receipt, onApplyReceipt }: Props) {
 
   const runApply = async () => {
     if (!compiledId) {
-      setError('Apply refused — compile a COMPILED receipt first (no silent apply).')
+      setError('Apply refused, compile a COMPILED receipt first (no silent apply).')
       return
     }
     setBusy('apply')
@@ -193,7 +193,7 @@ export function NotepadView({ receipt, onApplyReceipt }: Props) {
         <div>
           <h3>Thermodynamic Program</h3>
           <p className="footnote">
-            Gill / Extropic usage: a stochastic program aimed at a sampler —{' '}
+            Gill / Extropic usage: a stochastic program aimed at a sampler, {' '}
             <strong>not</strong> “thermodynamic programming” as a research slogan.
           </p>
         </div>
@@ -244,27 +244,27 @@ export function NotepadView({ receipt, onApplyReceipt }: Props) {
                 <div>
                   <span className="k">verdict</span>
                   <span className={`v mono ${result.ok || result.verdict === 'ok' || result.verdict === 'COMPILED' ? 'ok' : 'bad'}`}>
-                    {result.verdict ?? '—'}
+                    {result.verdict ?? ', '}
                   </span>
                 </div>
                 <div>
                   <span className="k">mediators</span>
-                  <span className="v mono">{mediators ?? '—'}</span>
+                  <span className="v mono">{mediators ?? ', '}</span>
                 </div>
                 <div>
                   <span className="k">bipartite</span>
                   <span className="v mono">
-                    {bipartite == null ? '—' : bipartite ? 'yes' : 'no'}
+                    {bipartite == null ? ', ' : bipartite ? 'yes' : 'no'}
                   </span>
                 </div>
                 <div>
                   <span className="k">spins</span>
-                  <span className="v mono">{result.n_spins ?? result.n_nodes ?? '—'}</span>
+                  <span className="v mono">{result.n_spins ?? result.n_nodes ?? ', '}</span>
                 </div>
                 <div>
                   <span className="k">elapsed</span>
                   <span className="v mono">
-                    {result.elapsed_seconds != null ? `${result.elapsed_seconds}s` : '—'}
+                    {result.elapsed_seconds != null ? `${result.elapsed_seconds}s` : ', '}
                   </span>
                 </div>
               </div>
@@ -286,14 +286,14 @@ export function NotepadView({ receipt, onApplyReceipt }: Props) {
                       const name = g.name ?? g.gate ?? `g${i}`
                       const status =
                         g.status ??
-                        (g.passed == null ? '—' : g.passed ? 'ok' : 'fail')
-                      const val = g.value ?? g.measured ?? '—'
+                        (g.passed == null ? ', ' : g.passed ? 'ok' : 'fail')
+                      const val = g.value ?? g.measured ?? ', '
                       return (
                         <tr key={name} className={String(status)}>
                           <td className="mono">{name}</td>
                           <td>{status}</td>
                           <td className="mono">{String(val)}</td>
-                          <td className="mono">{String(g.limit ?? '—')}</td>
+                          <td className="mono">{String(g.limit ?? ', ')}</td>
                         </tr>
                       )
                     })}
@@ -332,7 +332,7 @@ export function NotepadView({ receipt, onApplyReceipt }: Props) {
                               {c.state}
                             </span>
                           </td>
-                          <td className="muted">{c.reason || '—'}</td>
+                          <td className="muted">{c.reason || ', '}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -370,7 +370,7 @@ export function NotepadView({ receipt, onApplyReceipt }: Props) {
             <p className="empty-hint">
               Preflight reports gates without writing a receipt. Compile (ideal-first) writes{' '}
               <span className="mono">receipts/notepad</span> when COMPILED. Apply loads that
-              receipt into the sampler — never silently.
+              receipt into the sampler, never silently.
             </p>
           )}
         </div>

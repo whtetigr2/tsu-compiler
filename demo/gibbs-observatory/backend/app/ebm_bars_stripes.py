@@ -5,11 +5,11 @@ bars∪stripes mixture well. Horizontal bars want strong row ferro + uncorrelate
 vertical; stripes the opposite. Averaged pairwise moments → mild ferro everywhere
 → Ising blobs. CD L1≈0.33 on the old pairwise model was a false “success.”
 
-Fix: classic RBM — visible 4×4 (16) + hidden 12, couplings ONLY V↔H (bipartite).
+Fix: classic RBM, visible 4×4 (16) + hidden 12, couplings ONLY V↔H (bipartite).
 Export as Ising on all spins (visible then hidden). UI decode shows only the
 visible 4×4 image.
 
-Honesty: JAX/THRML software sim — not Extropic silicon — not Z1T.
+Honesty: JAX/THRML software sim, not Extropic silicon, not Z1T.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ except ImportError:  # pragma: no cover
 GRID = 4
 N_VISIBLE = GRID * GRID  # 16
 N_HIDDEN = 12
-N_SPINS = N_VISIBLE + N_HIDDEN  # 28 — full Ising export
+N_SPINS = N_VISIBLE + N_HIDDEN  # 28, full Ising export
 EBM_RECEIPT_ID = "prog_ebm_bars_stripes"
 EBM_PROGRAM_NAME = "ebm_bars_stripes"
 HONESTY = "THRML/JAX SIM · trained RBM · not Extropic silicon · not Z1T"
@@ -596,7 +596,7 @@ def export_yaml_from_jh(
         f"  Visible {n_visible} (4×4 image) + hidden {n_hidden}; couplings ONLY V↔H.",
         "  Pairwise-visible Ising failed this dataset (bars vs stripes conflict → blobs).",
         "  Bipartite V–H graph → deg(v)=n_h≤12, deg(h)=16 → under Z1 cap 16; 0 mediators.",
-        "  THRML/JAX software sim — not Extropic silicon — not Z1T.",
+        "  THRML/JAX software sim, not Extropic silicon, not Z1T.",
         "variables:",
     ]
     for i in range(n_visible):
@@ -789,9 +789,9 @@ in {result['elapsed_s']}s ({result['n_epochs']} epochs).
 mean bar_stripe_score = {metrics['mean_bar_stripe_score']:.3f} (gate ≥ {BAR_STRIPE_SCORE_GATE}).
 
 ## Files
-- `W.npy` / `a.npy` / `b.npy` — RBM weights and biases
-- `J.npy` / `h.npy` / `J_edge.npy` / `edges.json` — Ising export (vis then hid)
-- `train_log.json` — loss curve + pure_rate
+- `W.npy` / `a.npy` / `b.npy`, RBM weights and biases
+- `J.npy` / `h.npy` / `J_edge.npy` / `edges.json`, Ising export (vis then hid)
+- `train_log.json`, loss curve + pure_rate
 - `data_examples.png` / `samples_after_train.png`
 - Program YAML: `../ebm_bars_stripes.yaml`
 - Receipt: `../../receipts/{EBM_RECEIPT_ID}/`

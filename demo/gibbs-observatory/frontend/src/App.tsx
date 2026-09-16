@@ -258,7 +258,7 @@ export default function App() {
     ? `#${receipt.id}`
     : graph?.receipt_id
       ? `#${graph.receipt_id}`
-      : '—'
+      : ', '
 
   const wfActive = receiptsOpen
     ? 'receipt'
@@ -464,7 +464,7 @@ export default function App() {
                   ? `${graph.n_nodes} spins`
                   : graph
                     ? `${graph.preset} · ${graph.n_nodes}`
-                    : '—'}
+                    : ', '}
               </span>
               {snapshotMsg ? (
                 <span className="snapshot-toast mono">{snapshotMsg}</span>
@@ -575,14 +575,14 @@ export default function App() {
             </header>
             <ul className="prose-list">
               <li>
-                <span className="mono">Esc</span> — close walkthrough, drawers, or Help
+                <span className="mono">Esc</span>, close walkthrough, drawers, or Help
               </li>
               <li>
-                <span className="mono">←</span> / <span className="mono">→</span> — walkthrough
+                <span className="mono">←</span> / <span className="mono">→</span>, walkthrough
                 Back / Next (Enter = Next / Finish)
               </li>
               <li>
-                <span className="mono">☰</span> — open top menu (mouse / tap)
+                <span className="mono">☰</span>, open top menu (mouse / tap)
               </li>
             </ul>
             <p className="empty-hint">Transport controls live in the Experiment rail and footer.</p>
