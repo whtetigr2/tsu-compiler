@@ -41,6 +41,35 @@ from .verify import DecodedSample, Verification, tv_noise_floor
 
 SLICE_ENCODINGS = ("domain_wall", "one_hot")
 
+# Failure classes that mean "the search gave up", not "the hardware cannot".
+# Only placement effort qualifies today. A degree or budget violation is a real
+# property of the model against the target and stays HARDWARE_INFEASIBLE.
+_EFFORT_FAILURE_CLASSES = frozenset({"placement_effort_exhausted"})
+
+
+def _classify_placement_failure(failure) -> CandidateState:
+    """Which kind of "no" a placement failure is.
+
+    R27. `place` raises for two different reasons and they were recorded as one.
+    A gate violation means the model does not fit the chip. An exhausted
+    annealing budget means this run did not find an embedding, which is a
+    statement about the search, and `place`'s own remediation says so by
+    offering "increase placement effort".
+
+    Conflating them is the representation-versus-hardware confusion
+    `passes/place.py`'s docstring names as the thing this compiler exists to
+    prevent. Measured consequence before the split: seq_design_longer shipped a
+    32-spin one-hot model while its 24-spin domain-wall alternative was labelled
+    hardware-infeasible, when the latter places given more restarts.
+
+    Anything unrecognised stays HARDWARE_INFEASIBLE. Unknown means unchanged,
+    never optimistically reclassified.
+    """
+    cls = getattr(failure, "failure_class", None)
+    if cls in _EFFORT_FAILURE_CLASSES:
+        return CandidateState.PLACEMENT_EFFORT_EXHAUSTED
+    return CandidateState.HARDWARE_INFEASIBLE
+
 
 @dataclass
 class Compilation:
@@ -266,7 +295,7 @@ def _try(spec, target, encoding, allow_assumed, clamp=None, coefficient_scale=1.
         if med is not None:
             ising, _ = insert_mediators(ising, report)
             report = analyse(ising)
-        return Candidate(encoding, CandidateState.HARDWARE_INFEASIBLE,
+        return Candidate(encoding, _classify_placement_failure(failure),
                          reason=str(e), failure=failure, report=report), \
             {"report": report, "gate_checks": checks, "durations": durations}
     except Exception as e:
@@ -499,6 +528,29 @@ def _compile_spec_impl(spec, target: TargetProfile, allow_assumed: bool = False,
                 "the hardware question was never evaluated"),
             allow_assumed=allow_assumed, gate_checks=checks,
             clamp=dict(clamp or {}), pass_durations=durations,
+            coefficient_scale=coefficient_scale, scaled_beta=scaled_beta)
+    # Same argument as the COMPILER_ERROR branch above, applied to a timer.
+    # If every candidate merely ran out of placement budget, no gate refused
+    # anything: the hardware question was not reached, so "HARDWARE" (which
+    # asserts the model does not fit) would again be a claim never established.
+    # R27 measured the consequence: seq_design_longer's domain-wall candidate is
+    # exhausted at the default budget and places at 24 restarts / 250k iters.
+    exhausted = [c for c in cands
+                 if c.state == CandidateState.PLACEMENT_EFFORT_EXHAUSTED]
+    if not feasible and exhausted and len(exhausted) + len(errored) == len(cands):
+        any_art = next(iter(arts.values()), None)
+        checks = any_art[1]["gate_checks"] if any_art else ()
+        durations = any_art[1].get("durations", {}) if any_art else {}
+        return Compilation(
+            spec=spec, target=target, verdict="EFFORT", ideal_passed=True,
+            ideal_report=ideal_cand, hardware_evaluated=False,
+            repset=RepresentationSet(
+                tuple(cands), None,
+                "every candidate exhausted its placement effort budget; no "
+                "gate refused anything, so whether this fits the target was "
+                "never established. Raise restarts or iterations and retry."),
+            allow_assumed=allow_assumed, gate_checks=checks, clamp=dict(clamp or {}),
+            pass_durations=durations,
             coefficient_scale=coefficient_scale, scaled_beta=scaled_beta)
     if not feasible:
         any_art = next(iter(arts.values()), None)

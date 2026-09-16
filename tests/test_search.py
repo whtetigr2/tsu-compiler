@@ -101,7 +101,14 @@ def test_mediated_candidate_carries_the_post_mediation_report_on_placement_failu
     cand, art = search_mod._try(spec, Z1, "one_hot", False,
                                 coefficient_scale=0.25)
 
-    assert cand.state == CandidateState.HARDWARE_INFEASIBLE
+    # R27: this asserted HARDWARE_INFEASIBLE until the two kinds of "no" were
+    # separated. The fixture above raises `placement_effort_exhausted`, so this
+    # test was always constructing the exact case that finding is about: a
+    # search that ran out of budget, recorded as a claim about the silicon.
+    # Measured on seq_design_longer, the same candidate places at 24 restarts /
+    # 250k iterations and is then SELECTED, at 24 physical spins against
+    # one-hot's 32.
+    assert cand.state == CandidateState.PLACEMENT_EFFORT_EXHAUSTED
     assert cand.failure.mediation is not None
     assert cand.report.bipartite is True, \
         ("the returned report must describe the POST-mediation graph "
