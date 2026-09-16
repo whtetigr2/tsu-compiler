@@ -228,6 +228,34 @@ class SamplerEngine:
         st.beta = float(cfg.beta)
         return self.graph_payload()
 
+    def zero_terms(self, *, couplings: bool = False,
+                   biases: bool = False) -> None:
+        """Rebuild the model with a term zeroed, keeping everything else.
+
+        For ablation. The graph, the node identities and the colour blocks are
+        untouched, so the ONLY difference between this model and the one it came
+        from is the term being tested. Anything else changing would make the
+        measured shift attributable to two causes at once, which is the failure
+        mode the ablation exists to avoid.
+        """
+        assert self.state is not None, "reset() before zeroing terms"
+        st = self.state
+        nodes = st.nodes
+        edges = [(nodes[i], nodes[j]) for i, j in st.graph.edges]
+
+        b = (jnp.zeros_like(jnp.asarray(st.biases_np, dtype=jnp.float32))
+             if biases else jnp.asarray(st.biases_np, dtype=jnp.float32))
+        w = (jnp.zeros_like(jnp.asarray(st.weights_np, dtype=jnp.float32))
+             if couplings else jnp.asarray(st.weights_np, dtype=jnp.float32))
+
+        model = IsingEBM(nodes, edges, b, w,
+                         jnp.array(float(st.beta), dtype=jnp.float32))
+        st.model = model
+        st.program = IsingSamplingProgram(
+            model, st.free_blocks, clamped_blocks=st.clamped_blocks)
+        st.biases_np = np.asarray(b)
+        st.weights_np = np.asarray(w)
+
     def graph_payload(self) -> dict:
         assert self.state is not None
         g = self.state.graph

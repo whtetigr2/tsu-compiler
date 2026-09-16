@@ -395,6 +395,35 @@ async def ws_stream(ws: WebSocket) -> None:
 
 
 
+class AblationBody(BaseModel):
+    """Zero a term and measure the change against a noise floor."""
+
+    receipt_id: str
+    target: str = Field("couplings", pattern="^(couplings|biases|none)$")
+    n_samples: int = Field(128, ge=16, le=1024)
+    seed: int = Field(0, ge=0, le=2**31 - 1)
+
+
+@app.post("/api/ablation/run")
+def api_ablation_run(body: AblationBody) -> dict[str, Any]:
+    """Try to prove the loaded model's own terms are doing nothing.
+
+    The comparison is against a NOISE FLOOR, the difference between two runs of
+    the same model under different seeds, not against zero. See
+    backend/app/ablation.py and audit/findings/R23.md.
+    """
+    from .ablation import run_ablation
+
+    try:
+        return {"ok": True, **run_ablation(
+            body.receipt_id, target=body.target,
+            n_samples=body.n_samples, seed=body.seed)}
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 # The Alloy Distribution Lab was removed. It was a view hardwired to one
 # 8x8 program, with three endpoints of its own, showing order parameters
 # (staggered magnetization, short-range order, configuration energy) that
