@@ -23,6 +23,7 @@ import { SpinsView } from './components/views/SpinsView'
 import { NotepadView } from './components/views/NotepadView'
 import { StateSpaceView } from './components/views/StateSpaceView'
 import { AblationView } from './components/views/AblationView'
+import { LatticeView3D } from './components/views/LatticeView3D'
 import { EbmLabView } from './components/views/EbmLabView'
 import { useGibbsSocket } from './hooks/useGibbsSocket'
 import { exportSnapshot } from './lib/snapshot'
@@ -320,6 +321,9 @@ export default function App() {
         <NotepadView receipt={receipt} onApplyReceipt={selectReceipt} />
       )
       break
+    case 'lattice3d':
+      stage = <LatticeView3D graph={graph} batch={batch} />
+      break
     case 'ablation':
       stage = <AblationView receipt={receipt} />
       break
@@ -348,6 +352,7 @@ export default function App() {
     statespace: 'State space',
     notepad: 'Thermodynamic Program notepad',
     ablation: 'Ablation runner',
+    lattice3d: 'Lattice in 3D',
     ebmlab: 'EBM Lab · Bars & Stripes RBM 4×4',
   }
 

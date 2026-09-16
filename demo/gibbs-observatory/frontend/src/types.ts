@@ -14,6 +14,7 @@ export type NavView =
   | 'notepad'
   | 'ebmlab'
   | 'ablation'
+  | 'lattice3d'
   | 'worlds'
 
 export interface SimParams {

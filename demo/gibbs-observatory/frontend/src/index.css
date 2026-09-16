@@ -1934,3 +1934,56 @@ button.btn.ghost {
   max-width: 68ch;
   line-height: 1.5;
 }
+
+/* ---- Lattice in three dimensions -------------------------------------- */
+.lattice3d-view { display: flex; flex-direction: column; gap: 0.6rem; }
+.lattice3d-bar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.lattice3d-bar .seg {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+}
+.lattice3d-bar .seg button {
+  background: transparent;
+  border: 0;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 0.75rem;
+  padding: 0.3rem 0.8rem;
+  cursor: pointer;
+}
+.lattice3d-bar .seg button.active {
+  background: var(--phosphor-soft);
+  color: var(--phosphor);
+}
+.lattice3d-note { font-size: 0.74rem; color: var(--text-mute); }
+.lattice3d-canvas {
+  width: 100%;
+  height: clamp(320px, 58vh, 720px);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  overflow: hidden;
+  touch-action: none;
+  cursor: grab;
+}
+.lattice3d-canvas:active { cursor: grabbing; }
+
+/* A metric slot is sized for a short number. "unavailable" is eleven
+   characters, so it gets its own scale there and is allowed to wrap rather
+   than run into the next column. Caught by looking at the rendered rail, where
+   it collided as "unavailabl4.600". */
+.metric-cell, .metrics-grid > * { min-width: 0; }
+.metric-cell .mv .stat-unavailable,
+.metric-card .big .stat-unavailable {
+  font-size: 0.7rem;
+  letter-spacing: 0;
+}
+.metric-cell .ms .stat-unavailable { font-size: 0.62rem; }
+.stat-unavailable { overflow-wrap: anywhere; }

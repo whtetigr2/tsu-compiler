@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { BatchPayload, GraphPayload, LangMode, ReceiptInspect } from '../types'
 import { label, tip } from '../lib/glossary'
 import { ClaimHygienePanel } from './ClaimHygienePanel'
+import { StatValue } from './StatValue'
 
 interface Props {
   receipt: ReceiptInspect | null
@@ -67,15 +68,15 @@ export function RightRail({
         <div className="metrics-grid">
           <div className="metric-cell" title={tip('energy')}>
             <span className="mk">{label('energy', lang)}</span>
-            <span className="mv">{e ? fmt(e.last, 2) : 'unavailable'}</span>
+            <span className="mv"><StatValue value={e?.last} reason={e?.ess_reason} digits={2} /></span>
             <span className="ms">
-              μ {e ? fmt(e.mean, 2) : 'unavailable'} · ρ₁ {e ? fmt(e.lag1_autocorr, 2) : 'unavailable'}
+              μ <StatValue value={e?.mean} digits={2} /> · ρ₁ <StatValue value={e?.lag1_autocorr} digits={2} />
             </span>
           </div>
           <div className="metric-cell" title={tip('mag')}>
             <span className="mk">{label('mag', lang)}</span>
-            <span className="mv">{m ? fmt(m.last, 3) : 'unavailable'}</span>
-            <span className="ms">μ {m ? fmt(m.mean, 3) : 'unavailable'}</span>
+            <span className="mv"><StatValue value={m?.last} reason={m?.ess_reason} digits={3} /></span>
+            <span className="ms">μ <StatValue value={m?.mean} digits={3} /></span>
           </div>
           <div className="metric-cell">
             <span className="mk">Sweep</span>

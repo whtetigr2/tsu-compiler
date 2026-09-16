@@ -4,6 +4,7 @@ const ITEMS: { id: NavView; label: string; phase?: string }[] = [
   { id: 'overview', label: 'Overview' },
   { id: 'ebmlab', label: 'EBM Lab' },
   { id: 'ablation', label: 'Ablation' },
+  { id: 'lattice3d', label: 'Lattice 3D' },
   { id: 'spins', label: 'Spins' },
   { id: 'couplings', label: 'Couplings' },
   { id: 'connectivity', label: 'Connectivity' },
