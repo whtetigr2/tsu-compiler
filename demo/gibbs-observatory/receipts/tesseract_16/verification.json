@@ -1,0 +1,13 @@
+{
+  "energy_tv": 1.0658141036401503e-14,
+  "task_validity": 1.0,
+  "execution_tv": 0.07690074051045866,
+  "execution_noise_floor": 0.11487506784298857,
+  "cross_check_tv": "unavailable: torx PISING route is exact only for a single-bond model; this has 16 nodes and 32 edges, and composing PISING across edges is a Trotter splitting with its own error (EXP-TX4)",
+  "codeword_violation_rate": 0.0,
+  "ess": 6824.401144606975,
+  "diversity_distinct": 433,
+  "diversity_valid_samples": 6400,
+  "diversity_reachable": 65536,
+  "transport": "not applicable: this workload declares no directed flow variable"
+}

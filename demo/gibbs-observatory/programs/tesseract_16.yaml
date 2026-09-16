@@ -1,0 +1,69 @@
+name: tesseract_16
+description: >
+  A four-dimensional cube, as an ordinary Ising model. Sixteen vertices,
+  each joined to the four others whose binary index differs in exactly one
+  bit. That is the definition of a hypercube, and it makes Q4 a plain
+  4-regular bipartite graph.
+
+  The fourth dimension lives in the CONNECTIVITY, not in the hardware and
+  not in the physics. Nothing here is four-dimensional in any other sense:
+  the chip is a flat piece of silicon and the spins are ordinary binary
+  spins. What makes it worth shipping is that nobody hardcoded this shape,
+  so it is a real test of whether the viewer can draw a topology it was not
+  built for.
+
+  Ferromagnetic throughout, so it orders visibly rather than sitting in
+  noise. Bipartite, so it needs no mediator spins and its two-colour update
+  schedule is exact.
+variables:
+  v0: {domain: binary}
+  v1: {domain: binary}
+  v2: {domain: binary}
+  v3: {domain: binary}
+  v4: {domain: binary}
+  v5: {domain: binary}
+  v6: {domain: binary}
+  v7: {domain: binary}
+  v8: {domain: binary}
+  v9: {domain: binary}
+  v10: {domain: binary}
+  v11: {domain: binary}
+  v12: {domain: binary}
+  v13: {domain: binary}
+  v14: {domain: binary}
+  v15: {domain: binary}
+terms:
+  # Ferromagnetic along every hypercube edge. Negative is a reward,
+  # so neighbours agreeing lowers the energy.
+  - {kind: product, a: {v0: 1.0}, b: {v1: 1.0}, weight: -0.8}
+  - {kind: product, a: {v0: 1.0}, b: {v2: 1.0}, weight: -0.8}
+  - {kind: product, a: {v0: 1.0}, b: {v4: 1.0}, weight: -0.8}
+  - {kind: product, a: {v0: 1.0}, b: {v8: 1.0}, weight: -0.8}
+  - {kind: product, a: {v1: 1.0}, b: {v3: 1.0}, weight: -0.8}
+  - {kind: product, a: {v1: 1.0}, b: {v5: 1.0}, weight: -0.8}
+  - {kind: product, a: {v1: 1.0}, b: {v9: 1.0}, weight: -0.8}
+  - {kind: product, a: {v2: 1.0}, b: {v3: 1.0}, weight: -0.8}
+  - {kind: product, a: {v2: 1.0}, b: {v6: 1.0}, weight: -0.8}
+  - {kind: product, a: {v2: 1.0}, b: {v10: 1.0}, weight: -0.8}
+  - {kind: product, a: {v3: 1.0}, b: {v7: 1.0}, weight: -0.8}
+  - {kind: product, a: {v3: 1.0}, b: {v11: 1.0}, weight: -0.8}
+  - {kind: product, a: {v4: 1.0}, b: {v5: 1.0}, weight: -0.8}
+  - {kind: product, a: {v4: 1.0}, b: {v6: 1.0}, weight: -0.8}
+  - {kind: product, a: {v4: 1.0}, b: {v12: 1.0}, weight: -0.8}
+  - {kind: product, a: {v5: 1.0}, b: {v7: 1.0}, weight: -0.8}
+  - {kind: product, a: {v5: 1.0}, b: {v13: 1.0}, weight: -0.8}
+  - {kind: product, a: {v6: 1.0}, b: {v7: 1.0}, weight: -0.8}
+  - {kind: product, a: {v6: 1.0}, b: {v14: 1.0}, weight: -0.8}
+  - {kind: product, a: {v7: 1.0}, b: {v15: 1.0}, weight: -0.8}
+  - {kind: product, a: {v8: 1.0}, b: {v9: 1.0}, weight: -0.8}
+  - {kind: product, a: {v8: 1.0}, b: {v10: 1.0}, weight: -0.8}
+  - {kind: product, a: {v8: 1.0}, b: {v12: 1.0}, weight: -0.8}
+  - {kind: product, a: {v9: 1.0}, b: {v11: 1.0}, weight: -0.8}
+  - {kind: product, a: {v9: 1.0}, b: {v13: 1.0}, weight: -0.8}
+  - {kind: product, a: {v10: 1.0}, b: {v11: 1.0}, weight: -0.8}
+  - {kind: product, a: {v10: 1.0}, b: {v14: 1.0}, weight: -0.8}
+  - {kind: product, a: {v11: 1.0}, b: {v15: 1.0}, weight: -0.8}
+  - {kind: product, a: {v12: 1.0}, b: {v13: 1.0}, weight: -0.8}
+  - {kind: product, a: {v12: 1.0}, b: {v14: 1.0}, weight: -0.8}
+  - {kind: product, a: {v13: 1.0}, b: {v15: 1.0}, weight: -0.8}
+  - {kind: product, a: {v14: 1.0}, b: {v15: 1.0}, weight: -0.8}

@@ -638,6 +638,14 @@ _SHELF_CATALOG: list[dict[str, Any]] = [
         "extropic": False,
         "notes": "Fit items onto a grid where no two may be adjacent. A packing problem over 64 cells.",
     },
+    {
+        "id": "tesseract_16",
+        "title": "A four-dimensional cube",
+        "source": "programs/tesseract_16.yaml",
+        "kind": "curated",
+        "extropic": False,
+        "notes": "Sixteen spins wired as a hypercube: each joined to the four whose binary index differs in one bit. The fourth dimension is in the connectivity, not the hardware. Bipartite, so it needs no helper spins.",
+    },
     # The `codon_opt` stub was removed. It was a shelf entry whose only
     # behaviour was to refuse, flagged as Extropic's published work while
     # nothing proved it compiled, and it sat next to `prog_codon_opt_tiny`,

@@ -1,0 +1,9 @@
+{
+  "energy_scale": "unavailable: no physical state violates the task contract",
+  "coupling_utilisation": 0.13333333333333333,
+  "precision_headroom": "unmeasured: fewer than two distinct |J| values in the model",
+  "beta_recommendation": null,
+  "mixing_indicator": 0.9378112253934016,
+  "regime": "feasible",
+  "basis": "within cap; mixing not measured"
+}

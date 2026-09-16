@@ -1,0 +1,123 @@
+{
+  "name": "z1",
+  "degree": {
+    "value": 16,
+    "source": "F-14",
+    "quote": "All nodes in Z1 have connection rules (1,0),(2,1),(2,3),(4,1), giving degree 16"
+  },
+  "offsets": {
+    "value": [
+      [
+        -4,
+        -1
+      ],
+      [
+        -3,
+        2
+      ],
+      [
+        -2,
+        -3
+      ],
+      [
+        -2,
+        -1
+      ],
+      [
+        -1,
+        0
+      ],
+      [
+        -1,
+        2
+      ],
+      [
+        -1,
+        4
+      ],
+      [
+        0,
+        -1
+      ],
+      [
+        0,
+        1
+      ],
+      [
+        1,
+        -4
+      ],
+      [
+        1,
+        -2
+      ],
+      [
+        1,
+        0
+      ],
+      [
+        2,
+        1
+      ],
+      [
+        2,
+        3
+      ],
+      [
+        3,
+        -2
+      ],
+      [
+        4,
+        1
+      ]
+    ],
+    "source": "F-14/F-17",
+    "quote": ""
+  },
+  "bipartite": {
+    "value": true,
+    "source": "F-18",
+    "quote": "Since the graph is 2-colorable"
+  },
+  "schedule": {
+    "value": "chromatic_block_gibbs",
+    "source": "F-19",
+    "quote": "resampling every node v in V1 ... The same is then done for V2"
+  },
+  "max_abs_coupling": {
+    "value": 6.0,
+    "source": "2608.01615v1.pdf (Thermalizers) p.22, Fig. 12 cap-sweep axis: '6 (Z1)'",
+    "quote": "cap-sweep axis values '0.3 0.5 0.75 1 1.5 2 3 6 (Z1) 10' annotate 6 as '(Z1)' -- Extropic's own Z1 hardware |J| cap; corroborated in prose (p.13: 'the hardware caps |J| <= Jmax, |h| <= hmax'; p.20: 'every programmable weight ... has finite dynamic range, |Jij| <= Jmax and |hi| <= hmax')"
+  },
+  "max_abs_bias": {
+    "value": 6.0,
+    "source": "assumed",
+    "quote": "project working value; NOT a sourced Extropic figure"
+  },
+  "coupling_bits": {
+    "value": 6,
+    "source": "assumed",
+    "quote": "project working value; NOT a sourced Extropic figure"
+  },
+  "node_budget": {
+    "value": 269568,
+    "source": "From One to One Billion: Torx, Thermalizers, and Z1 - Extropic.pdf (billion) p.7, Fig. 05 caption and callout panel",
+    "quote": "caption: 'The Z1 die: eight cores, 269,568 pbits, 215,904 coupling parameters, >50 MHz sampling rate, <1 W'; callout panel: 'PBITS 269,568 IN 8 CORES' -- Extropic's own exact architectural spec for the taped-out Z1 die. SUPERSEDES the earlier approximate figure sourced to a different Extropic document (thermalizers p.5, verbatim: 'the entire chip has ~250,000 nodes', a rounded estimate used only to size a per-iteration energy-cost calculation, never presented as a hardware spec). See audit/provenance.md Part 1 row 9 and Finding P-1 for the full cross-document reconciliation. Coupling COUNTS (couplers vs coupling parameters) from this same figure remain unreconciled -- see audit/findings/R2.md -- and are unaffected by this change."
+  },
+  "connected_fabric": {
+    "value": true,
+    "source": "assumed",
+    "quote": "DERIVED, NOT DOCUMENTED. The published material states four numbers -- 269,568 pbits, 8 cores, 16-neighbour connectivity, and 2,135,904 couplers (billion p.7, Fig. 05) -- and never states whether the eight cores form one connected fabric or eight independent processors. This project has ALWAYS assumed connected: node_budget is the full die and place.py's grid embedder places across all of it. The assumption is recorded here so it prints ASSUMED rather than staying invisible. Evidence: reconstructing the edge count from the documented offset rule, every connected rectangular tiling of 269,568 reproduces the published 2,135,904 couplers to within a few hundred edges (best 216x1248, +168), while every 8-isolated-core tiling undercounts by ~20,600-21,500 -- matching an independently predicted boundary deficit of ~21,000 (7 internal boundaries in a 2x4 mesh at ~3,024 couplings each; see audit/findings/R2.md). LICENCES treating node_budget as PLACEABLE rather than merely countable. DOES NOT licence any claim about inter-core bandwidth, nor that the array is a plain rectangle -- nothing reproduces 2,135,904 exactly."
+  },
+  "coupling_parameters": {
+    "value": 215904,
+    "source": "https://extropic.ai/writing/z1t/ die callout; also from-one-to-one-billion Fig. 05 caption",
+    "quote": "'269,568 pbits, 215,904 coupling parameters'. DISTINCT from the edge count: the same Z1T page's body prose states 'this graph of couplings has each node being of degree 16, for a total of 269,568 pbits and 2,135,904 coupling EDGES on a single chip'. So the die carries ~2.14M physical edges against ~216K programmable parameters -- a ratio of 9.89:1. Both figures are Extropic's own words; see audit/findings/R2.md."
+  },
+  "per_edge_independent_J": {
+    "value": true,
+    "source": "assumed",
+    "quote": "THIS COMPILER ASSUMES ONE INDEPENDENTLY-PROGRAMMABLE J PER EDGE, and on the physical Z1 die that is an IDEALISATION: there are ~9.89 edges per coupling parameter (see coupling_parameters above). What is known is the two counts. What is NOT known is the MAPPING -- which edges share a parameter, and whether sharing is structured (by offset class, by core, or by some physical grouping) or arbitrary. Nothing published explains the mechanism, and a weight-tying hypothesis was tested against the Thermalizers paper and failed (R2). So this project models the COUNT and refuses to invent the MAPPING. A model whose couplings cannot be expressed under the real sharing pattern would be unprogrammable on physical Z1, and NO gate or test here detects that -- which is why this is recorded as an assumption rather than left silent."
+  }
+}
