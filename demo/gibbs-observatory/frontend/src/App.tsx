@@ -255,7 +255,7 @@ export default function App() {
     ? `#${receipt.id}`
     : graph?.receipt_id
       ? `#${graph.receipt_id}`
-      : ', '
+      : 'unavailable'
 
   const wfActive = receiptsOpen
     ? 'receipt'
@@ -449,7 +449,7 @@ export default function App() {
                   ? `${graph.n_nodes} spins`
                   : graph
                     ? `${graph.preset} · ${graph.n_nodes}`
-                    : ', '}
+                    : 'unavailable'}
               </span>
               {snapshotMsg ? (
                 <span className="snapshot-toast mono">{snapshotMsg}</span>

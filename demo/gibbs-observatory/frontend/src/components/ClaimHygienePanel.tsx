@@ -43,13 +43,13 @@ export function ClaimHygienePanel({ receipt, compact = false }: Props) {
         <div className="flag ok">runtime: software / THRML+JAX</div>
         <div className="flag ok">silicon: none</div>
         <div className={`flag ${betaFixed ? 'ok' : 'info'}`}>
-          β: {receipt?.beta ?? ', '}
+          β: {receipt?.beta ?? 'unavailable'}
           {betaFixed ? ' FIXED (mediated)' : ' editable (unmediated)'}
         </div>
         <div className={`flag ${essAvailable ? 'ok' : 'warn'}`}>
           ESS:{' '}
           {essAvailable
-            ? `available (${ess?.value ?? ', '})`
+            ? `available (${ess?.value ?? 'unavailable'})`
             : ess?.reason
               ? `unavailable, ${ess.reason}`
               : 'diagnostic only / contract check'}

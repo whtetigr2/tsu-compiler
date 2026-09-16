@@ -8,7 +8,7 @@ interface Props {
 }
 
 function previewIndices(idxs: number[], limit = 24): string {
-  if (!idxs.length) return ', '
+  if (!idxs.length) return 'unavailable'
   const head = idxs.slice(0, limit).join(', ')
   return idxs.length > limit ? `${head}, … (+${idxs.length - limit})` : head
 }
@@ -50,7 +50,7 @@ export function ScheduleView({ receipt, batch, lang }: Props) {
     <div className="view schedule-view">
       <div className="view-caption">
         {label('blocks', lang)} timeline · kernel{' '}
-        <span className="mono">{kernel ?? ', '}</span>
+        <span className="mono">{kernel ?? 'unavailable'}</span>
         {active != null ? (
           <>
             {' '}

@@ -46,23 +46,60 @@ def lag1_autocorr(x: np.ndarray) -> float:
     return float(np.dot(x[:-1], x[1:]) / var)
 
 
-def ess_from_autocorr(n: int, rho1: float) -> float:
-    """Rough ESS from lag-1 AR(1) approximation: ESS ≈ n * (1-ρ)/(1+ρ)."""
-    if n <= 0:
-        return 0.0
-    rho = float(np.clip(rho1, -0.999, 0.999))
-    return float(n) * (1.0 - rho) / (1.0 + rho)
-
-
 def summarize_series(values: np.ndarray) -> dict:
-    """Summary stats + lag-1 autocorr + ESS for a metric series."""
+    """Summary of one live metric series.
+
+    ESS comes from `tsu_compiler.ess.effective_sample_size`, this project's own
+    reviewed Sokal-window estimator, NOT from a lag-1 AR(1) approximation
+    computed here. That estimator refuses to answer when the chain is too short
+    to support an estimate, and the refusal is passed through to the interface
+    rather than replaced with a confident-looking number.
+
+    Measured before this changed. The interface keeps 256 samples of history,
+    and the compiler's reliability threshold is N/tau >= 5000, which at that
+    length is unreachable. So it declined every time, while this function
+    returned a number anyway:
+
+        series                      N        shown    compiler
+        white noise               256        237.1    REFUSES
+        rho=0.95 (near critical)  256          8.9    REFUSES
+        white noise            20,000     19,985.5    20,561.3
+
+    The old estimator was not wrong about long chains. It was silent about short
+    ones, which is the only kind this interface has.
+
+    `lag1_autocorr` stays. It is cheap, always available, and honest about being
+    what it is. `ess_from_autocorr` was deleted rather than left unused, because
+    leaving it invites its reuse.
+    """
     v = np.asarray(values, dtype=np.float64).ravel()
-    rho = lag1_autocorr(v)
+    if v.size == 0:
+        return {
+            "mean": None, "std": None, "last": None, "lag1_autocorr": None,
+            "ess": None, "ess_reliable": False,
+            "ess_reason": "unavailable: no samples yet", "n": 0,
+        }
+
+    ess: float | None = None
+    ess_reason: str | None = None
+    reliable = False
+    try:
+        from tsu_compiler.ess import effective_sample_size
+
+        est = effective_sample_size(v.reshape(1, -1))
+        reliable = bool(est.reliable)
+        ess = float(est.ess) if (reliable and est.ess is not None) else None
+        ess_reason = None if reliable else str(est.reason)
+    except Exception as exc:  # noqa: BLE001
+        ess_reason = f"unavailable: the ESS estimator failed: {exc!r}"
+
     return {
-        "mean": float(v.mean()) if v.size else 0.0,
-        "std": float(v.std()) if v.size else 0.0,
-        "last": float(v[-1]) if v.size else 0.0,
-        "lag1_autocorr": rho,
-        "ess": ess_from_autocorr(v.size, rho),
+        "mean": float(v.mean()),
+        "std": float(v.std()),
+        "last": float(v[-1]),
+        "lag1_autocorr": lag1_autocorr(v),
+        "ess": ess,
+        "ess_reliable": reliable,
+        "ess_reason": ess_reason,
         "n": int(v.size),
     }

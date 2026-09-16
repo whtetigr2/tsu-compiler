@@ -14,7 +14,7 @@ interface Props {
 }
 
 function fmt(x: number | null | undefined, d = 3) {
-  if (x == null || !Number.isFinite(x)) return ', '
+  if (x == null || !Number.isFinite(x)) return 'unavailable'
   return x.toFixed(d)
 }
 
@@ -67,15 +67,15 @@ export function RightRail({
         <div className="metrics-grid">
           <div className="metric-cell" title={tip('energy')}>
             <span className="mk">{label('energy', lang)}</span>
-            <span className="mv">{e ? fmt(e.last, 2) : ', '}</span>
+            <span className="mv">{e ? fmt(e.last, 2) : 'unavailable'}</span>
             <span className="ms">
-              μ {e ? fmt(e.mean, 2) : ', '} · ρ₁ {e ? fmt(e.lag1_autocorr, 2) : ', '}
+              μ {e ? fmt(e.mean, 2) : 'unavailable'} · ρ₁ {e ? fmt(e.lag1_autocorr, 2) : 'unavailable'}
             </span>
           </div>
           <div className="metric-cell" title={tip('mag')}>
             <span className="mk">{label('mag', lang)}</span>
-            <span className="mv">{m ? fmt(m.last, 3) : ', '}</span>
-            <span className="ms">μ {m ? fmt(m.mean, 3) : ', '}</span>
+            <span className="mv">{m ? fmt(m.last, 3) : 'unavailable'}</span>
+            <span className="ms">μ {m ? fmt(m.mean, 3) : 'unavailable'}</span>
           </div>
           <div className="metric-cell">
             <span className="mk">Sweep</span>
@@ -86,13 +86,13 @@ export function RightRail({
                 ? fmt(ess.value, 1)
                 : e
                   ? `≈${fmt(e.ess, 0)}`
-                  : ', '}
+                  : 'unavailable'}
             </span>
           </div>
           <div className="metric-cell">
             <span className="mk">Active colour</span>
             <span className="mv">
-              {batch != null ? `V${(batch.active_block ?? 0) + 1}` : ', '}
+              {batch != null ? `V${(batch.active_block ?? 0) + 1}` : 'unavailable'}
             </span>
             <span className="ms">{label('blocks', lang)} chromatic</span>
           </div>
@@ -106,12 +106,12 @@ export function RightRail({
             <div className="metric-cell">
               <span className="mk">State</span>
               <span className="mv">
-                {spinVal == null ? ', ' : spinVal > 0 ? '+1' : '−1'}
+                {spinVal == null ? 'unavailable' : spinVal > 0 ? '+1' : '−1'}
               </span>
             </div>
             <div className="metric-cell">
               <span className="mk">Local field h</span>
-              <span className="mv">{bias == null ? ', ' : fmt(bias, 3)}</span>
+              <span className="mv">{bias == null ? 'unavailable' : fmt(bias, 3)}</span>
             </div>
           </div>
           <p className="inspector-hint">
@@ -142,10 +142,10 @@ export function RightRail({
                   <span className="light" />
                   <span className="name">{g.gate}</span>
                   <span className="meas mono">
-                    {g.measured == null ? ', ' : String(g.measured)}
+                    {g.measured == null ? 'unavailable' : String(g.measured)}
                     <span className="dim">
                       {' '}
-                      / {g.limit == null ? ', ' : String(g.limit)}
+                      / {g.limit == null ? 'unavailable' : String(g.limit)}
                     </span>
                   </span>
                   {g.assumed ? <span className="assumed">assumed</span> : null}

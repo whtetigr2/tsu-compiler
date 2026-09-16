@@ -9,7 +9,7 @@ interface Props {
 }
 
 function fmt(x: number | null | undefined, d = 3) {
-  if (x == null || !Number.isFinite(x)) return ', '
+  if (x == null || !Number.isFinite(x)) return 'unavailable'
   return x.toFixed(d)
 }
 

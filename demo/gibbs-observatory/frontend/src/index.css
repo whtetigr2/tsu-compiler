@@ -1832,3 +1832,14 @@ button.btn.ghost {
   .picker-body { grid-template-columns: 1fr; }
   .picker-detail { border-left: 0; padding-left: 0; border-top: 1px solid var(--border-subtle); padding-top: 1rem; }
 }
+
+/* ---- A number, or why there is not one ------------------------------- */
+.stat-unavailable {
+  color: var(--text-mute);
+  font-style: italic;
+  font-size: 0.9em;
+  cursor: help;
+  border-bottom: 1px dotted var(--border-bright);
+}
+.stat-value { font-variant-numeric: tabular-nums; }
+.stat-unit { color: var(--text-mute); margin-left: 0.15em; font-size: 0.85em; }

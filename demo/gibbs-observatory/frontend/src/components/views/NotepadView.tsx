@@ -244,27 +244,27 @@ export function NotepadView({ receipt, onApplyReceipt }: Props) {
                 <div>
                   <span className="k">verdict</span>
                   <span className={`v mono ${result.ok || result.verdict === 'ok' || result.verdict === 'COMPILED' ? 'ok' : 'bad'}`}>
-                    {result.verdict ?? ', '}
+                    {result.verdict ?? 'unavailable'}
                   </span>
                 </div>
                 <div>
                   <span className="k">mediators</span>
-                  <span className="v mono">{mediators ?? ', '}</span>
+                  <span className="v mono">{mediators ?? 'unavailable'}</span>
                 </div>
                 <div>
                   <span className="k">bipartite</span>
                   <span className="v mono">
-                    {bipartite == null ? ', ' : bipartite ? 'yes' : 'no'}
+                    {bipartite == null ? 'unavailable' : bipartite ? 'yes' : 'no'}
                   </span>
                 </div>
                 <div>
                   <span className="k">spins</span>
-                  <span className="v mono">{result.n_spins ?? result.n_nodes ?? ', '}</span>
+                  <span className="v mono">{result.n_spins ?? result.n_nodes ?? 'unavailable'}</span>
                 </div>
                 <div>
                   <span className="k">elapsed</span>
                   <span className="v mono">
-                    {result.elapsed_seconds != null ? `${result.elapsed_seconds}s` : ', '}
+                    {result.elapsed_seconds != null ? `${result.elapsed_seconds}s` : 'unavailable'}
                   </span>
                 </div>
               </div>
@@ -286,14 +286,14 @@ export function NotepadView({ receipt, onApplyReceipt }: Props) {
                       const name = g.name ?? g.gate ?? `g${i}`
                       const status =
                         g.status ??
-                        (g.passed == null ? ', ' : g.passed ? 'ok' : 'fail')
-                      const val = g.value ?? g.measured ?? ', '
+                        (g.passed == null ? 'unavailable' : g.passed ? 'ok' : 'fail')
+                      const val = g.value ?? g.measured ?? 'unavailable'
                       return (
                         <tr key={name} className={String(status)}>
                           <td className="mono">{name}</td>
                           <td>{status}</td>
                           <td className="mono">{String(val)}</td>
-                          <td className="mono">{String(g.limit ?? ', ')}</td>
+                          <td className="mono">{String(g.limit ?? 'unavailable')}</td>
                         </tr>
                       )
                     })}
@@ -332,7 +332,7 @@ export function NotepadView({ receipt, onApplyReceipt }: Props) {
                               {c.state}
                             </span>
                           </td>
-                          <td className="muted">{c.reason || ', '}</td>
+                          <td className="muted">{c.reason || 'unavailable'}</td>
                         </tr>
                       ))}
                     </tbody>

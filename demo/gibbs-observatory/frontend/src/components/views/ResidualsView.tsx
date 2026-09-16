@@ -6,7 +6,7 @@ interface Props {
 }
 
 function fmt(v: number | null | undefined, d = 3): string {
-  if (v == null || !Number.isFinite(v)) return ', '
+  if (v == null || !Number.isFinite(v)) return 'unavailable'
   return Number.isInteger(v) ? String(v) : v.toFixed(d)
 }
 

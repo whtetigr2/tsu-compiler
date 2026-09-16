@@ -1,12 +1,13 @@
 import type { BatchPayload } from '../types'
 import { Sparkline } from './Sparkline'
+import { StatValue } from './StatValue'
 
 interface Props {
   batch: BatchPayload | null
 }
 
-function fmt(x: number, d = 3) {
-  if (!Number.isFinite(x)) return ', '
+function fmt(x: number | null | undefined, d = 3) {
+  if (x == null || !Number.isFinite(x)) return 'unavailable'
   return x.toFixed(d)
 }
 
@@ -19,24 +20,24 @@ export function MetricsPanel({ batch }: Props) {
 
       <div className="metric-card">
         <div className="title">Energy</div>
-        <div className="big">{e ? fmt(e.last, 2) : ', '}</div>
+        <div className="big">{e ? fmt(e.last, 2) : 'unavailable'}</div>
         <div className="sub">
-          <span>mean {e ? fmt(e.mean, 2) : ', '}</span>
-          <span>std {e ? fmt(e.std, 2) : ', '}</span>
-          <span>ρ₁ {e ? fmt(e.lag1_autocorr, 3) : ', '}</span>
-          <span>ESS≈ {e ? fmt(e.ess, 1) : ', '}</span>
+          <span>mean {e ? fmt(e.mean, 2) : 'unavailable'}</span>
+          <span>std {e ? fmt(e.std, 2) : 'unavailable'}</span>
+          <span>ρ₁ {e ? fmt(e.lag1_autocorr, 3) : 'unavailable'}</span>
+          <span>ESS <StatValue value={e?.ess} reason={e?.ess_reason} digits={0} /></span>
         </div>
         <Sparkline data={batch?.history.energy ?? []} color="#3ee0b0" />
       </div>
 
       <div className="metric-card">
         <div className="title">Magnetization</div>
-        <div className="big">{m ? fmt(m.last, 3) : ', '}</div>
+        <div className="big">{m ? fmt(m.last, 3) : 'unavailable'}</div>
         <div className="sub">
-          <span>mean {m ? fmt(m.mean, 3) : ', '}</span>
-          <span>std {m ? fmt(m.std, 3) : ', '}</span>
-          <span>ρ₁ {m ? fmt(m.lag1_autocorr, 3) : ', '}</span>
-          <span>ESS≈ {m ? fmt(m.ess, 1) : ', '}</span>
+          <span>mean {m ? fmt(m.mean, 3) : 'unavailable'}</span>
+          <span>std {m ? fmt(m.std, 3) : 'unavailable'}</span>
+          <span>ρ₁ {m ? fmt(m.lag1_autocorr, 3) : 'unavailable'}</span>
+          <span>ESS <StatValue value={m?.ess} reason={m?.ess_reason} digits={0} /></span>
         </div>
         <Sparkline data={batch?.history.magnetization ?? []} color="#4cc9f0" />
       </div>

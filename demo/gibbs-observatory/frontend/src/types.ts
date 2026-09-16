@@ -59,11 +59,19 @@ export interface GraphPayload {
 }
 
 export interface MetricSummary {
-  mean: number
-  std: number
-  last: number
-  lag1_autocorr: number
-  ess: number
+  /** null when the series is empty. An empty series has no mean; 0 is a lie. */
+  mean: number | null
+  std: number | null
+  last: number | null
+  lag1_autocorr: number | null
+  /**
+   * null unless the chain is long enough for the compiler's Sokal estimator to
+   * stand behind it, which needs N/tau >= 5000. The live history is 256
+   * samples, so this is null in the interface today and `ess_reason` says why.
+   */
+  ess: number | null
+  ess_reliable: boolean
+  ess_reason: string | null
   n: number
 }
 

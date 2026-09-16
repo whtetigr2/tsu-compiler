@@ -194,7 +194,7 @@ export function StateSpaceView({ graph, batch, receipt, lang: _lang }: Props) {
   return (
     <div className="view statespace-view">
       <div className="view-caption">
-        State space · n={n || ', '} spins
+        State space · n={n || 'unavailable'} spins
         {large ? (
           <>
             {' '}

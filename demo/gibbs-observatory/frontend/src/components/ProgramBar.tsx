@@ -6,7 +6,7 @@ interface Props {
 }
 
 export function ProgramBar({ receipt, fallbackBanner }: Props) {
-  const verdict = receipt?.verdict ?? ', '
+  const verdict = receipt?.verdict ?? 'unavailable'
   const beta = receipt?.beta
   const betaFixed = receipt?.beta_fixed
   return (
@@ -17,18 +17,18 @@ export function ProgramBar({ receipt, fallbackBanner }: Props) {
       </div>
       <div className="pb-item">
         <span className="k">encoding</span>
-        <span className="v">{receipt?.encoding ?? ', '}</span>
+        <span className="v">{receipt?.encoding ?? 'unavailable'}</span>
       </div>
       <div className="pb-item">
         <span className="k">β</span>
         <span className="v">
-          {beta != null ? beta : ', '}
+          {beta != null ? beta : 'unavailable'}
           {betaFixed ? <span className="chip fixed">FIXED</span> : null}
         </span>
       </div>
       <div className="pb-item">
         <span className="k">kernel</span>
-        <span className="v">{receipt?.kernel ?? ', '}</span>
+        <span className="v">{receipt?.kernel ?? 'unavailable'}</span>
       </div>
       <div className="pb-item">
         <span className={`verdict-chip ${String(verdict).toLowerCase()}`}>{verdict}</span>

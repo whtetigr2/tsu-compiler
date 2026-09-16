@@ -76,7 +76,7 @@ export function LeftNav({
           <div className="field-head">
             <label>Inverse temperature β</label>
             <span className="field-val">
-              {beta != null ? Number(beta).toFixed(2) : ', '}
+              {beta != null ? Number(beta).toFixed(2) : 'unavailable'}
               {betaFixed ? <span className="chip fixed">FIXED</span> : null}
             </span>
           </div>
