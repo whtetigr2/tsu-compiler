@@ -219,6 +219,23 @@ residue — because energy is a sum over edges and every edge belongs to some
 part of the decoded object. The global trace stays; they answer different
 questions.
 
+### The viewport already exists in prototype
+
+Found while retiring the Alloy Lab: it and the EBM Lab used seventeen of the
+same nineteen CSS classes. They were not two labs. They were **one view with two
+decoders**, differing only in what turns spins into a picture:
+
+    hero image  |  side gauges  |  sample a batch  |  thumbnail gallery
+
+That is the decoder viewport this section describes, built already without being
+named. Its classes are renamed from `alloy-*` to `lab-*` and it is kept rather
+than rewritten. The Alloy Lab was removed because its *readings* were general
+ones wearing a model-specific label; the EBM Lab stays because it is the working
+example of the seam.
+
+This lowers the cost of the decoder work: the presentation half exists, and what
+has to be built is the contract underneath it.
+
 ### v1 decoders
 
 - **Game** — spatial, interactive, pointer-locked
