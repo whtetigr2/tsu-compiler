@@ -96,3 +96,45 @@ def test_an_empty_series_is_unavailable_not_zero():
     out = summarize_series(np.array([]))
     assert out["ess"] is None
     assert out["mean"] is None, "an empty series has no mean; 0.0 is a lie"
+
+
+def test_a_failed_receipt_load_records_why_it_substituted_a_model(monkeypatch):
+    """Swapping the model is honest only if it says what went wrong.
+
+    `_resolve_graph` catches bare Exception and samples a generic lattice2d
+    instead. Measured: all packaged examples load today, so it does not fire.
+    It is a trap waiting for the first receipt that fails to parse, and the
+    person watching the energy trace would be watching a different model.
+    """
+    from backend.app import sampler_engine as se
+
+    def boom(_rid):
+        raise ValueError("receipt is malformed in some specific way")
+
+    monkeypatch.setattr(se, "receipt_to_graph_arrays", boom, raising=False)
+    import backend.app.receipt_loader as rl
+    monkeypatch.setattr(rl, "receipt_to_graph_arrays", boom, raising=False)
+
+    engine = se.SamplerEngine(se.SamplerConfig(receipt_id="small"))
+    assert engine.config.sampling_fallback is True
+    assert engine.config.fallback_reason, (
+        "the engine swapped in a different model and recorded no reason")
+    assert "malformed" in engine.config.fallback_reason
+    assert "NOT this receipt" in engine.config.fallback_reason
+
+
+def test_every_packaged_example_loads_without_substituting_a_model():
+    """If this fails, somebody is watching the wrong model's statistics."""
+    from backend.app.receipt_loader import examples_shelf, receipt_to_graph_arrays
+
+    failed = []
+    for item in examples_shelf():
+        if not item["packaged"]:
+            continue
+        try:
+            receipt_to_graph_arrays(item["id"])
+        except Exception as exc:  # noqa: BLE001
+            failed.append(f"{item['id']}: {exc!r}")
+    assert not failed, (
+        "these examples would silently sample a generic lattice instead of "
+        "themselves: " + "; ".join(failed))

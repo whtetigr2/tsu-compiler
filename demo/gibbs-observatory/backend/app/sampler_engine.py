@@ -33,6 +33,11 @@ class SamplerConfig:
     # When receipt cannot drive THRML, engine falls back to preset but UI
     # still shows receipt inspect data.
     sampling_fallback: bool = False
+    # Why a DIFFERENT model was substituted. Set alongside the flag, because
+    # swapping the model out from under a live energy trace is a large thing
+    # to do quietly, and a banner saying it happened without saying why
+    # leaves a malformed receipt merely survivable rather than debuggable.
+    fallback_reason: str | None = None
 
 
 @dataclass
@@ -77,8 +82,13 @@ class SamplerEngine:
                 if data.get("beta_fixed") or data.get("beta") is not None:
                     cfg.beta = float(data["beta"])
                 return graph, False
-            except Exception:  # noqa: BLE001
-                # Honest fallback to lattice2d
+            except Exception as exc:  # noqa: BLE001
+                # Honest fallback to lattice2d, now saying what went wrong.
+                cfg.fallback_reason = (
+                    f"unavailable: receipt {cfg.receipt_id!r} could not be "
+                    f"loaded ({type(exc).__name__}: {exc}); sampling a generic "
+                    f"lattice2d instead, which is NOT this receipt's model, so "
+                    f"every statistic on screen describes something else")
                 graph = build_preset(
                     "lattice2d",
                     size=cfg.size,
@@ -262,7 +272,12 @@ class SamplerEngine:
         cfg = self.config
         banner = None
         if cfg.receipt_id and cfg.sampling_fallback:
-            banner = "sampling fallback: preset (receipt graph not yet wired)"
+            # The reason, not just the fact. A banner saying a different model
+            # is being sampled, without saying why, leaves a malformed receipt
+            # survivable but not debuggable.
+            banner = cfg.fallback_reason or (
+                "sampling fallback: a generic lattice is being sampled, not "
+                "this receipt's model")
         return {
             "preset": g.name,
             "receipt_id": cfg.receipt_id or g.receipt_id,
@@ -391,7 +406,12 @@ class SamplerEngine:
 
         banner = None
         if cfg.receipt_id and cfg.sampling_fallback:
-            banner = "sampling fallback: preset (receipt graph not yet wired)"
+            # The reason, not just the fact. A banner saying a different model
+            # is being sampled, without saying why, leaves a malformed receipt
+            # survivable but not debuggable.
+            banner = cfg.fallback_reason or (
+                "sampling fallback: a generic lattice is being sampled, not "
+                "this receipt's model")
 
         return {
             "type": "batch",
