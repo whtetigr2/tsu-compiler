@@ -211,51 +211,78 @@ def _write_temp_spec(yaml_text: str) -> Path:
     return Path(tmp.name)
 
 
-def preflight_program(yaml_text: str, *, allow_assumed: bool = False) -> dict[str, Any]:
-    """Run ``tsuc preflight``-equivalent on YAML text."""
+def preflight_edges(edges_json: str, *, allow_assumed: bool = False) -> dict[str, Any]:
+    """Preflight a model given directly as an edge list.
+
+    `tsu_compiler.preflight.model.load_model` has always taken EITHER a spec or
+    an edge list, and the Observatory only ever called the spec side. That left
+    out every model that is data-driven rather than declarative: the playable
+    level's visibility lattice is 11,200 spins whose biases come from the
+    occupancy in front of the player and change every frame. Writing that as a
+    workload spec would mean emitting 11,200 `linear` terms per frame, which is
+    a data dump wearing a program's clothes.
+
+    Schema is the compiler's own, unchanged:
+        {"nodes": int, "edges": [[i, j, w], ...], "biases": [...], "beta": float}
+    """
     ensure_tsu_importable()
-    from tsu_compiler.preflight.check import preflight as run_preflight
     from tsu_compiler.preflight.model import load_model
 
-    path = _write_temp_spec(yaml_text)
-    t0 = time.time()
+    tmp = Path(tempfile.mkdtemp(prefix="obs_edges_")) / "model.edges.json"
+    tmp.write_text(edges_json, encoding="utf-8")
     try:
         try:
-            model = load_model(spec=str(path))
+            model = load_model(edges=str(tmp))
         except ValueError as exc:
-            raise ProgramServiceError(f"preflight refused — {exc}") from exc
+            raise ProgramServiceError(f"edge list refused — {exc}") from exc
         except Exception as exc:  # noqa: BLE001
             raise ProgramServiceError(
-                f"spec load failed: {type(exc).__name__}: {exc}"
-            ) from exc
-        rep = None
-        attempts: list[dict[str, Any]] = []
-        for restarts, iters in PLACEMENT_TIERS:
-            try:
-                rep = run_preflight(model, allow_assumed=allow_assumed,
-                                    restarts=restarts, iters=iters)
-            except Exception as exc:  # noqa: BLE001
-                raise ProgramServiceError(
-                    f"preflight failed: {type(exc).__name__}: {exc}"
-                ) from exc
-            attempts.append({"restarts": restarts, "iters": iters,
-                             "placed": bool(rep.placed),
-                             "seconds": round(float(rep.place_seconds), 3)})
-            if rep.placed:
-                break
-            # A gate failure is a property of the model, not of how hard we
-            # looked for an embedding. Spending the bigger budgets on it would
-            # burn a minute to reach the same refusal.
-            if any(g.status == "fail" for g in (rep.gates or ())):
-                break
+                f"edge list load failed: {type(exc).__name__}: {exc}") from exc
+        return _preflight_model(model, allow_assumed=allow_assumed,
+                                source="edges")
     finally:
-        path.unlink(missing_ok=True)
+        tmp.unlink(missing_ok=True)
+        try:
+            tmp.parent.rmdir()
+        except OSError:
+            pass
+
+
+def _preflight_model(model, *, allow_assumed: bool = False,
+                     source: str = "spec") -> dict[str, Any]:
+    """Escalating placement + serialisation, shared by both input doors.
+
+    Extracted so the spec path and the edge-list path cannot drift: a fix to
+    the escalation ladder or the payload has to apply to both by construction.
+    """
+    from tsu_compiler.preflight.check import preflight as run_preflight
+
+    t0 = time.time()
+    rep = None
+    attempts: list[dict[str, Any]] = []
+    for restarts, iters in PLACEMENT_TIERS:
+        try:
+            rep = run_preflight(model, allow_assumed=allow_assumed,
+                                restarts=restarts, iters=iters)
+        except Exception as exc:  # noqa: BLE001
+            raise ProgramServiceError(
+                f"preflight failed: {type(exc).__name__}: {exc}") from exc
+        attempts.append({"restarts": restarts, "iters": iters,
+                         "placed": bool(rep.placed),
+                         "seconds": round(float(rep.place_seconds), 3)})
+        if rep.placed:
+            break
+        # A gate failure is a property of the model, not of how hard we looked
+        # for an embedding. Spending the bigger budgets on it would burn a
+        # minute to reach the same refusal.
+        if any(g.status == "fail" for g in (rep.gates or ())):
+            break
 
     elapsed = time.time() - t0
-    gates = [_gate_to_dict(g) for g in getattr(rep, "gates", ()) or ()]
     return {
         "ok": True,
         "kind": "preflight",
+        "source": source,
         "verdict": str(rep.verdict),
         "n_spins": int(rep.n_spins),
         "n_couplings": int(rep.n_couplings),
@@ -268,7 +295,7 @@ def preflight_program(yaml_text: str, *, allow_assumed: bool = False) -> dict[st
         "place_error": rep.place_error,
         "remediations": list(rep.remediations or ()),
         "fabric_note": rep.fabric_note,
-        "gates": gates,
+        "gates": [_gate_to_dict(g) for g in getattr(rep, "gates", ()) or ()],
         "elapsed_seconds": round(elapsed, 4),
         "placement_attempts": attempts,
         "placement_effort": (
@@ -281,6 +308,25 @@ def preflight_program(yaml_text: str, *, allow_assumed: bool = False) -> dict[st
             "Ideal-first compile is a separate action (Compile).",
         ],
     }
+
+
+def preflight_program(yaml_text: str, *, allow_assumed: bool = False) -> dict[str, Any]:
+    """Run ``tsuc preflight``-equivalent on YAML text."""
+    ensure_tsu_importable()
+    from tsu_compiler.preflight.model import load_model
+
+    path = _write_temp_spec(yaml_text)
+    try:
+        try:
+            model = load_model(spec=str(path))
+        except ValueError as exc:
+            raise ProgramServiceError(f"preflight refused — {exc}") from exc
+        except Exception as exc:  # noqa: BLE001
+            raise ProgramServiceError(
+                f"spec load failed: {type(exc).__name__}: {exc}") from exc
+    finally:
+        path.unlink(missing_ok=True)
+    return _preflight_model(model, allow_assumed=allow_assumed, source="spec")
 
 
 def compile_program(

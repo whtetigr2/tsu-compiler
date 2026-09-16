@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from .program_service import (
+    preflight_edges,
     ProgramServiceError,
     apply_program,
     compile_program,
@@ -87,6 +88,20 @@ class ParamPatch(BaseModel):
     steps_per_sample: int | None = None
     batch_size: int | None = None
     seed: int | None = None
+
+
+class EdgesBody(BaseModel):
+    """A model given directly as an edge list, for data-driven programs.
+
+    The notepad's YAML describes a problem declaratively -- a grid plus uniform
+    rules. That cannot express a model whose biases ARE the input data, like the
+    playable level's visibility lattice, where every one of 11,200 biases comes
+    from the occupancy in front of the player and changes as they move.
+    `load_model` has always accepted an edge list; this exposes it.
+    """
+
+    edges_json: str = Field(..., min_length=1)
+    allow_assumed: bool = False
 
 
 class ProgramBody(BaseModel):
@@ -195,6 +210,14 @@ def api_program_status() -> dict[str, Any]:
 def api_program_preflight(body: ProgramBody) -> dict[str, Any]:
     try:
         return preflight_program(body.yaml, allow_assumed=body.allow_assumed)
+    except ProgramServiceError as exc:
+        raise _program_http(exc) from exc
+
+
+@app.post("/api/program/preflight-edges")
+def api_program_preflight_edges(body: EdgesBody) -> dict[str, Any]:
+    try:
+        return preflight_edges(body.edges_json, allow_assumed=body.allow_assumed)
     except ProgramServiceError as exc:
         raise _program_http(exc) from exc
 
