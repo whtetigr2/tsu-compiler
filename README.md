@@ -132,8 +132,9 @@ draws, reports 11.11. The cell counts show what is actually happening: the
 chains visit 7 of 1,156 cells and never cross between them.
 
 This is why the sampling verdict in this project rests on every spin
-individually rather than on their average
-(`audit/findings/R20.md`, `audit/diagnostic_control.py`).
+individually rather than on their average. The diagnostic that establishes it,
+including the case where a scalar statistic reports convergence on chains that
+never mix, is in `audit/diagnostic_control.py`.
 Regenerate with `python audit/free_energy_sublattice.py`.
 
 ### Watching it happen
