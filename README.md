@@ -12,10 +12,10 @@ it to an Ising model, checks it against a declarative hardware profile, and — 
 it does not fit — says which constraint failed, by how much, and which
 representation to try instead.
 
-> **This is an independent project.** TSUs are hardware built by others; the `z1`
+> **This is an independent project.** TSUs are hardware built by Extropic.ai; the `z1`
 > profile shipped here targets Extropic's *published* constraints. Nothing in this
 > repository is affiliated with, endorsed by, or derived from any hardware vendor's
-> source, and no program here has ever run on physical silicon.
+> proprietary source, and no program here has ever run on physical silicon.
 
 Features include:
 
