@@ -146,12 +146,19 @@ export function TracePlot({
         {min != null && max != null ? (
           <>
             range {fmtTick(min)} to {fmtTick(max)}
-            {rel != null ? (
+            {/* "percent of the value" is only meaningful while the value is
+                larger than the swing. Magnetization crosses zero, where the
+                ratio explodes and once rendered as "5.1e+2% of the value",
+                which says nothing. Past 100% the honest statement is the
+                comparison itself. */}
+            {rel != null && rel <= 100 ? (
               <span className={rel < 1 ? 'trace-settled' : ''}>
                 {'  ·  '}
                 {rel < 0.01 ? 'under 0.01' : rel.toPrecision(2)}% of the value
                 {rel < 1 ? ', so this is settled and the wiggle is noise' : ''}
               </span>
+            ) : rel != null ? (
+              <span>{'  ·  '}swinging wider than its own value, not settled</span>
             ) : null}
           </>
         ) : null}
