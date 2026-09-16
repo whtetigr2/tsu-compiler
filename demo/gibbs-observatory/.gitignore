@@ -21,3 +21,10 @@ dist/
 build/
 *.spec
 launcher/__pycache__/
+
+# Desktop packaging. `*.spec` above targets PyInstaller specs generated into
+# the build directory; desktop/workbench.spec is hand-written source and is
+# the only definition of what goes into the shipped application.
+!desktop/workbench.spec
+dist/
+build/

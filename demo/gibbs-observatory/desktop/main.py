@@ -21,19 +21,61 @@ PREFERRED_PORT = 8088
 WINDOW_TITLE = "Thermodynamic Workbench"
 
 
+def hide_console_window() -> None:
+    """Hide the console the frozen binary was built with.
+
+    The executable is built as a console application on purpose: `--selftest`
+    has to reach real stdout so a script can read its report and a build can
+    gate on it. A windowed build would silently discard that output. The cost
+    is a console window behind the UI, so it is hidden here when the
+    application is being launched normally rather than self-tested.
+
+    Best effort. If this fails the application still runs, with a spare
+    console, which is a cosmetic problem and not a reason to refuse to start.
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        window = ctypes.windll.kernel32.GetConsoleWindow()
+        if window:
+            ctypes.windll.user32.ShowWindow(window, 0)  # SW_HIDE
+    except Exception:
+        pass
+
+
 def pick_free_port(host: str = HOST, preferred: int = PREFERRED_PORT,
                    span: int = 40) -> int:
-    """First free port at or after `preferred`. Never silently reuse one."""
+    """First genuinely free port at or after `preferred`.
+
+    The probe must NOT set SO_REUSEADDR. On Linux that option only bypasses
+    TIME_WAIT, but on Windows it lets a bind succeed against a port another
+    process is actively listening on -- provided that process also set it,
+    which every Python server does, since `socketserver.TCPServer` sets
+    `allow_reuse_address` and http.server and uvicorn inherit it.
+
+    With the option set, this function reported an occupied port as free,
+    uvicorn failed to bind with WinError 10048, and the application waited
+    ninety seconds for a health check that could never pass before reporting
+    anything. SO_EXCLUSIVEADDRUSE makes the probe stricter still on Windows.
+    """
     for port in range(preferred, preferred + span):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            exclusive = getattr(socket, "SO_EXCLUSIVEADDRUSE", None)
+            if exclusive is not None:
+                try:
+                    s.setsockopt(socket.SOL_SOCKET, exclusive, 1)
+                except OSError:
+                    pass
             try:
                 s.bind((host, port))
-                return port
             except OSError:
                 continue
+            return port
     raise RuntimeError(
-        f"unavailable: no free port in {preferred}..{preferred + span - 1}")
+        f"unavailable: no free port in {preferred}..{preferred + span - 1}. "
+        f"Close whatever is holding them, or the application cannot start.")
 
 
 def _serve(app, host: str, port: int) -> None:
@@ -68,6 +110,11 @@ def main(argv: list[str] | None = None) -> int:
         code, lines = run_selftest()
         print("\n".join(lines))
         return code
+
+    from .paths import is_frozen
+
+    if is_frozen():
+        hide_console_window()
 
     from .server import build_desktop_app
 

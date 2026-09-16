@@ -79,8 +79,12 @@ Findings live in `audit/findings/R*.md`, retractions filed next to results.
 - **Stage commits by explicit path. Never `git add -A`.**
 - Do not touch: `receipts/EXP-G8-D2/`, `receipts/EXP-G8-D3/`,
   `figures/z1_lab_screenshot.png`, `demo/cascade.py`, `demo/cascade_runs/`.
-- `demo/extropic-pack/**` and `demo/gibbs-observatory/**` belong to Grok. Do not
-  write there.
+- `demo/extropic-pack/**` belongs to Grok. Do not write there.
+- `demo/gibbs-observatory/**` was Grok's too. That reservation is **suspended**
+  at the owner's explicit request while Grok is unavailable: the Observatory is
+  being re-shelled into the Thermodynamic Workbench, the project's main
+  deliverable. See `docs/superpowers/specs/2026-09-16-thermodynamic-workbench-design.md`.
+  Restore the reservation if Grok returns to that directory.
 - `specs/emergence_8x8.yaml` and `pyproject-review.toml` are QWEN leftovers.
   Leave them alone.
 - `out/` is gitignored with a per-directory allowlist in `.gitignore`. Add
