@@ -68,29 +68,36 @@ cd frontend && npm install && cd ..
 
 ## Run
 
-**Terminal 1 — API (port 8000):**
+**Terminal 1 — API (port 8088):**
 
 ```bash
 cd gibbs-observatory
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
-PYTHONPATH=. uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --reload
+PYTHONPATH=. uvicorn backend.app.main:app --host 127.0.0.1 --port 8088 --reload
 ```
 
-**Optional notepad compile:** if you keep a sibling `tsu` tree (directory that contains the `tsu/` package), either:
+**Notepad compile:** the notepad needs an importable `tsu_compiler` package. The
+package was renamed from `tsu` in tsu-compiler commit `8a8e941`; point at the
+directory that *contains* `tsu_compiler/`, which for the src layout is
+`.../tsu-compiler/src`. Either:
 
 ```bash
-# sibling layout: ../tsu-compiler/tsu/…
-PYTHONPATH=.:../tsu-compiler uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --reload
+# src layout: ../../src/tsu_compiler/…
+PYTHONPATH=.:../../src uvicorn backend.app.main:app --host 127.0.0.1 --port 8088 --reload
 ```
 
 or set `TSU_ROOT` to that package root:
 
 ```bash
 export TSU_ROOT=../tsu-compiler   # Windows: set TSU_ROOT=..\tsu-compiler
-PYTHONPATH=. uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --reload
+PYTHONPATH=. uvicorn backend.app.main:app --host 127.0.0.1 --port 8088 --reload
 ```
 
 (A legacy checkout named `tsu-compiler-review` is also auto-discovered as a sibling.)
+
+The port is **8088**, not 8000: the Vite proxy defaults to 8088 to avoid
+colliding with other demos that use 8000. Starting the API on 8000 leaves the
+UI unable to reach it.
 
 **Terminal 2 — UI (port 5173, proxies `/api` and `/ws`):**
 
@@ -104,9 +111,9 @@ Open **http://127.0.0.1:5173**
 ### Quick health check
 
 ```bash
-curl -s http://127.0.0.1:8000/api/health
-curl -s http://127.0.0.1:8000/api/receipts
-curl -s http://127.0.0.1:8000/api/receipts/small | head -c 400
+curl -s http://127.0.0.1:8088/api/health
+curl -s http://127.0.0.1:8088/api/receipts
+curl -s http://127.0.0.1:8088/api/receipts/small | head -c 400
 ```
 
 ## Tests / build

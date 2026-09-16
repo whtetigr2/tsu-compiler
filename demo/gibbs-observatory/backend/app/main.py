@@ -48,7 +48,7 @@ from .ebm_bars_stripes import (
 app = FastAPI(
     title="Gibbs Observatory",
     description="Nsight-style compiled-program inspector for THRML block-Gibbs sampling",
-    version="0.5.0",
+    version=APP_VERSION,
 )
 
 app.add_middleware(
@@ -127,7 +127,7 @@ def health() -> dict[str, Any]:
         "ok": True,
         "service": "gibbs-observatory",
         "backend": "thrml+jax",
-        "version": "0.5.0",
+        "version": APP_VERSION,
         "label": "JAX/THRML simulation — not Extropic silicon",
         "tsu": tsu_status(),
     }

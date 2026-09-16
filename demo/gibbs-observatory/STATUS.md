@@ -2,7 +2,8 @@
 
 **Date:** 2026-09-14  
 **Phase:** 0 + 1 + 2 + 3 + 4 complete — **v1 Observatory complete** (plan phases)  
-**Version:** 0.6.0 — **visual v0.6 ThermoLith-class shell**
+**App version:** 0.5.0 (`APP_VERSION` in `backend/app/snapshot.py`, what `/api/health` reports)  
+**Visual shell:** v0.6 ThermoLith-class — a restyle revision, NOT the app version; the two were previously conflated here and the doc claimed a version the artifact does not report
 
 ## What works
 

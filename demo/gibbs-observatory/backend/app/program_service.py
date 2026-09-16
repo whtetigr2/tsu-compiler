@@ -66,12 +66,42 @@ def _tsu_root_candidates() -> list[Path]:
     return out
 
 
+# The compiler package was renamed tsu -> tsu_compiler (and the command to
+# tsuc) in tsu-compiler commit 8a8e941, because the PyPI name "tsu" was taken
+# and the thing compiles FOR a TSU rather than being one. This check was not
+# updated with it -- note the docstring below already said tsu_compiler while
+# the code underneath still looked for tsu/, so every discovery attempt failed,
+# `tsu_root` read null whatever TSU_ROOT was set to, the notepad's preflight /
+# compile / apply path was dead, and seven backend tests skipped themselves.
+PACKAGE_DIR = "tsu_compiler"
+DISTRIBUTION_NAME = "tsu-compiler"
+
+
 def _is_tsu_package_root(root: Path) -> bool:
     """True if ``root`` belongs on PYTHONPATH (``import tsu_compiler`` works)."""
-    init_py = root / "tsu" / "__init__.py"
-    cli_py = root / "tsu" / "cli.py"
+    init_py = root / PACKAGE_DIR / "__init__.py"
+    cli_py = root / PACKAGE_DIR / "cli.py"
     return init_py.is_file() and cli_py.is_file()
 
+
+# Placement effort tiers, tried cheapest first. The notepad is INTERACTIVE, so
+# a flat high budget is the wrong answer -- it would make every trivial program
+# wait on the worst case. Escalation only happens when placement actually fails.
+#
+# Measured on prog_seq_design_longer (16 spins, non-bipartite, needs mediators):
+# does NOT place at 6/40k after ~2s, does NOT place at 12/100k after ~12s, and
+# places cleanly at 24/250k in ~33s with 8 mediators. Before this the notepad
+# reported that program as "fail" with every gate passing, because the default
+# budget was the only one ever tried.
+#
+# 800k is a ceiling, not a target: something that cannot place inside it is
+# telling you to change the encoding, which is what the compiler's own
+# remediation already says.
+PLACEMENT_TIERS: tuple[tuple[int, int], ...] = (
+    (6, 40_000),
+    (24, 250_000),
+    (48, 800_000),
+)
 
 NOTEPAD_RECEIPT_ID = "notepad"
 DEFAULT_SEED_SPEC = """\
@@ -119,11 +149,12 @@ def ensure_tsu_importable() -> Path:
     root = discover_tsu_root()
     if root is None:
         raise ProgramServiceError(
-            "tsu package not found. Expected importable tsu next to Observatory "
-            "(e.g. Documents/tsu-compiler/src when Observatory lives under "
-            "Documents/tsu-compiler/demo/gibbs-observatory). "
-            "Set TSU_ROOT to the directory that *contains* the tsu/ folder "
-            "(for src layout: .../tsu-compiler/src), or PYTHONPATH to that path."
+            "tsu_compiler package not found. Expected an importable tsu_compiler "
+            "next to Observatory (e.g. Documents/tsu-compiler/src when "
+            "Observatory lives under Documents/tsu-compiler/demo/"
+            "gibbs-observatory). Set TSU_ROOT to the directory that "
+            "*contains* the tsu_compiler/ folder (for src layout: "
+            ".../tsu-compiler/src), or PYTHONPATH to that path."
         )
     root_s = str(root)
     if root_s not in sys.path:
@@ -197,12 +228,26 @@ def preflight_program(yaml_text: str, *, allow_assumed: bool = False) -> dict[st
             raise ProgramServiceError(
                 f"spec load failed: {type(exc).__name__}: {exc}"
             ) from exc
-        try:
-            rep = run_preflight(model, allow_assumed=allow_assumed)
-        except Exception as exc:  # noqa: BLE001
-            raise ProgramServiceError(
-                f"preflight failed: {type(exc).__name__}: {exc}"
-            ) from exc
+        rep = None
+        attempts: list[dict[str, Any]] = []
+        for restarts, iters in PLACEMENT_TIERS:
+            try:
+                rep = run_preflight(model, allow_assumed=allow_assumed,
+                                    restarts=restarts, iters=iters)
+            except Exception as exc:  # noqa: BLE001
+                raise ProgramServiceError(
+                    f"preflight failed: {type(exc).__name__}: {exc}"
+                ) from exc
+            attempts.append({"restarts": restarts, "iters": iters,
+                             "placed": bool(rep.placed),
+                             "seconds": round(float(rep.place_seconds), 3)})
+            if rep.placed:
+                break
+            # A gate failure is a property of the model, not of how hard we
+            # looked for an embedding. Spending the bigger budgets on it would
+            # burn a minute to reach the same refusal.
+            if any(g.status == "fail" for g in (rep.gates or ())):
+                break
     finally:
         path.unlink(missing_ok=True)
 
@@ -225,6 +270,11 @@ def preflight_program(yaml_text: str, *, allow_assumed: bool = False) -> dict[st
         "fabric_note": rep.fabric_note,
         "gates": gates,
         "elapsed_seconds": round(elapsed, 4),
+        "placement_attempts": attempts,
+        "placement_effort": (
+            {"restarts": attempts[-1]["restarts"], "iters": attempts[-1]["iters"]}
+            if attempts else None),
+        "placement_escalated": len(attempts) > 1,
         "label": "JAX/THRML simulation — not Extropic silicon",
         "notes": [
             "Preflight only — no receipt written; Apply is still forbidden.",
@@ -458,12 +508,12 @@ def tsu_status() -> dict[str, Any]:
             import tsu_compiler
 
             importable = True
-            version = getattr(tsu, "__version__", None)
+            version = getattr(tsu_compiler, "__version__", None)
             if version is None:
                 try:
                     import importlib.metadata as md
 
-                    version = md.version("tsu")
+                    version = md.version(DISTRIBUTION_NAME)
                 except Exception:  # noqa: BLE001
                     version = "0.1.0 (path)"
         except ProgramServiceError as exc:

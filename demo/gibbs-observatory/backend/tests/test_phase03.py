@@ -65,7 +65,7 @@ def client():
 
 
 def test_tsu_discoverable(tsu_ready):
-    assert (tsu_ready / "tsu" / "cli.py").is_file()
+    assert (tsu_ready / "tsu_compiler" / "cli.py").is_file()
 
 
 def test_read_spec_yaml_small():
