@@ -23,6 +23,8 @@ from .program_service import (
 )
 from .receipt_loader import examples_shelf, list_receipts, load_receipt
 from .spec_formats import DetectionError, load_text
+from .program_contract import ConsentRequired, ProgramError, describe_source
+from .program_runtime import DEFAULT_SWEEPS, open_session
 from .sampler_engine import SamplerConfig, SamplerEngine
 from .snapshot import (
     APP_VERSION,
@@ -285,6 +287,119 @@ def api_program_compile(body: ProgramBody) -> dict[str, Any]:
         )
     except ProgramServiceError as exc:
         raise _program_http(exc) from exc
+
+
+class ProgramOpenBody(BaseModel):
+    """Start a running program. `consent` is the user's explicit yes to
+    executing the file; it is never inferred and never defaulted true."""
+
+    path: str = Field(..., min_length=1)
+    consent: bool = False
+    sweeps: int = Field(DEFAULT_SWEEPS, ge=1, le=256)
+    seed: int = Field(0, ge=0, le=2**31 - 1)
+
+
+class ProgramStepBody(BaseModel):
+    session: str = Field(..., min_length=1)
+    #: New input for declared ports. Biases only; a graph change is refused.
+    inputs: dict[str, Any] = Field(default_factory=dict)
+    decode: bool = True
+
+
+#: Running programs, by id. One process, one user, so a dict is the right size.
+_SESSIONS: dict[str, Any] = {}
+
+
+@app.post("/api/program/inspect")
+def api_program_inspect(body: LoadPathBody) -> dict[str, Any]:
+    """What kind of file is this, decided WITHOUT running it.
+
+    This is what lets the Workbench say "this contains code and will execute"
+    before asking whether to. Deciding by import would mean running the file to
+    find out whether running it was acceptable.
+    """
+    path = Path(body.path).expanduser()
+    if path.is_dir():
+        raise HTTPException(status_code=400, detail=f"{path} is a directory")
+    if not path.exists():
+        raise HTTPException(status_code=400, detail=f"no file at {path}")
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise HTTPException(status_code=400,
+                            detail=f"could not read {path.name}: {exc}") from exc
+
+    described = describe_source(text) if path.suffix.lower() == ".py" else None
+    return {
+        "filename": path.name,
+        "path": str(path),
+        "kind": described.kind if described else "data",
+        "why": described.why if described else "not a .py, so it is read as data",
+        "executed": False,
+        "needs_consent": bool(described and described.kind == "program"),
+    }
+
+
+@app.post("/api/program/open")
+def api_program_open(body: ProgramOpenBody) -> dict[str, Any]:
+    """Load a program and start a session. Executes the file, with consent."""
+    import uuid
+    try:
+        session = open_session(Path(body.path).expanduser(), {},
+                               consent=body.consent, sweeps=body.sweeps,
+                               seed=body.seed)
+    except ConsentRequired as exc:
+        # 403, not 400: the request is well formed and was refused on purpose.
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ProgramError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    sid = uuid.uuid4().hex[:12]
+    _SESSIONS[sid] = session
+    return {
+        "session": sid,
+        "name": session.program.name,
+        "decoder": session.program.decoder,
+        "n_spins": session.sampler.n_spins,
+        "n_couplings": len(session.model.edges),
+        "bipartite": bool(session.report.bipartite),
+        "ports": [
+            {"name": p.name, "shape": list(p.shape), "mode": p.mode, "doc": p.doc}
+            for p in session.program.ports
+        ],
+        "sweeps": body.sweeps,
+        "label": "JAX/THRML simulation, not Extropic silicon",
+    }
+
+
+@app.post("/api/program/step")
+def api_program_step(body: ProgramStepBody) -> dict[str, Any]:
+    session = _SESSIONS.get(body.session)
+    if session is None:
+        raise HTTPException(status_code=404,
+                            detail=f"no running program {body.session!r}")
+    try:
+        frame = session.step(body.inputs or None)
+        decoded = session.decode(frame) if body.decode else None
+    except ProgramError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    import numpy as _np
+    return {
+        "frames": frame.frames,
+        "n_spins": frame.n_spins,
+        # traces > 1 means the sampler recompiled, which costs ~300ms a frame
+        # and is otherwise invisible (R32). Reported so it cannot hide.
+        "traces": frame.traces,
+        "spins": frame.spins[0].astype(int).tolist(),
+        "decoded": (_np.asarray(decoded).tolist() if decoded is not None else None),
+    }
+
+
+@app.post("/api/program/close")
+def api_program_close(body: ProgramStepBody) -> dict[str, Any]:
+    existed = _SESSIONS.pop(body.session, None) is not None
+    return {"closed": existed}
 
 
 @app.post("/api/program/load")

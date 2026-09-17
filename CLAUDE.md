@@ -29,6 +29,7 @@ Run from the repo root with `sys.path.insert(0, "src")`.
 | ground truth on a small model | `audit/oracles/exact.py`: `exact_boltzmann`, `exact_energy` |
 | exact distribution of a program | `backends.thrml_backend.exact_distribution` |
 | sampling | `backends.thrml_backend.sample_chains` / `stream_chains` |
+| sampling in a LOOP (a game, a sweep, a drag) | `backends.live.LiveSampler` -- `sample_chains` re-traces every call, R32 |
 | an independent sampler cross-check | `backends.torx_backend.torx_cross_check` |
 | mediator strength for a coupling | `passes.route.mediator_coupling(absJ, beta)` |
 | beta consistency | `passes.route.assert_beta_consistent` |
