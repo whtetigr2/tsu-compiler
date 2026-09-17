@@ -233,3 +233,58 @@ def test_the_spectrum_is_centrosymmetric():
     S = _spectrum(base, lat)
     assert np.allclose(np.roll(np.roll(S[::-1, ::-1], 1, 0), 1, 1), S,
                        atol=1e-9)
+
+
+# --------------------------------------------------------------------------
+# R30: two projections of the same draws can disagree.
+# --------------------------------------------------------------------------
+
+@pytest.mark.slow
+def test_marginals_lose_the_order_that_the_structure_factor_keeps():
+    """The readout-projection result, pinned.
+
+    An antiferromagnet has TWO degenerate checkerboard ground states, related by
+    exchanging the species. Pool draws from both and every site averages towards
+    zero: the marginals say nothing happened. S(k) is invariant under that
+    symmetry and still reports the order.
+
+    The symmetry that makes a ground state degenerate is exactly what breaks a
+    marginal readout, and degeneracy is the normal case for an antiferromagnet.
+    """
+    from backend.app.sampler_engine import SamplerConfig, SamplerEngine
+
+    lat = None
+    pool = []
+    for seed in range(8):
+        engine = SamplerEngine(SamplerConfig(
+            receipt_id="prog_alloy_ordering_8x8", beta=0.9,
+            batch_size=16, seed=seed))
+        lat = lat or recover_lattice(engine.state.graph.node_names)
+        if lat is None:
+            pytest.skip("alloy receipt carries no grid names here")
+        batch = engine.sample_batch(n_samples=48, warmup=1200)
+        pool.append(np.where(np.asarray(batch["states"], float) > 0, 1.0, -1.0))
+    spins = np.vstack(pool)
+
+    stagger = np.array([1.0 if (x + y) % 2 == 0 else -1.0
+                        for _, (x, y) in sorted(lat.index_to_xy.items())])
+    per_draw = np.abs(spins @ stagger / len(stagger))
+    if len({np.sign(v) for v in (spins @ stagger) if v != 0}) < 2:
+        pytest.skip("every chain landed in the same phase; no degeneracy to pool")
+
+    assert per_draw.mean() > 0.4, (
+        f"fixture problem: the draws are not ordered ({per_draw.mean():.3f}), "
+        f"so there is nothing for either projection to find")
+
+    marginals = float(np.abs(spins.mean(axis=0)).mean())
+    out = structure_factor(spins.tolist(), lat)
+    background = float(np.median([v for row in out["values"] for v in row]))
+    contrast = out["max"] / max(background, 1e-12)
+
+    assert marginals < 0.35, (
+        f"pooled marginals came out at {marginals:.3f}; with both degenerate "
+        f"phases present they should average towards zero")
+    assert contrast > 20, (
+        f"S(k) contrast is only {contrast:.0f}x, so it did not keep the order "
+        f"the marginals lost and this comparison shows nothing")
+    assert abs(abs(out["peak_k_over_pi"][0]) - 1.0) < 0.2

@@ -2043,3 +2043,95 @@ button.btn.ghost {
 }
 .sk-label { color: var(--text) !important; }
 .sk-source { font-style: italic; }
+
+/* ---- Workspaces and panes ---------------------------------------------- */
+.workspace-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0 0.75rem;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface);
+  min-height: 34px;
+}
+.workspace-tabs button {
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 0.45rem 0.85rem;
+  cursor: pointer;
+}
+.workspace-tabs button:hover { color: var(--text); }
+.workspace-tabs button.active {
+  color: var(--phosphor);
+  border-bottom-color: var(--phosphor);
+}
+.workspace-blurb {
+  margin-left: 0.75rem;
+  font-size: 0.7rem;
+  color: var(--text-mute);
+}
+
+.split { display: flex; width: 100%; height: 100%; min-height: 0; min-width: 0; }
+.split-row { flex-direction: row; }
+.split-column { flex-direction: column; }
+.split-cell {
+  position: relative;
+  flex-basis: 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+.split-handle { position: absolute; z-index: 5; }
+.handle-row {
+  top: 0; bottom: 0; right: -3px; width: 6px; cursor: col-resize;
+}
+.handle-column {
+  left: 0; right: 0; bottom: -3px; height: 6px; cursor: row-resize;
+}
+.split-handle:hover { background: var(--phosphor-soft); }
+
+.pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  margin: 4px;
+  overflow: hidden;
+}
+.pane-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.5rem;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--elevated);
+  flex-shrink: 0;
+}
+.pane-editor {
+  background: var(--bg);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: 0.68rem;
+  padding: 0.15rem 0.3rem;
+  max-width: 11rem;
+}
+.pane-title {
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-mute);
+}
+.pane-body { flex: 1; min-height: 0; overflow: auto; padding: 0.75rem; }
+.workspace-bar { background: var(--surface); }
+.workspace-stage { position: absolute; inset: 0; display: flex; }
+.main-stage { position: relative; }

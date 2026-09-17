@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { FooterBar } from './components/FooterBar'
 import { HelpModal, type HelpTab } from './components/HelpModal'
-import { LeftNav } from './components/LeftNav'
+import { ITEMS as NAV_ITEMS, LeftNav } from './components/LeftNav'
+import {
+  Pane, Split, WORKSPACES, useWorkspaceLayout,
+} from './components/Workspace'
 import { ProgramBar } from './components/ProgramBar'
 import { ReceiptPicker } from './components/ReceiptPicker'
 import { RightRail } from './components/RightRail'
@@ -71,6 +74,7 @@ export default function App() {
   const [examples, setExamples] = useState<ExampleShelfItem[]>([])
   const [receipt, setReceipt] = useState<ReceiptInspect | null>(null)
   const [speed, setSpeed] = useState(2)
+  const [workspace, setWorkspace] = useState<string>('single')
   const [selectedSpin, setSelectedSpin] = useState<number | null>(null)
   const connected = status === 'open'
   const didInit = useRef(false)
@@ -264,8 +268,11 @@ export default function App() {
     ? 'receipt'
     : workflowStepForView(view, running)
 
-  let stage: ReactNode = null
-  switch (view) {
+  // Any pane can ask for any editor, so this is a function of the view id
+  // rather than a single `stage` computed for the one active view.
+  const renderEditor = (which: NavView): ReactNode => {
+    let stage: ReactNode = null
+    switch (which) {
     case 'overview':
       stage = (
         <OverviewView
@@ -343,7 +350,41 @@ export default function App() {
       break
     default:
       stage = null
+    }
+    return stage
   }
+
+  const spec = WORKSPACES.find((w) => w.id === workspace) ?? WORKSPACES[0]
+  const layout = useWorkspaceLayout(spec)
+  const editorChoices = NAV_ITEMS
+    .filter((i) => i.phase !== 'drawer')
+    .map((i) => ({ id: i.id, label: i.label }))
+
+  const stage = renderEditor(view)
+
+  /** The workspace grid: columns of panes, each pane any editor. */
+  const workspaceStage = (
+    <Split direction="row" sizes={layout.colSizes} onResize={layout.setColSizes}>
+      {layout.editors.map((column, ci) => (
+        <Split
+          key={ci}
+          direction="column"
+          sizes={layout.rowSizes[ci] ?? [1]}
+          onResize={(next) => layout.setRowSizesAt(ci, next)}
+        >
+          {column.map((editorId, ri) => (
+            <Pane
+              key={ri}
+              editor={editorId}
+              editors={editorChoices}
+              onChange={(next) => layout.setEditor(ci, ri, next)}
+              render={renderEditor}
+            />
+          ))}
+        </Split>
+      ))}
+    </Split>
+  )
 
   const viewTitle: Record<string, string> = {
     overview: 'Compiled sampling program',
@@ -401,6 +442,38 @@ export default function App() {
       />
 
       {/* Hidden but kept for walkthrough data-tour="program-bar" */}
+      <div className="workspace-bar">
+        <div className="workspace-tabs" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={workspace === 'single'}
+            className={workspace === 'single' ? 'active' : ''}
+            onClick={() => setWorkspace('single')}
+            title="One editor at a time, chosen from the rail"
+          >
+            Single
+          </button>
+          {WORKSPACES.map((w) => (
+            <button
+              key={w.id}
+              type="button"
+              role="tab"
+              aria-selected={workspace === w.id}
+              className={workspace === w.id ? 'active' : ''}
+              onClick={() => setWorkspace(w.id)}
+              title={w.blurb}
+            >
+              {w.label}
+            </button>
+          ))}
+          <span className="workspace-blurb">
+            {workspace === 'single'
+              ? 'One editor at a time, chosen from the rail.'
+              : spec.blurb}
+          </span>
+        </div>
+      </div>
       <ProgramBar receipt={receipt} fallbackBanner={fallbackBanner} />
 
       <div className="shell-body">
@@ -424,6 +497,10 @@ export default function App() {
           setSpeed={onSpeed}
         />
         <main className="main-stage" ref={stageRef}>
+          {workspace !== 'single' ? (
+            <div className="workspace-stage">{workspaceStage}</div>
+          ) : (
+          <>
           <div className="stage-header">
             <div className="hero-title-block">
               <span className="hero-eyebrow">
@@ -489,6 +566,8 @@ export default function App() {
             </div>
           ) : null}
           <div className="hero-panel">{stage}</div>
+          </>
+          )}
         </main>
         <RightRail
           receipt={receipt}
