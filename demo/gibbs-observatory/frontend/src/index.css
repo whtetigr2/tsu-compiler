@@ -52,12 +52,20 @@ button, input, select { font-family: inherit; letter-spacing: inherit; }
 
 /* ─── App shell ─── */
 .app-shell {
-  display: grid;
-  grid-template-rows: auto auto 1fr auto;
+  /* Flex, not grid. The template said `auto auto 1fr auto`, four rows, and the
+     shell has had five children for a while and six since the workspace bar.
+     Whichever child landed in the 1fr slot absorbed all the slack: the program
+     bar was 200px of empty band before, and the workspace bar was 305px tall
+     for 34px of content. A column that gives every child its natural height and
+     the body the remainder cannot go wrong when a child is added. */
+  display: flex;
+  flex-direction: column;
   height: 100%;
   min-height: 100vh;
   background: var(--bg);
 }
+.app-shell > * { flex: 0 0 auto; }
+.app-shell > .shell-body { flex: 1 1 auto; min-height: 0; }
 
 /* ─── Top brand bar ─── */
 .top-menu {
