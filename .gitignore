@@ -21,6 +21,7 @@ out/*
 !out/texture/
 !out/game/
 !out/moment-readout/
+!out/codon-embedding/
 out_check/
 worlds/
 

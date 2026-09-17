@@ -15,7 +15,14 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Physics",
     "Topic :: Software Development :: Compilers",
 ]
-dependencies = ["numpy", "networkx", "sympy", "pyyaml", "thrml", "extro-torx"]
+# minorminer (D-Wave, Apache-2.0) is the chain embedder. It is a hard
+# dependency rather than an extra because without it placement only
+# handles graphs that are already lattice-shaped (audit/findings/R33.md),
+# and the reproducible receipt in audit/receipt_codon_embedding.py needs
+# it. The embedding it returns is always re-validated by this project
+# before being reported -- see tsu_compiler.passes.embed.
+dependencies = ["numpy", "networkx", "sympy", "pyyaml", "thrml", "extro-torx",
+                "minorminer"]
 
 [project.scripts]
 # Both names install. "tsu" is deliberately NOT claimed: a hardware vendor

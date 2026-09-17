@@ -12,15 +12,55 @@ it to an Ising model, checks it against a declarative hardware profile, and — 
 it does not fit — says which constraint failed, by how much, and which
 representation to try instead.
 
-> **Scope, stated up front.** The first question — *will it fit* — is answered by
-> the gates, and that part is real: measured limits against published figures,
-> with provenance on every one. The second half of placement is not. This
-> repository does **direct** embedding, one logical spin to one physical p-bit,
-> which only works when the interaction graph is already lattice-shaped. It has
-> no chain (minor) embedder, so for general graphs it reports that its search ran
-> out rather than placing them. `audit/findings/R33.md` measures exactly why and
-> what it would take to fix. Read this as a preflight and gate-checking tool that
-> also places lattice-shaped workloads, not as a general placer.
+## The receipt
+
+Extropic's four published `codon_opt` models, embedded on Z1's published
+topology. One command, from a clean checkout:
+
+```bash
+python audit/receipt_codon_embedding.py
+```
+
+```
+workload                spins  edges   cells   over  chain   budget  valid
+codon_tiny_10aa            31    118      62  2.00x      3     0.0%    yes
+codon_default_prefix      266    875     573  2.15x      5     0.2%    yes
+codon_spike_200aa         481  1,460   1,006  2.09x      5     0.4%    yes
+codon_spike_full        3,147  9,557   6,873  2.18x      6     2.5%    yes
+```
+
+`valid` is not the embedder's own success flag. Every embedding is re-checked by
+`tsu_compiler.passes.embed.validate_embedding`, which requires that each chain is
+connected in the host, that no p-bit is used by two logical spins, and that every
+logical coupling is realized by an adjacent pair of cells. That checker is
+asserted to be *able* to fail, against embeddings broken in each of those three
+ways, in `tests/test_chain_embedding.py`.
+
+For contrast, the same models under the **direct** placer this repository had
+before — one logical spin to one physical p-bit:
+
+```
+codon_tiny_10aa        placed
+codon_default_prefix   search exhausted
+codon_spike_200aa      search exhausted
+codon_spike_full       search exhausted
+```
+
+That gap is the whole point, and `audit/findings/R33.md` measures why it is
+structural rather than a budget setting: in a sparse lattice, the cells legal
+from four already-placed neighbours collapse to one, so direct placement only
+works on graphs that are already lattice-shaped. A chain lets a logical spin span
+cells and be reached from many directions, which dissolves it.
+
+The chain embedder itself is [`minorminer`][mm] (D-Wave, Apache-2.0), not written
+here. A hand-rolled one was tried first and did not converge; shipping the worse
+one to avoid a dependency would have been vanity. What this project supplies is
+the Z1 host topology, the validation, the gates, and the refusal to report a
+number it did not check.
+
+Topology only. Nothing here has run on Extropic silicon.
+
+[mm]: https://github.com/dwavesystems/minorminer
 
 > **This is an independent project.** TSUs are hardware built by Extropic.ai; the `z1`
 > profile shipped here targets Extropic's *published* constraints. Nothing in this
@@ -48,12 +88,13 @@ Features include:
   edge realizable on a die that only couples nearby p-bits. Those are two
   different problems and this repository solves the first exactly and the second
   heuristically.
-- Lattice embedding that is exact for grid-shaped graphs on the four axis-unit
-  offsets, and a budgeted search for everything else. **The search is known to
-  fail on graphs that are not already lattice-shaped, and that is structural
-  rather than a budget problem** — see `audit/findings/R33.md`, which measures
-  why. Exhaustion is reported as a search that ran out, never as hardware that
-  cannot host the model.
+- Chain (minor) embedding onto the target's own offset lattice, with every
+  result re-validated here rather than taken on the embedder's word: chains
+  connected, p-bits unshared, every logical coupling realized. Direct
+  one-spin-one-cell placement is still tried first and still succeeds for
+  grid-shaped graphs, where it needs no chains at all; `audit/findings/R33.md`
+  measures why it cannot be the only option. Exhaustion is reported as a search
+  that ran out, never as hardware that cannot host the model.
 - Hardware gates carrying per-limit provenance — documented figure vs project assumption
 - Transition location by finite-size scaling, with τ, effective sample size and Gelman–Rubin
 - Replayable receipts that report `unavailable` with a reason rather than a fabricated value
