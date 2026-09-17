@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { ReceiptInspect } from '../../types'
 import { RefusalPanel } from '../RefusalPanel'
 import { LoadBar, StatusLine } from '../ProgramLoader'
+import { LiveGates } from '../LiveGates'
 import type { LoadedProgram, Stage } from '../ProgramLoader'
 
 interface GateOut {
@@ -257,6 +258,10 @@ export function NotepadView({ receipt, onApplyReceipt }: Props) {
       />
 
       <StatusLine stage={stage} />
+
+      {/* The cheap tier: gates on every pause. Placement stays
+          behind the Compile button, where its seconds belong. */}
+      <LiveGates yaml={yaml} />
 
       <div className="notepad-actions">
         <button type="button" className="btn" disabled={!!busy} onClick={() => void runPreflight()}>

@@ -388,6 +388,88 @@ def _preflight_model(model, *, allow_assumed: bool = False,
     }
 
 
+def gate_preview(yaml_text: str, *, target: str = "z1",
+                 allow_assumed: bool = False) -> dict[str, Any]:
+    """The gates, without paying for placement.
+
+    Compiling has two costs and they are nothing alike. Checking the gates is
+    milliseconds -- encode, lower, look at the graph, compare against the caps.
+    Finding an embedding is seconds. Measured warm on a 6x6 grid: 1 ms here
+    against 1401 ms for a full compile, and 2 ms against 7198 ms on
+    ecology_lotka_lite.
+
+    Note WHICH models that gap appears on, because the obvious guess is wrong.
+    A 24-clique, whose degree gate refuses immediately, shows 43 ms against
+    67 ms -- barely a factor of two, because `compile_spec` already
+    short-circuits placement once a gate has refused and was never paying for
+    it. The saving is on models that PASS, where a full compile goes on to
+    spend seconds finding an embedding nobody asked for yet. A program being
+    edited is usually in exactly that state, which is what makes running this
+    tier live worth doing.
+
+    What this measures is the model AS WRITTEN. `route` inserts mediators and
+    splits high-degree nodes, and both change the degree the hardware actually
+    sees, so a preview is a lower bound on the work and not the final answer.
+    Every field below that could be mistaken for one is labelled: this returns
+    no verdict, says placement did not run, and says routing did not either.
+    Presenting it as settled would be the representation-versus-hardware
+    confusion this compiler exists to prevent, relocated into a progress
+    indicator.
+    """
+    ensure_tsu_importable()
+    from tsu_compiler.gates import gate_checks
+    from tsu_compiler.passes.analyse import analyse
+    from tsu_compiler.passes.encode import encode
+    from tsu_compiler.passes.lower import lower
+    from tsu_compiler.spec import load_spec_text
+    from tsu_compiler.target import PROFILES
+
+    if not (yaml_text or "").strip():
+        raise ProgramServiceError("nothing to check, the program is empty")
+
+    profile = PROFILES.get(target)
+    if profile is None:
+        raise ProgramServiceError(
+            f"unknown target {target!r}; known targets are "
+            f"{', '.join(sorted(PROFILES))}")
+
+    t0 = time.time()
+    try:
+        spec = load_spec_text(yaml_text)
+        # The same path `preflight.model.load_model` takes. `encode` returns an
+        # Encoded wrapper and `lower` wants the EnergyModel inside it.
+        ising = lower(encode(spec, "domain_wall").model)
+    except Exception as exc:  # noqa: BLE001
+        raise ProgramServiceError(
+            f"spec load failed: {type(exc).__name__}: {exc}") from exc
+
+    report = analyse(ising)
+    checks = gate_checks(ising, report, profile, allow_assumed)
+    rows = [_gate_check_to_dict(g) for g in checks]
+
+    return {
+        "ok": all(r["passed"] for r in rows),
+        "kind": "gate_preview",
+        "target": target,
+        "allow_assumed": allow_assumed,
+        "gates": rows,
+        "n_spins": len(ising.nodes),
+        "n_couplings": len(ising.edges),
+        "max_degree": getattr(report, "max_degree", None),
+        "bipartite": getattr(report, "bipartite", None),
+        "colour_blocks": getattr(report, "colour_blocks", None),
+        "placement_checked": False,
+        "routed": False,
+        "elapsed_seconds": round(time.time() - t0, 4),
+        "note": (
+            "Gates on the model as written. Routing has not run, so mediators "
+            "are not inserted and high-degree nodes are not split; both change "
+            "the degree the hardware sees. Placement has not run either, so "
+            "nothing here says an embedding exists. Press Compile for that."),
+        "label": "JAX/THRML simulation, not Extropic silicon",
+    }
+
+
 def preflight_program(yaml_text: str, *, allow_assumed: bool = False) -> dict[str, Any]:
     """Run ``tsuc preflight``-equivalent on YAML text."""
     ensure_tsu_importable()

@@ -16,6 +16,7 @@ from .program_service import (
     ProgramServiceError,
     apply_program,
     compile_program,
+    gate_preview,
     preflight_program,
     read_spec_yaml,
     tsu_status,
@@ -240,6 +241,21 @@ def api_examples() -> dict[str, Any]:
 @app.get("/api/program/status")
 def api_program_status() -> dict[str, Any]:
     return tsu_status()
+
+
+@app.post("/api/program/gates")
+def api_program_gates(body: ProgramBody) -> dict[str, Any]:
+    """The gates alone, cheap enough to run while someone types.
+
+    Deliberately NOT a compile: no placement, no routing, no verdict, and the
+    response says so in three separate fields. Calling it one would let a
+    progress indicator make a claim the compiler never made.
+    """
+    try:
+        return gate_preview(body.yaml, target=body.target,
+                            allow_assumed=body.allow_assumed)
+    except ProgramServiceError as exc:
+        raise _program_http(exc) from exc
 
 
 @app.post("/api/program/preflight")
