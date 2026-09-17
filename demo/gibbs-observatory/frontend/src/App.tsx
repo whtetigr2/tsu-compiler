@@ -24,6 +24,7 @@ import { NotepadView } from './components/views/NotepadView'
 import { StateSpaceView } from './components/views/StateSpaceView'
 import { AblationView } from './components/views/AblationView'
 import { LatticeView3D } from './components/views/LatticeView3D'
+import { StructureFactorView } from './components/views/StructureFactorView'
 import { EbmLabView } from './components/views/EbmLabView'
 import { useGibbsSocket } from './hooks/useGibbsSocket'
 import { exportSnapshot } from './lib/snapshot'
@@ -321,6 +322,9 @@ export default function App() {
         <NotepadView receipt={receipt} onApplyReceipt={selectReceipt} />
       )
       break
+    case 'structurefactor':
+      stage = <StructureFactorView batch={batch} />
+      break
     case 'lattice3d':
       stage = <LatticeView3D graph={graph} batch={batch} />
       break
@@ -353,6 +357,7 @@ export default function App() {
     notepad: 'Thermodynamic Program notepad',
     ablation: 'Ablation runner',
     lattice3d: 'Lattice in 3D',
+    structurefactor: 'Structure factor S(k)',
     ebmlab: 'EBM Lab · Bars & Stripes RBM 4×4',
   }
 

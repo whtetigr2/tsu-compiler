@@ -13,6 +13,7 @@ from thrml.models import IsingEBM, IsingSamplingProgram, hinton_init
 
 from .graph_presets import GraphSpec, build_from_receipt_arrays, build_preset
 from .metrics import ising_energy, magnetization, summarize_series
+from .structure_factor import recover_lattice, structure_factor
 
 
 @dataclass
@@ -266,6 +267,28 @@ class SamplerEngine:
         st.biases_np = np.asarray(b)
         st.weights_np = np.asarray(w)
 
+
+    def _structure_factor(self, samples) -> dict | None:
+        """S(k) for this batch, or None when there is no lattice to transform.
+
+        Uses the model's OWN site coordinates, read from names the grid
+        generator wrote. Never placement coordinates: those say where a spin
+        landed on the die, and transforming them would picture the router's
+        output rather than the physics.
+        """
+        assert self.state is not None
+        lattice = recover_lattice(self.state.graph.node_names)
+        if lattice is None:
+            return None
+        try:
+            spins = np.asarray(samples)
+            if spins.ndim == 3:
+                spins = spins.reshape(-1, spins.shape[-1])
+            return structure_factor(spins.tolist(), lattice)
+        except Exception as exc:  # noqa: BLE001
+            return {"available": False,
+                    "reason": f"unavailable: transform failed: {exc!r}"}
+
     def graph_payload(self) -> dict:
         assert self.state is not None
         g = self.state.graph
@@ -420,6 +443,10 @@ class SamplerEngine:
             "last_state": last.astype(np.uint8).tolist(),
             "energies": energies.tolist(),
             "magnetizations": mags.tolist(),
+            # S(k) when the model's own site names give a real-space lattice.
+            # Absent, not faked, when they do not: a transform over an arbitrary
+            # spin ordering produces a convincing square picture of nothing.
+            "structure_factor": self._structure_factor(samples),
             "active_block": st.active_block,
             "metrics": {
                 "energy": e_sum,

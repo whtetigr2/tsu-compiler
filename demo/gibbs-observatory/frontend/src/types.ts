@@ -15,6 +15,7 @@ export type NavView =
   | 'ebmlab'
   | 'ablation'
   | 'lattice3d'
+  | 'structurefactor'
   | 'worlds'
 
 export interface SimParams {
@@ -76,6 +77,22 @@ export interface MetricSummary {
   n: number
 }
 
+export interface StructureFactor {
+  available: boolean
+  reason?: string
+  width: number
+  height: number
+  /** |FFT(spin field)|^2, averaged over draws, k = 0 shifted to the centre. */
+  values: number[][]
+  max: number
+  peak_k_over_pi: [number, number]
+  peak_label: string
+  k0_intensity: number
+  n_draws: number
+  source: string
+  note: string
+}
+
 export interface BatchPayload {
   type: 'batch'
   step: number
@@ -95,6 +112,8 @@ export interface BatchPayload {
   receipt_id?: string | null
   sampling_fallback?: boolean
   sampling_banner?: string | null
+  /** null when the model's spins do not sit on a lattice. Absent, never faked. */
+  structure_factor?: StructureFactor | null
   label: string
 }
 

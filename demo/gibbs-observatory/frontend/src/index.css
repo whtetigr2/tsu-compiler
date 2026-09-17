@@ -2016,3 +2016,30 @@ button.btn.ghost {
   overflow-wrap: anywhere;
 }
 .trace-settled { color: var(--phosphor-dim); }
+
+/* ---- Structure factor -------------------------------------------------- */
+.sk-body { display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: flex-start; }
+.sk-canvas {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  image-rendering: pixelated;
+  background: var(--bg);
+}
+.sk-side { flex: 1; min-width: 240px; max-width: 42ch; }
+.sk-side h5 {
+  margin: 1rem 0 0.25rem;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-mute);
+}
+.sk-side h5:first-child { margin-top: 0; }
+.sk-side p { margin: 0; font-size: 0.8rem; line-height: 1.55; color: var(--text-dim); }
+.sk-peak {
+  font-family: var(--mono) !important;
+  font-size: 1.1rem !important;
+  color: var(--phosphor) !important;
+  font-variant-numeric: tabular-nums;
+}
+.sk-label { color: var(--text) !important; }
+.sk-source { font-style: italic; }
