@@ -21,6 +21,10 @@ from .paths import frontend_dist, resource_root
 # stops compiling, that is the strongest available signal of a regression.
 ORACLE_PROGRAM = "ecology_lotka_lite.yaml"
 
+#: A shipped PROGRAM, as opposed to a model file. It executes on load and
+#: imports the audit reference, so it exercises what a model file cannot.
+PROGRAM_FILE = "visibility_world.py"
+
 
 def _check_compiler() -> tuple[str, bool, str]:
     try:
@@ -168,6 +172,52 @@ def _check_load_door() -> tuple[str, bool, str]:
             f"{len(preview['gates'])} gates checked without placement")
 
 
+def _check_program() -> tuple[str, bool, str]:
+    """Open a shipped PROGRAM and step it, inside the bundle.
+
+    Loading a program executes it, and the shipped programs import their
+    physics from the audit reference rather than restating it. That import
+    resolves in a checkout and does NOT resolve in a frozen bundle unless the
+    build copies the file in -- a failure only the frozen build exhibits, and
+    one that reached a built binary once. Every check here travels the path a
+    reader takes: open, step, decode.
+    """
+    try:
+        from backend.app.program_runtime import open_session
+    except Exception as exc:  # pragma: no cover - import failure path
+        return ("program", False, f"unavailable: import failed: {exc!r}")
+
+    path = resource_root() / "programs" / PROGRAM_FILE
+    if not path.is_file():
+        return ("program", False,
+                f"unavailable: {PROGRAM_FILE} not found at {path}; the bundle "
+                f"is missing its programs/ data files")
+    try:
+        session = open_session(path, {}, consent=True, sweeps=2, seed=0)
+    except Exception as exc:
+        return ("program", False,
+                f"unavailable: opening {PROGRAM_FILE} raised: "
+                f"{type(exc).__name__}: {exc}")
+
+    try:
+        frame = session.step()
+        decoded = session.decode(frame)
+    except Exception as exc:
+        return ("program", False,
+                f"unavailable: stepping raised: {type(exc).__name__}: {exc}")
+
+    if decoded is None or len(decoded) == 0:
+        return ("program", False, "unavailable: the decoder returned nothing")
+    if frame.traces != 1:
+        return ("program", False,
+                f"the sampler traced {frame.traces} times for one frame; it "
+                f"must compile once (R32)")
+
+    return ("program", True,
+            f"ran {PROGRAM_FILE}: {frame.n_spins} spins, decoded "
+            f"{len(decoded)} columns, one compilation")
+
+
 def _check_frontend() -> tuple[str, bool, str]:
     try:
         dist = frontend_dist()
@@ -179,7 +229,7 @@ def _check_frontend() -> tuple[str, bool, str]:
 def run_selftest() -> tuple[int, list[str]]:
     """Run every check. Returns (exit_code, report_lines)."""
     checks = (_check_compiler(), _check_service(), _check_load_door(),
-              _check_thrml(), _check_frontend())
+              _check_program(), _check_thrml(), _check_frontend())
     lines = ["Thermodynamic Workbench -- self-test", ""]
     failed = 0
     for name, ok, detail in checks:

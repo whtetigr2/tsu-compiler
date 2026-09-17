@@ -58,6 +58,22 @@ datas += [
     (os.path.join(OBS, "receipts"), "receipts"),
 ]
 
+# The shipped programs import their physics from the audit reference rather
+# than restating it, because retyping a constant is how two files stop
+# describing the same model. That reference therefore has to travel with the
+# bundle: without it the programs load fine in a checkout and raise
+# ModuleNotFoundError in the frozen build, which is a failure only a frozen
+# build exhibits. Placed beside programs/ so one sys.path entry finds both.
+_AUDIT = os.path.join(os.path.dirname(os.path.dirname(OBS)), "audit")
+for _shared in ("visibility_as_inference.py",):
+    _src = os.path.join(_AUDIT, _shared)
+    if not os.path.isfile(_src):
+        raise SystemExit(
+            f"workbench.spec: {_src} is missing and the shipped programs "
+            f"import it; the build would produce a bundle whose programs "
+            f"cannot load")
+    datas.append((_src, "programs"))
+
 a = Analysis(
     [os.path.join(HERE, "launch.py")],
     pathex=[OBS, SRC],

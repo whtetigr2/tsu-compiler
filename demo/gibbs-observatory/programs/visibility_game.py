@@ -32,12 +32,21 @@ from pathlib import Path
 
 import numpy as np
 
-# The audit directory holds the verified reference. Import the constants rather
-# than retyping them: if they drift, this program and the thing that checks it
-# stop describing the same model.
-_AUDIT = Path(__file__).resolve().parents[3] / "audit"
-if _AUDIT.is_dir() and str(_AUDIT) not in sys.path:
-    sys.path.insert(0, str(_AUDIT))
+# The verified reference. Import the constants rather than retyping them: if
+# they drift, this program and the thing that checks it stop describing the
+# same model.
+#
+# Two places, because there are two layouts. In a checkout it lives in the
+# repo's audit/ directory. In a frozen bundle there is no audit/ -- the build
+# copies the one file it needs in beside this one, and a bundle without it
+# raises ModuleNotFoundError at load, which is a failure only the frozen build
+# exhibits.
+for _candidate in (Path(__file__).resolve().parent,
+                   Path(__file__).resolve().parents[3] / "audit"):
+    if (_candidate / "visibility_as_inference.py").is_file():
+        if str(_candidate) not in sys.path:
+            sys.path.insert(0, str(_candidate))
+        break
 
 from visibility_as_inference import (  # noqa: E402
     W_COH,
