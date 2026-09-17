@@ -122,10 +122,23 @@ the script that produced it or is labelled unreproduced at the point of use.
 does not import `src/tsu_compiler`, so it cannot inherit a sign convention or an encoding
 bug from the code it checks — asserted by a test on every run.
 
-`out/extropic-verify/` compiles published `codon_opt` models, including a
-3,147-spin instance at degree 12. `out/connectivity-cost/` measures what a
-bipartite lattice costs: 1.60× in mediator spins on that model, against a
-bipartite control at 1.00×.
+`out/extropic-verify/` runs published `codon_opt` models through the gates,
+including a 3,147-spin instance at 9,557 edges and degree 12. Every gate passes
+there — degree 12 of 16, |J| 2.5 of 6, |b| 4.05 of 6, 3,147 of 269,568 nodes —
+and **it has not been placed**: the summary records `"place": null`, and a
+preflight at the default budget of 6 restarts and 40,000 iterations reports
+`effort`, not `ok`.
+
+That is a search result and not a hardware verdict, and the distinction is the
+whole point. Every gate passing means nothing in Z1's published limits refuses
+this model. Not placing means this repository's budgeted greedy placer did not
+find a coordinate assignment in the time it was given. Those are different
+claims, and only the first is about the hardware. Note also that Extropic's own
+approach uses a different embedding primitive, so a model this placer cannot
+handle is not thereby a model Z1 cannot host.
+
+`out/connectivity-cost/` measures what a bipartite lattice costs: 1.60× in
+mediator spins on that model, against a bipartite control at 1.00×.
 
 ## What a diagnostic can miss
 
