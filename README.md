@@ -16,12 +16,32 @@ representation to try instead.
 > profile shipped here targets Extropic's *published* constraints. Nothing in this
 > repository is affiliated with, endorsed by, or derived from any hardware vendor's
 > proprietary source, and no program here has ever run on physical silicon.
+>
+> **It is also not Extropic's toolchain.** Extropic publishes its own path from
+> program to hardware. This is a separate, host-side front end with a different
+> input language and a different embedding primitive, and it does not claim to
+> produce what their tools would produce. What it targets is a *Z1-shaped
+> idealization*: the published degree, offsets, node budget and coupling cap,
+> plus the assumptions `target.py` marks as assumed — chiefly that every edge
+> carries its own independently programmable coupling. Extropic's own figures
+> report 215,904 coupling parameters against 2,135,904 coupling edges, so on the
+> physical die some couplings are evidently shared. Until that sharing rule is
+> published, a compiled program here is a program for the idealization, not a
+> die program. See `audit/findings/R2.md`.
 
 Features include:
 
 - Representation search (domain-wall vs one-hot), keeping rejected candidates as evidence
-- Exact mediator insertion for graphs the hardware topology cannot host directly
-- Deterministic lattice embedding, with a budgeted search as fallback
+- Exact mediator insertion for graphs that are not 2-colourable, restoring the
+  bipartiteness block Gibbs needs. This is a **colouring** fix, not a placement
+  one: a mediator breaks an odd cycle, and it does not make a long-range logical
+  edge realizable on a die that only couples nearby p-bits. Those are two
+  different problems and this repository solves the first exactly and the second
+  heuristically.
+- Lattice embedding that is exact for grid-shaped graphs on the four axis-unit
+  offsets, and a budgeted search for everything else — including the other twelve
+  Z1 offsets. Exhaustion is reported as a search that ran out, never as hardware
+  that cannot host the model.
 - Hardware gates carrying per-limit provenance — documented figure vs project assumption
 - Transition location by finite-size scaling, with τ, effective sample size and Gelman–Rubin
 - Replayable receipts that report `unavailable` with a reason rather than a fabricated value
