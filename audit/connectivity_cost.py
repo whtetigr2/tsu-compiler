@@ -67,6 +67,16 @@ coupling -- the structural residual is zero on every successful compile, and
 there is no number there to report. The cost lands somewhere else: extra spins.
 So this measures what zero residual COSTS, which is the same question in the
 currency this design actually spends.
+
+TWO THINGS THAT SENTENCE DOES NOT SAY, because an earlier version of this file
+recorded the field as if it did. "Zero on every successful compile" is a
+conditional, and this script never runs `place()`, so it establishes no
+antecedent for any model here. It also is not true that every model here
+compiles: `codon_spike_full` exhausts its placement budget, and the reason is
+structural rather than a budget setting (R33). The field is therefore recorded
+as unmeasured with that reason attached, which is what it always should have
+been -- a hardcoded 0.0 justified by reasoning is a fabricated measurement no
+matter how good the reasoning.
 """
 import json
 import sys
@@ -131,11 +141,23 @@ def measure(stem: str, note: str) -> dict:
         "jmax_after": round(jmax_after, 6),
         "jmax_predicted_closed_form": round(float(predicted), 6),
         "closed_form_abs_error": round(abs(float(predicted) - jmax_after), 12),
-        "structural_residual": 0.0,
+        # NOT a measurement, and it used to be recorded as one. This field read
+        # `0.0` with a note reasoning that place() raises on any unrealized
+        # edge, so a successful compile must have realized every coupling. The
+        # reasoning is sound and the number was still fabricated: this script
+        # never calls place(). Worse, for codon_spike_full place() does NOT
+        # succeed -- it exhausts its budget (R33) -- so a reader seeing 0.0
+        # concluded every coupling was realized for a model where none were.
+        #
+        # A control that cannot fail is not a control, which this project has
+        # now learned three times (R23, R24, and here). The honest value is
+        # that it was not measured, and the honest reason is why.
+        "structural_residual": None,
         "structural_residual_note": (
-            "zero by construction: place() raises CompileError with limit=0 on "
-            "any unrealized edge, so a compile either realizes every coupling "
-            "or fails loudly -- it never drops one"),
+            "unmeasured: this script measures the MEDIATION tax and does not "
+            "run place(), so it has no evidence about realized couplings. "
+            "Placement for these models is a separate question and a negative "
+            "one for the largest of them -- see audit/findings/R33.md"),
         "mediate_seconds": round(secs, 3),
         # D1/D2: the mediated model must still clear every Z1 gate. Recorded
         # per gate with its measured value, its limit, and whether that limit

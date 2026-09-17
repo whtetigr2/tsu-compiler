@@ -15,8 +15,8 @@
       "jmax_after": 0.5,
       "jmax_predicted_closed_form": 0.5,
       "closed_form_abs_error": 0.0,
-      "structural_residual": 0.0,
-      "structural_residual_note": "zero by construction: place() raises CompileError with limit=0 on any unrealized edge, so a compile either realizes every coupling or fails loudly -- it never drops one",
+      "structural_residual": null,
+      "structural_residual_note": "unmeasured: this script measures the MEDIATION tax and does not run place(), so it has no evidence about realized couplings. Placement for these models is a separate question and a negative one for the largest of them -- see audit/findings/R33.md",
       "mediate_seconds": 0.0,
       "gates_after_mediation": [
         {
@@ -71,8 +71,8 @@
       "jmax_after": 2.846568,
       "jmax_predicted_closed_form": 2.846568,
       "closed_form_abs_error": 0.0,
-      "structural_residual": 0.0,
-      "structural_residual_note": "zero by construction: place() raises CompileError with limit=0 on any unrealized edge, so a compile either realizes every coupling or fails loudly -- it never drops one",
+      "structural_residual": null,
+      "structural_residual_note": "unmeasured: this script measures the MEDIATION tax and does not run place(), so it has no evidence about realized couplings. Placement for these models is a separate question and a negative one for the largest of them -- see audit/findings/R33.md",
       "mediate_seconds": 0.0,
       "gates_after_mediation": [
         {
@@ -127,8 +127,8 @@
       "jmax_after": 2.846568,
       "jmax_predicted_closed_form": 2.846568,
       "closed_form_abs_error": 0.0,
-      "structural_residual": 0.0,
-      "structural_residual_note": "zero by construction: place() raises CompileError with limit=0 on any unrealized edge, so a compile either realizes every coupling or fails loudly -- it never drops one",
+      "structural_residual": null,
+      "structural_residual_note": "unmeasured: this script measures the MEDIATION tax and does not run place(), so it has no evidence about realized couplings. Placement for these models is a separate question and a negative one for the largest of them -- see audit/findings/R33.md",
       "mediate_seconds": 0.001,
       "gates_after_mediation": [
         {
@@ -183,8 +183,8 @@
       "jmax_after": 2.846568,
       "jmax_predicted_closed_form": 2.846568,
       "closed_form_abs_error": 0.0,
-      "structural_residual": 0.0,
-      "structural_residual_note": "zero by construction: place() raises CompileError with limit=0 on any unrealized edge, so a compile either realizes every coupling or fails loudly -- it never drops one",
+      "structural_residual": null,
+      "structural_residual_note": "unmeasured: this script measures the MEDIATION tax and does not run place(), so it has no evidence about realized couplings. Placement for these models is a separate question and a negative one for the largest of them -- see audit/findings/R33.md",
       "mediate_seconds": 0.002,
       "gates_after_mediation": [
         {
@@ -239,9 +239,9 @@
       "jmax_after": 2.846568,
       "jmax_predicted_closed_form": 2.846568,
       "closed_form_abs_error": 0.0,
-      "structural_residual": 0.0,
-      "structural_residual_note": "zero by construction: place() raises CompileError with limit=0 on any unrealized edge, so a compile either realizes every coupling or fails loudly -- it never drops one",
-      "mediate_seconds": 0.022,
+      "structural_residual": null,
+      "structural_residual_note": "unmeasured: this script measures the MEDIATION tax and does not run place(), so it has no evidence about realized couplings. Placement for these models is a separate question and a negative one for the largest of them -- see audit/findings/R33.md",
+      "mediate_seconds": 0.014,
       "gates_after_mediation": [
         {
           "gate": "degree",

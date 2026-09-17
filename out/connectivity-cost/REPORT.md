@@ -16,6 +16,14 @@ lattice. This compiler does not fit. `place.py` raises `CompileError` with
 `limit=0` the moment one edge is unrealized, so it never ships a model with a
 dropped coupling: **the structural residual is zero on every successful compile.**
 
+> Read that as the conditional it is. This script measures the mediation tax and
+> **does not run `place()`**, so it establishes the antecedent for none of the
+> models below, and `structural_residual` is recorded as unmeasured rather than
+> as a number. Nor does every model here compile: `codon_spike_full` exhausts
+> its placement budget for structural reasons (`audit/findings/R33.md`). An
+> earlier version of this pack recorded that field as `0.0` with the reasoning
+> above attached, which made a fabricated measurement out of a sound argument.
+
 The cost does not vanish — it moves. Preserving the exact marginal on a bipartite
 substrate requires mediator spins, so the price is paid in **spins** rather than
 in fidelity. This measures that price.
