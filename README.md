@@ -181,6 +181,37 @@ wall time is dominated by per-call dispatch into thrml rather than by sampling,
 so 400 samples per update cost about 30% more than 40. It is a live instrument,
 not a 30fps animation.
 
+## How this was built
+
+Written with heavy AI assistance, stated here so no reviewer has to infer it
+from the commit trailers.
+
+The direction is mine: which problem to attack, which target to model, what
+counts as evidence, and which results to retract. The implementation, the tests
+and much of the prose were written with Claude (Opus 5), and the commits carry
+`Co-Authored-By` trailers throughout. Grok has audited specific claims and found
+real ones — the README's feature list previously conflated the mediator gadget
+with topology placement, and that came out of an outside review, not from me.
+
+Two things are worth knowing about what that does and does not mean.
+
+It does not mean the repository was generated. `git log` is the record: work
+began 2026-08-26 and the GitHub repo was published 2026-09-14, by which point
+248 of the commits already existed, at a steady 60-97 per week. Nothing here was
+produced in a sitting.
+
+It does mean the verification matters more than usual, which is why the
+structure is what it is. The Boltzmann oracle in `audit/oracles/` does not
+import the compiler, and a test asserts it never starts to. Sampled moments are
+checked against brute-force enumeration to five standard errors, a bound that
+fails a systematically wrong distribution no matter how many samples are drawn.
+Hardware limits carry `Sourced` or `Assumed` per field. `audit/findings/`
+records the retractions alongside the results, including the ones where a
+measurement contradicted my own stated reasoning and the reasoning lost.
+
+None of that is a substitute for someone else running it. There is no external
+validation of this work, no users, and nothing here has touched silicon.
+
 ## License
 
 Apache-2.0. See `LICENSE` and `NOTICE`.
