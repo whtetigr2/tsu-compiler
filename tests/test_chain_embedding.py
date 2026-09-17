@@ -130,3 +130,61 @@ class TestItRefusesRatherThanGuesses:
                 find_chain_embedding(_model([(0, 1)], 2), Z1)
         finally:
             mod.validate_embedding = real
+
+
+class TestItIsWiredIntoPreflight:
+    """The capability existing is not the same as the compiler using it.
+
+    `passes/embed.py` was written before `preflight` called it, and for a while
+    `tsuc preflight` still reported models as unplaced that the embedder could
+    place in a second. These pin the integration.
+    """
+
+    def _hard(self):
+        """A model direct placement genuinely cannot do.
+
+        NOT a triangle: `place()` mediates first, and a mediated triangle is a
+        6-cycle, which embeds directly. Mediation already covers odd cycles.
+        What it does not cover is a graph whose local structure is nothing like
+        the lattice's, which is R33's subject -- so this is a random 4-regular
+        expander, verified below to fail without chains.
+        """
+        import networkx as nx
+        G = nx.random_regular_graph(4, 40, seed=7)
+        edges = tuple(sorted((min(u, v), max(u, v)) for u, v in G.edges()))
+        return _model(edges, 40)
+
+    def test_a_model_direct_placement_cannot_do_now_places(self):
+        from tsu_compiler.preflight.check import preflight
+        m = self._hard()
+        without = preflight(m, restarts=1, iters=200, allow_chains=False)
+        assert without.placed is False, "premise: this must defeat direct placement"
+        r = preflight(m, restarts=1, iters=200)
+        assert r.placed is True
+        assert r.verdict != "effort"
+
+    def test_the_report_says_chains_were_used_and_what_they_cost(self):
+        from tsu_compiler.preflight.check import preflight
+        r = preflight(self._hard(), restarts=1, iters=200)
+        assert r.embedding == "chain"
+        assert r.chain_cells and r.chain_cells >= 40
+        assert r.chain_max and r.chain_max >= 1
+
+    def test_direct_placement_is_still_preferred_when_it_works(self):
+        """A model that places directly must not pay 2x the spins for reach it
+        does not need, so chains are the fallback and not the default."""
+        from tsu_compiler.preflight.check import preflight
+        path = _model([(0, 1)], 2)          # trivially lattice-shaped
+        r = preflight(path)
+        assert r.placed is True
+        assert r.embedding != "chain"
+        assert r.chain_cells is None
+
+    def test_chains_can_be_switched_off(self):
+        """So the direct-only behaviour remains measurable, which is what R33
+        was measured against."""
+        from tsu_compiler.preflight.check import preflight
+        r = preflight(self._hard(), restarts=1, iters=200, allow_chains=False)
+        assert r.placed is False
+        assert r.verdict == "effort"
+        assert r.chain_cells is None

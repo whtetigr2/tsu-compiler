@@ -70,6 +70,12 @@ class PreflightReport:
     # finite parameter count (the ideal control).
     distinct_couplings: int | None = None
     coupling_note: str | None = None
+    # Chains, when direct placement failed and minor embedding succeeded.
+    # None means no chain embedding was used -- either direct placement worked,
+    # in which case every chain would be length 1, or nothing placed at all.
+    chain_cells: int | None = None
+    chain_max: int | None = None
+    chain_mean: float | None = None
 
 
 
@@ -208,7 +214,8 @@ def _delegated_gate(gc: GateCheck) -> Gate:
 
 def preflight(ising: IsingModel, target: TargetProfile = PROFILES["z1"],
               *, allow_assumed: bool = False,
-              restarts: int = 6, iters: int = 40_000) -> PreflightReport:
+              restarts: int = 6, iters: int = 40_000,
+              allow_chains: bool = True) -> PreflightReport:
     rep = analyse(ising)
 
     # F2 (branch review): degree/coupling_cap/field_cap/colouring are
@@ -320,18 +327,43 @@ def preflight(ising: IsingModel, target: TargetProfile = PROFILES["z1"],
     placement = None
     place_error = None
     remediations: tuple[str, ...] = ()
+    chain = None
     t0 = time.time()
     try:
         placement = place(ising, rep, target, restarts=restarts, iters=iters)
     except CompileError as exc:
         place_error = str(exc)
         remediations = _remediations(exc)
+
+        # Direct placement puts one logical spin on one p-bit, which R33
+        # measures as only workable when the graph is already a subgraph of the
+        # lattice: past four placed neighbours there is typically ONE legal cell
+        # anywhere. Chains dissolve that, at the cost of extra p-bits, so they
+        # are the FALLBACK rather than the default -- a model that places
+        # directly should not pay 2x the spins for reach it does not need.
+        # Only when the hardware has not already refused the model. Chains
+        # genuinely fix high logical degree -- embedding a K20 into a degree-16
+        # lattice is one of the things minor embedding is FOR -- but a model
+        # whose gates fail does not fit this target, and reporting placed=True
+        # beside verdict="fail" invites exactly the misreading this project
+        # exists to prevent. Nothing is gained by finding a home for a model
+        # the caller has already been told will not run.
+        if allow_chains and not any(x.status == "fail" for x in gates):
+            try:
+                from ..passes.embed import (EmbeddingUnavailable,
+                                            find_chain_embedding)
+                chain = find_chain_embedding(ising, target)
+            except EmbeddingUnavailable:
+                chain = None          # not installed; direct-only, as before
+            except Exception:         # noqa: BLE001 - no embedding found
+                chain = None
     place_seconds = time.time() - t0
 
     mediators = 0
     if placement is not None and placement.mediation is not None:
         mediators = len(placement.mediated_ising.mediator_nodes)
-    embedding = ("failed" if placement is None
+    embedding = ("chain" if placement is None and chain is not None
+                 else "failed" if placement is None
                  else "grid_embed" if direct and mediators == 0
                  else "annealed")
 
@@ -357,8 +389,11 @@ def preflight(ising: IsingModel, target: TargetProfile = PROFILES["z1"],
     # cannot host this", a claim about Extropic's silicon resting on how long a
     # greedy search was allowed to run.
     gate_failed = any(x.status == "fail" for x in gates)
+    # A chain embedding IS a placement. The direct search failing before it is
+    # not a refusal of anything, so `place_error` alone must not decide.
+    unplaced = place_error is not None and chain is None
     verdict = ("fail" if gate_failed
-               else "effort" if place_error is not None
+               else "effort" if unplaced
                else "warn" if any(x.status in ("warn", "downgraded")
                                   for x in gates)
                else "ok")
@@ -368,7 +403,11 @@ def preflight(ising: IsingModel, target: TargetProfile = PROFILES["z1"],
         n_spins=rep.n_nodes, n_couplings=rep.n_edges,
         max_degree=rep.max_degree, bipartite=rep.bipartite,
         embedding=embedding, mediators=mediators,
-        place_seconds=place_seconds, placed=placement is not None,
+        place_seconds=place_seconds,
+        placed=placement is not None or chain is not None,
+        chain_cells=(chain.n_physical if chain else None),
+        chain_max=(chain.max_chain if chain else None),
+        chain_mean=(round(chain.mean_chain, 3) if chain else None),
         place_error=place_error, remediations=remediations,
         gates=gates, verdict=verdict,
         fabric_note=_fabric_note(rep.n_nodes + mediators, target),
