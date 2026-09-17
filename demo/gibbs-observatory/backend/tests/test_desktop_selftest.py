@@ -49,3 +49,41 @@ def test_failed_checks_produce_a_nonzero_exit(monkeypatch):
     code, lines = run_selftest()
     assert code != 0, "a forced failure must not exit zero"
     assert "forced failure" in "\n".join(lines)
+
+
+def test_the_load_door_check_fails_when_the_door_is_broken(monkeypatch):
+    """A check that cannot fail proves nothing.
+
+    The load door check was added after a build shipped without it. Force the
+    door to raise and confirm the check reports a failure rather than passing
+    on the strength of everything else working.
+    """
+    from desktop import selftest
+    import backend.app.spec_formats as spec_formats
+
+    def boom(*a, **k):
+        raise RuntimeError("frozen bundle cannot read specs")
+
+    monkeypatch.setattr(spec_formats, "load_text", boom)
+    name, ok, detail = selftest._check_load_door()
+    assert name == "load door"
+    assert ok is False
+    assert "frozen bundle cannot read specs" in detail
+
+
+def test_the_load_door_check_fails_if_a_preview_claims_placement_ran():
+    """The preview must never report that placement happened. If it ever does,
+    a green gate strip becomes readable as COMPILED, which is the
+    representation-versus-hardware confusion in a progress indicator."""
+    from desktop import selftest
+    import backend.app.program_service as program_service
+
+    real = program_service.gate_preview
+    try:
+        program_service.gate_preview = lambda *a, **k: {
+            "gates": [{"gate": "degree"}], "placement_checked": True}
+        name, ok, detail = selftest._check_load_door()
+        assert ok is False
+        assert "placement" in detail.lower()
+    finally:
+        program_service.gate_preview = real

@@ -109,6 +109,65 @@ def _check_service() -> tuple[str, bool, str]:
             f"{res.get('verdict')}")
 
 
+def _check_load_door() -> tuple[str, bool, str]:
+    """Open a program the way a user does, and check the gates the fast way.
+
+    These are the two things someone does first: point the application at a
+    file, and watch the gates answer while they edit. Both were added after
+    this self-test was written, and both reach into the compiler -- the door
+    delegates its last word to `load_spec_text`, and the preview calls
+    `encode`, `lower`, `analyse` and `gate_checks`. Any of those failing to
+    freeze into the bundle would leave a build that opens, serves every asset,
+    and cannot read a file.
+
+    The same argument as `_check_service`: a check that does not travel the
+    path the product travels can pass while the product is broken.
+    """
+    try:
+        from backend.app.spec_formats import load_text
+        from backend.app.program_service import gate_preview
+    except Exception as exc:  # pragma: no cover - import failure path
+        return ("load door", False, f"unavailable: import failed: {exc!r}")
+
+    spec = resource_root() / "programs" / ORACLE_PROGRAM
+    try:
+        text = spec.read_text(encoding="utf-8")
+    except Exception as exc:
+        return ("load door", False, f"unavailable: cannot read {spec}: {exc!r}")
+
+    # JSON, because it exercises the conversion rather than a passthrough, and
+    # the compiler delegation has to accept what came back out.
+    try:
+        import json
+        import yaml
+        as_json = json.dumps(yaml.safe_load(text))
+        loaded = load_text("selftest.json", as_json)
+    except Exception as exc:
+        return ("load door", False, f"unavailable: loading raised: {exc!r}")
+
+    if loaded.detection.format != "json" or "generate" not in loaded.yaml \
+            and "variables" not in loaded.yaml:
+        return ("load door", False,
+                f"unavailable: read as {loaded.detection.format} and produced "
+                f"{len(loaded.yaml)} characters of YAML")
+
+    try:
+        preview = gate_preview(loaded.yaml)
+    except Exception as exc:
+        return ("load door", False, f"unavailable: gate_preview raised: {exc!r}")
+
+    if not preview.get("gates"):
+        return ("load door", False, "unavailable: the gate preview returned no gates")
+    if preview.get("placement_checked") is not False:
+        return ("load door", False,
+                "the preview claims placement ran; it must not, and a preview "
+                "that says it did would let a strip read as COMPILED")
+
+    return ("load door", True,
+            f"opened {ORACLE_PROGRAM} as JSON, converted to YAML, "
+            f"{len(preview['gates'])} gates checked without placement")
+
+
 def _check_frontend() -> tuple[str, bool, str]:
     try:
         dist = frontend_dist()
@@ -119,8 +178,8 @@ def _check_frontend() -> tuple[str, bool, str]:
 
 def run_selftest() -> tuple[int, list[str]]:
     """Run every check. Returns (exit_code, report_lines)."""
-    checks = (_check_compiler(), _check_service(), _check_thrml(),
-              _check_frontend())
+    checks = (_check_compiler(), _check_service(), _check_load_door(),
+              _check_thrml(), _check_frontend())
     lines = ["Thermodynamic Workbench -- self-test", ""]
     failed = 0
     for name, ok, detail in checks:

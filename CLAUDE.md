@@ -16,6 +16,8 @@ Run from the repo root with `sys.path.insert(0, "src")`.
 |---|---|
 | whether a model fits the hardware | `preflight.check.preflight(ising, target)` |
 | whether the contract makes variables impossible | `passes.presolve.presolve(spec)` |
+| the gates WITHOUT paying for placement | `passes.analyse.analyse` + `gates.gate_checks` |
+| reading a spec you hold as text, not a path | `spec.load_spec_text(text)` |
 | degree / |J| cap / |b| cap / colouring gates | `gates.gate_checks(ising, report, target)` |
 | quantisation, precision, coupling collisions | `regime.analyse_regime(report, target, weights=…)` |
 | graph shape: degree, bipartite, colour blocks | `passes.analyse.analyse(ising)` |
