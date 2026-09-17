@@ -70,9 +70,29 @@ W_EXCLUSION = 8.0    # each site holds at most one monomer
 W_CHAIN = 8.0        # consecutive monomers must be lattice neighbours
 W_CONTACT = -1.0     # reward: two H monomers touching but not chain-adjacent
 
+# Delete the (monomer, site) pairs a bipartite lattice makes impossible.
+# Exact, and the difference between this model fitting Z1 and not.
+PARITY_PRUNING = True
+
 
 def sites() -> list[tuple[int, int]]:
     return [(x, y) for y in range(GRID_H) for x in range(GRID_W)]
+
+
+def reachable(monomer: int, site: tuple[int, int]) -> bool:
+    """Can monomer `i` ever occupy this site, on a bipartite lattice?
+
+    A square lattice is bipartite, so a walk alternates between the two
+    sublattices at every step. After i steps from a site of even parity, the
+    walker is necessarily on a site whose (x + y) parity matches i. Half of all
+    (monomer, site) pairs therefore describe configurations that cannot exist.
+
+    Deleting them is EXACT, not an approximation: a test enumerates every
+    self-avoiding walk of this sequence and confirms that none violates the
+    rule, so no real fold is lost. What it removes is half the variables, both
+    cliques, and the degree failure.
+    """
+    return (site[0] + site[1]) % 2 == monomer % 2
 
 
 def adjacent(a: tuple[int, int], b: tuple[int, int]) -> bool:
@@ -141,12 +161,18 @@ def build_qubo(seq: str) -> tuple[dict[int, float], dict[tuple[int, int], float]
     has energy equal to minus its contact count.
     """
     S = sites()
-    idx = {(i, s): i * len(S) + s for i in range(len(seq)) for s in range(len(S))}
+    live = [(i, s) for i in range(len(seq)) for s in range(len(S))
+            if not PARITY_PRUNING or reachable(i, S[s])]
+    idx = {k: v for v, k in enumerate(live)}
     lin: dict[int, float] = {v: 0.0 for v in idx.values()}
     quad: dict[tuple[int, int], float] = {}
 
-    def add(a: int, b: int, w: float) -> None:
-        key = (a, b) if a < b else (b, a)
+    def add(a: tuple[int, int], b: tuple[int, int], w: float) -> None:
+        """Silently drops a term touching a pruned pair: it cannot occur."""
+        if a not in idx or b not in idx:
+            return
+        x, y = idx[a], idx[b]
+        key = (x, y) if x < y else (y, x)
         quad[key] = quad.get(key, 0.0) + w
 
     n = len(seq)
@@ -155,14 +181,15 @@ def build_qubo(seq: str) -> tuple[dict[int, float], dict[tuple[int, int], float]
     # Each monomer on exactly one site: (sum_s x - 1)^2, expanded for binary x.
     for i in range(n):
         for s in range(m):
-            lin[idx[(i, s)]] -= W_ONE_SITE
+            if (i, s) in idx:
+                lin[idx[(i, s)]] -= W_ONE_SITE
         for s, t in itertools.combinations(range(m), 2):
-            add(idx[(i, s)], idx[(i, t)], 2.0 * W_ONE_SITE)
+            add((i, s), (i, t), 2.0 * W_ONE_SITE)
 
     # Each site holds at most one monomer.
     for s in range(m):
         for i, j in itertools.combinations(range(n), 2):
-            add(idx[(i, s)], idx[(j, s)], W_EXCLUSION)
+            add((i, s), (j, s), W_EXCLUSION)
 
     # Consecutive monomers must land on neighbouring sites: penalise every
     # placement of the pair that is not adjacent, including the same site.
@@ -171,7 +198,7 @@ def build_qubo(seq: str) -> tuple[dict[int, float], dict[tuple[int, int], float]
             for t in range(m):
                 if adjacent(S[s], S[t]):
                     continue
-                add(idx[(i, s)], idx[(i + 1, t)], W_CHAIN)
+                add((i, s), (i + 1, t), W_CHAIN)
 
     # The objective: H monomers touching on the lattice, not along the chain.
     for i, j in itertools.combinations(range(n), 2):
@@ -180,7 +207,7 @@ def build_qubo(seq: str) -> tuple[dict[int, float], dict[tuple[int, int], float]
         for s in range(m):
             for t in range(m):
                 if adjacent(S[s], S[t]):
-                    add(idx[(i, s)], idx[(j, t)], W_CONTACT)
+                    add((i, s), (j, t), W_CONTACT)
 
     return lin, quad, idx
 
@@ -212,7 +239,8 @@ def decode(state: list[int], idx: dict[tuple[int, int], int], seq: str
     placed: list[tuple[int, int] | None] = []
     problems: list[str] = []
     for i in range(len(seq)):
-        occupied = [s for s in range(len(S)) if state[idx[(i, s)]] == 1]
+        occupied = [s for s in range(len(S))
+                    if (i, s) in idx and state[idx[(i, s)]] == 1]
         if len(occupied) != 1:
             problems.append(f"monomer {i} occupies {len(occupied)} sites")
             placed.append(S[occupied[0]] if occupied else None)
@@ -285,8 +313,9 @@ def main() -> int:
     print("\nTHE PROGRAM")
     print(f"  {n} variables, {len(edges)} couplings")
     print(f"  max degree {max(degree.values())}")
-    print(f"  clique floor {(GRID_W * GRID_H - 1) + (len(SEQUENCE) - 1)}: "
-          f"one-hot over sites plus exclusion over monomers, and they add")
+    print(f"  parity pruning {'on' if PARITY_PRUNING else 'off'}: "
+          f"{len(SEQUENCE) * GRID_W * GRID_H} (monomer, site) pairs reduce "
+          f"to {n}, because a bipartite lattice makes half of them impossible")
 
     e_s, b_s, s = scaled(edges, biases)
     path = Path(tempfile.mkdtemp()) / "hp.json"
