@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { ReceiptInspect } from '../../types'
+import { RefusalPanel } from '../RefusalPanel'
 
 interface GateOut {
   name?: string
@@ -240,6 +241,9 @@ export function NotepadView({ receipt, onApplyReceipt }: Props) {
           {error ? <div className="status-error notepad-err">{error}</div> : null}
           {result ? (
             <>
+              {/* The refusal, first and in full. Which kind of no this is
+                  matters more than any of the numbers under it. */}
+              <RefusalPanel result={result as never} />
               <div className="mission-strip notepad-strip">
                 <div>
                   <span className="k">verdict</span>

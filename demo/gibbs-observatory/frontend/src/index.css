@@ -2143,3 +2143,60 @@ button.btn.ghost {
 .workspace-bar { background: var(--surface); }
 .workspace-stage { position: absolute; inset: 0; display: flex; }
 .main-stage { position: relative; }
+
+/* ---- What the compiler said ------------------------------------------- */
+.refusal { max-width: 78ch; }
+.refusal-head { display: flex; align-items: baseline; gap: 0.7rem; flex-wrap: wrap; margin-bottom: 0.9rem; }
+.refusal-kind {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  padding: 0.2rem 0.5rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid;
+}
+.refusal-kind.ok { color: var(--phosphor); border-color: var(--phosphor-dim); background: var(--phosphor-soft); }
+.refusal-kind.bad { color: var(--danger); border-color: var(--danger); background: rgba(224,122,122,0.08); }
+.refusal-kind.warn { color: var(--warn); border-color: var(--warn); background: var(--warn-soft); }
+.refusal-lead { font-size: 0.85rem; line-height: 1.55; color: var(--text-dim); flex: 1; min-width: 20ch; }
+.refusal h5 {
+  margin: 1.1rem 0 0.35rem; font-size: 0.68rem; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--text-mute);
+}
+.refusal-fixes { margin: 0; padding-left: 1.1rem; font-size: 0.82rem; line-height: 1.6; color: var(--text-dim); }
+.refusal-note { font-size: 0.78rem; line-height: 1.55; color: var(--text-mute); margin: 0.7rem 0 0; }
+.refusal-note.mono { font-family: var(--mono); font-size: 0.72rem; color: var(--text-dim); }
+.refusal-facts { display: flex; gap: 1.4rem; margin: 0; font-family: var(--mono); font-size: 0.75rem; }
+.refusal-facts div { display: flex; flex-direction: column; gap: 0.1rem; }
+.refusal-facts dt { color: var(--text-mute); font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.06em; }
+.refusal-facts dd { margin: 0; font-variant-numeric: tabular-nums; }
+.refusal-attempts { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 0.72rem; margin-top: 0.4rem; }
+.refusal-attempts th { text-align: left; color: var(--text-mute); font-weight: 400; padding: 0.2rem 0.5rem 0.2rem 0; }
+.refusal-attempts td { padding: 0.2rem 0.5rem 0.2rem 0; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.refusal-all { margin-top: 1.2rem; }
+.refusal-all summary { cursor: pointer; font-size: 0.72rem; color: var(--text-mute); }
+
+.gate-row { margin: 0.7rem 0; }
+.gate-row-head { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; }
+.gate-name { font-family: var(--mono); font-size: 0.8rem; color: var(--text); }
+.gate-numbers { font-family: var(--mono); font-size: 0.75rem; color: var(--text-dim); margin-left: auto; font-variant-numeric: tabular-nums; }
+.gate-cap { color: var(--text-mute); }
+.gate-over { color: var(--danger); }
+.chip.sourced { border-color: var(--phosphor-dim); color: var(--phosphor-dim); }
+.chip.assumed { border-color: var(--warn); color: var(--warn); border-style: dashed; }
+.gate-track {
+  position: relative; height: 6px; margin-top: 0.3rem;
+  background: var(--bg); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+}
+/* Dashed track = the cap is this project's assumption, not a published figure. */
+.gate-track.assumed { border-style: dashed; border-color: var(--warn); }
+.gate-fill { height: 100%; border-radius: var(--radius-pill); }
+.gate-fill.ok { background: var(--phosphor-dim); }
+.gate-fill.bad { background: var(--danger); }
+.gate-cap-mark { position: absolute; top: -3px; bottom: -3px; width: 1px; background: var(--text-mute); }
+.gate-note { margin: 0.3rem 0 0; font-size: 0.7rem; line-height: 1.5; color: var(--text-mute); }
+/* The measured/cap pair must stay on one line. In a narrow pane it was
+   wrapping between every token and rendering as a vertical stack. */
+.gate-numbers { white-space: nowrap; }
+.gate-row-head { row-gap: 0.15rem; }

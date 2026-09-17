@@ -118,10 +118,20 @@ export interface BatchPayload {
 }
 
 export interface GateRow {
-  gate: string
-  passed: boolean
-  measured: number | string | null
+  /** Receipts spell it `gate`; the live preflight endpoint spells it `name`. */
+  gate?: string
+  name?: string
+  passed?: boolean
+  status?: 'ok' | 'warn' | 'fail' | string
+  measured?: number | string | null
+  value?: number | string | null
   limit: number | string | null
+  note?: string
+  /**
+   * True when the cap is this project's working value rather than a published
+   * Extropic figure. A refusal resting on an assumption is a weaker claim than
+   * one resting on a sourced number, so it is drawn differently.
+   */
   assumed?: boolean
   downgraded?: boolean
 }
