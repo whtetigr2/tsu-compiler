@@ -12,6 +12,16 @@ it to an Ising model, checks it against a declarative hardware profile, and — 
 it does not fit — says which constraint failed, by how much, and which
 representation to try instead.
 
+> **Scope, stated up front.** The first question — *will it fit* — is answered by
+> the gates, and that part is real: measured limits against published figures,
+> with provenance on every one. The second half of placement is not. This
+> repository does **direct** embedding, one logical spin to one physical p-bit,
+> which only works when the interaction graph is already lattice-shaped. It has
+> no chain (minor) embedder, so for general graphs it reports that its search ran
+> out rather than placing them. `audit/findings/R33.md` measures exactly why and
+> what it would take to fix. Read this as a preflight and gate-checking tool that
+> also places lattice-shaped workloads, not as a general placer.
+
 > **This is an independent project.** TSUs are hardware built by Extropic.ai; the `z1`
 > profile shipped here targets Extropic's *published* constraints. Nothing in this
 > repository is affiliated with, endorsed by, or derived from any hardware vendor's
@@ -39,9 +49,11 @@ Features include:
   different problems and this repository solves the first exactly and the second
   heuristically.
 - Lattice embedding that is exact for grid-shaped graphs on the four axis-unit
-  offsets, and a budgeted search for everything else — including the other twelve
-  Z1 offsets. Exhaustion is reported as a search that ran out, never as hardware
-  that cannot host the model.
+  offsets, and a budgeted search for everything else. **The search is known to
+  fail on graphs that are not already lattice-shaped, and that is structural
+  rather than a budget problem** — see `audit/findings/R33.md`, which measures
+  why. Exhaustion is reported as a search that ran out, never as hardware that
+  cannot host the model.
 - Hardware gates carrying per-limit provenance — documented figure vs project assumption
 - Transition location by finite-size scaling, with τ, effective sample size and Gelman–Rubin
 - Replayable receipts that report `unavailable` with a reason rather than a fabricated value
