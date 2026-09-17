@@ -218,6 +218,56 @@ def _gate_to_dict(g: Any) -> dict[str, Any]:
     }
 
 
+def _gate_check_to_dict(g: Any) -> dict[str, Any]:
+    """A compiler `GateCheck` in the shape the UI's gate table reads.
+
+    `GateCheck` and the receipt's gate rows describe the same thing in
+    different words: gate/measured/passed against name/value/status. This
+    translates the first into the second and derives the status from `passed`,
+    so a refusal shows the same table whether it came from a written receipt
+    or straight off a compilation that never produced one.
+
+    Both spellings are emitted for the name and the measurement, because the
+    panel accepts either and a reader comparing two refusals should not see
+    the same number under two different labels.
+    """
+    def number_or_text(v: Any) -> Any:
+        """Not every gate measures a number. `colouring` reports 'distinct'
+        against a limit of 'distinct', and coercing that to a float raises.
+        Pass non-numeric values through untouched; the panel already renders
+        a measurement it cannot plot as text rather than as a bar."""
+        if v is None or isinstance(v, bool):
+            return v
+        if isinstance(v, (int, float)):
+            return float(v)
+        return str(v)
+
+    limit = getattr(g, "limit", None)
+    if isinstance(limit, float) and limit == float("inf"):
+        limit_out: Any = None
+        limit_infinite = True
+    else:
+        limit_out = number_or_text(limit)
+        limit_infinite = False
+
+    passed = bool(getattr(g, "passed", False))
+    name = str(getattr(g, "gate", None) or getattr(g, "name", "?"))
+    measured = number_or_text(getattr(g, "measured", None))
+    return {
+        "gate": name,
+        "name": name,
+        "measured": measured,
+        "value": measured,
+        "limit": limit_out,
+        "limit_infinite": limit_infinite,
+        "status": "ok" if passed else "fail",
+        "passed": passed,
+        "note": str(getattr(g, "note", "") or ""),
+        "assumed": bool(getattr(g, "assumed", False)),
+        "downgraded": bool(getattr(g, "downgraded", False)),
+    }
+
+
 def _write_temp_spec(yaml_text: str) -> Path:
     text = (yaml_text or "").strip()
     if not text:
@@ -445,9 +495,18 @@ def compile_program(
         gates = []
         if inspect and isinstance(inspect.get("gates"), list):
             gates = inspect["gates"]
-        elif hasattr(comp, "gates") and comp.gates:
-            # Fallback, structure varies; leave empty rather than invent
-            gates = []
+        else:
+            # The receipt is only read back when the verdict is COMPILED, so
+            # every refusal used to arrive with no gate table at all: the
+            # reader was told the model does not fit and shown nothing saying
+            # which limit, measured at what, against what cap. A refusal
+            # without its numbers is a dead end.
+            #
+            # The compiler carries the checks on every path. They use
+            # `GateCheck`'s own field names (gate/measured/passed) rather than
+            # the receipt's (name/value/status), which is why an earlier
+            # attempt at this produced rows of '?' and was left empty instead.
+            gates = [_gate_check_to_dict(g) for g in getattr(comp, "gate_checks", ()) or ()]
 
         med = None
         bipartite = None
@@ -461,11 +520,44 @@ def compile_program(
                 bipartite = (inspect.get("metrics") or {}).get("bipartite")
             n_nodes = (inspect.get("spins") or {}).get("n_nodes")
 
+        # The receipt calls these `n_edges` and `max_degree` under `metrics`.
+        # The UI asks for couplings and degree, so translate once here rather
+        # than teaching every view the receipt's own vocabulary.
+        n_couplings = None
+        max_degree = None
+        if inspect:
+            metrics = inspect.get("metrics") or {}
+            n_couplings = metrics.get("n_edges")
+            max_degree = metrics.get("max_degree")
+
+        # The R27 fields. `preflight_program` has always returned these and
+        # this path did not, which left the UI unable to tell a success from a
+        # verdict it did not recognise, and unable to tell a search that ran
+        # out of budget from a hardware limit. Both distinctions are the whole
+        # point of the panel, and both were dead on the path the notepad uses.
+        #
+        # `hardware_evaluated` is the compiler's own word for whether any gate
+        # actually refused anything. A verdict of EFFORT means it did not, and
+        # reporting that as "does not fit" would be a claim about Extropic's
+        # silicon resting on a timer.
+        hardware_evaluated = bool(getattr(comp, "hardware_evaluated", verdict != "EFFORT"))
+        # `RepresentationSet` calls it `ordering_rationale`. It carries the
+        # compiler's own sentence about why this set of candidates ended where
+        # it did, which is the explanation the UI should show rather than one
+        # reconstructed from a verdict string.
+        repset_reason = str(getattr(repset, "ordering_rationale", "") or "") if repset else ""
+
         elapsed = time.time() - t0
         return {
             "ok": verdict == "COMPILED",
             "kind": "compile",
             "verdict": verdict,
+            "placed": verdict == "COMPILED",
+            "hardware_evaluated": hardware_evaluated,
+            "repset_reason": repset_reason,
+            "n_spins": n_nodes,
+            "n_couplings": n_couplings,
+            "max_degree": max_degree,
             "receipt_id": receipt_id if verdict == "COMPILED" else None,
             "receipt_path": str(written) if verdict == "COMPILED" else str(out_dir),
             "ideal_first": True,
@@ -483,6 +575,10 @@ def compile_program(
             ),
             "errors": errors,
             "mediator_count": med,
+            # Same number under the name the panel reads. Without it a real
+            # count of zero renders as "unavailable", which says the value is
+            # unknown when it is known and is nothing.
+            "mediators": med,
             "bipartite": bipartite,
             "n_nodes": n_nodes,
             "elapsed_seconds": round(elapsed, 4),

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
@@ -20,6 +21,7 @@ from .program_service import (
     tsu_status,
 )
 from .receipt_loader import examples_shelf, list_receipts, load_receipt
+from .spec_formats import DetectionError, load_text
 from .sampler_engine import SamplerConfig, SamplerEngine
 from .snapshot import (
     APP_VERSION,
@@ -109,6 +111,46 @@ class ProgramBody(BaseModel):
 
 class ApplyBody(BaseModel):
     receipt_id: str = Field(..., min_length=1)
+
+
+class LoadBody(BaseModel):
+    """A file the reader picked or text they pasted.
+
+    A browser file picker and a paste produce the same two things: a name and
+    some text. `filename` may be empty for a paste, in which case the format is
+    decided by the content alone.
+    """
+
+    filename: str = ""
+    text: str = ""
+
+
+class LoadPathBody(BaseModel):
+    """A path to a program already on disk. This is a desktop app, and
+    "point it at the file I wrote" is what people mean by loading one."""
+
+    path: str = Field(..., min_length=1)
+
+
+#: Refuse anything larger rather than hanging the editor on it. A thermodynamic
+#: program is a declaration; a multi-megabyte one is a data dump that belongs
+#: at the edge-list door instead.
+MAX_PROGRAM_BYTES = 2 * 1024 * 1024
+
+
+def _loaded_response(filename: str, text: str) -> dict[str, Any]:
+    try:
+        loaded = load_text(filename, text)
+    except DetectionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "format": loaded.detection.format,
+        "why": loaded.detection.why,
+        "executed": loaded.detection.executed,
+        "yaml": loaded.yaml,
+        "message": loaded.message,
+        "filename": filename,
+    }
 
 
 def _config_from_msg(msg: dict[str, Any]) -> SamplerConfig:
@@ -227,6 +269,50 @@ def api_program_compile(body: ProgramBody) -> dict[str, Any]:
         )
     except ProgramServiceError as exc:
         raise _program_http(exc) from exc
+
+
+@app.post("/api/program/load")
+def api_program_load(body: LoadBody) -> dict[str, Any]:
+    """Read a program from a picked file or a paste."""
+    return _loaded_response(body.filename, body.text)
+
+
+@app.post("/api/program/load-path")
+def api_program_load_path(body: LoadPathBody) -> dict[str, Any]:
+    """Read a program from a path on disk.
+
+    Every refusal below names what is actually wrong, because "could not load
+    file" sends the reader looking in the wrong place.
+    """
+    path = Path(body.path).expanduser()
+    if path.is_dir():
+        raise HTTPException(
+            status_code=400,
+            detail=f"{path} is a directory. Point at the program file inside it.")
+    if not path.exists():
+        raise HTTPException(status_code=400, detail=f"no file at {path}")
+
+    size = path.stat().st_size
+    if size > MAX_PROGRAM_BYTES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{path.name} is {size / 1024 / 1024:.1f} MB, over the "
+                   f"{MAX_PROGRAM_BYTES / 1024 / 1024:.0f} MB limit for a "
+                   f"program. A model this size is data rather than a "
+                   f"declaration; load it through the edge-list door instead.")
+
+    try:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{path.name} is not UTF-8 text, so it is not a program the "
+                   f"Workbench can read.") from exc
+    except OSError as exc:
+        raise HTTPException(
+            status_code=400, detail=f"could not read {path}: {exc}") from exc
+
+    return _loaded_response(path.name, text)
 
 
 @app.post("/api/program/apply")

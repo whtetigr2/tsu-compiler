@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { ReceiptInspect } from '../../types'
 import { RefusalPanel } from '../RefusalPanel'
+import { LoadBar, StatusLine } from '../ProgramLoader'
+import type { LoadedProgram, Stage } from '../ProgramLoader'
 
 interface GateOut {
   name?: string
@@ -72,6 +74,7 @@ export function NotepadView({ receipt, onApplyReceipt }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [compiledId, setCompiledId] = useState<string | null>(null)
   const [tsuOk, setTsuOk] = useState<boolean | null>(null)
+  const [stage, setStage] = useState<Stage>({ kind: 'idle' })
 
   const seedFromReceipt = useCallback(async (id: string | null) => {
     if (!id) {
@@ -130,6 +133,7 @@ export function NotepadView({ receipt, onApplyReceipt }: Props) {
     setError(null)
     setResult(null)
     setCompiledId(null)
+    setStage({ kind: 'compiling' })
     try {
       const { status, data } = await postJson('/api/program/compile', {
         yaml,
@@ -138,19 +142,57 @@ export function NotepadView({ receipt, onApplyReceipt }: Props) {
         receipt_id: 'notepad',
       })
       if (status >= 400) {
-        setError(detailMessage(data))
+        const msg = detailMessage(data)
+        setError(msg)
         setResult(null)
+        setStage({ kind: 'compileFailed', message: msg })
         return
       }
       setResult(data as ProgramResult)
-      if (data.ok && data.receipt_id) {
+      const compiled = Boolean(data.ok) && Boolean(data.receipt_id)
+      if (compiled) {
         setCompiledId(data.receipt_id)
+        setStage({
+          kind: 'compiled',
+          spins: data.n_spins ?? data.n_nodes ?? undefined,
+          couplings: data.n_couplings ?? undefined,
+        })
+      } else {
+        // The refusal panel below says WHICH kind of no this is. The status
+        // line only reports that we are in one.
+        const failed = (data.gates ?? []).filter(
+          (g: GateOut) => g.status === 'fail' || g.passed === false)
+        setStage({
+          kind: 'refused',
+          short: failed.length
+            ? `${failed.length} hardware ${failed.length === 1 ? 'limit' : 'limits'} exceeded`
+            : data.place_error
+              ? 'the layout search ran out of budget, which is not a hardware limit'
+              : String(data.verdict ?? 'see below'),
+        })
       }
     } catch (e) {
       setError(String(e))
+      setStage({ kind: 'compileFailed', message: String(e) })
     } finally {
       setBusy(null)
     }
+  }
+
+  /** A program arrived from a file, a path, or a drop. */
+  const acceptLoaded = (loaded: LoadedProgram) => {
+    setYaml(loaded.yaml)
+    setSeed(loaded.yaml)
+    setResult(null)
+    setError(null)
+    setCompiledId(null)
+    setStage({
+      kind: 'loaded',
+      file: loaded.filename || 'pasted text',
+      format: loaded.format,
+      why: loaded.why,
+      converted: loaded.format !== 'yaml',
+    })
   }
 
   const runApply = async () => {
@@ -182,6 +224,7 @@ export function NotepadView({ receipt, onApplyReceipt }: Props) {
     setError(null)
     setResult(null)
     setCompiledId(null)
+    setStage({ kind: 'idle' })
   }
 
   const gates = result?.gates ?? []
@@ -203,6 +246,17 @@ export function NotepadView({ receipt, onApplyReceipt }: Props) {
           {receipt?.id ? ` · seeded from ${receipt.id}` : ''}
         </div>
       </div>
+
+      <LoadBar
+        busy={!!busy}
+        onLoaded={acceptLoaded}
+        onError={(m) => {
+          setError(m)
+          setStage({ kind: 'error', message: m })
+        }}
+      />
+
+      <StatusLine stage={stage} />
 
       <div className="notepad-actions">
         <button type="button" className="btn" disabled={!!busy} onClick={() => void runPreflight()}>

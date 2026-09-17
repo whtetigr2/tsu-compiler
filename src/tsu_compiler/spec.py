@@ -411,7 +411,19 @@ def _neighbourhood_count_terms(t: Mapping[str, Any], edges,
 
 
 def load_spec(path: str) -> WorkloadSpec:
-    text = open(path, encoding="utf-8").read()
+    """Read a workload spec from a file on disk."""
+    return load_spec_text(open(path, encoding="utf-8").read())
+
+
+def load_spec_text(text: str) -> WorkloadSpec:
+    """Read a workload spec from YAML text.
+
+    Split out of `load_spec` so a caller holding the text can validate it
+    without first writing a temp file. The Workbench's load door uses this to
+    catch a malformed spec at the moment the file is opened, rather than
+    letting it surface as a raw exception after the reader has pressed Compile
+    and waited through placement.
+    """
     raw = yaml.safe_load(text)
 
     if "generate" in raw:

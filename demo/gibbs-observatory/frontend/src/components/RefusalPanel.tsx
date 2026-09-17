@@ -4,6 +4,12 @@ export interface CompileResult {
   verdict?: string
   ok?: boolean
   placed?: boolean
+  /** The compiler's own answer to "did any gate actually refuse anything?".
+   *  Absent on the preflight payload, which predates it. */
+  hardware_evaluated?: boolean
+  /** The compiler's own sentence about why the candidates ended where they
+   *  did. Shown verbatim rather than reconstructed from a verdict string. */
+  repset_reason?: string
   place_error?: string | null
   placement_escalated?: boolean
   placement_attempts?: { restarts: number; iters: number; placed: boolean; seconds: number }[]
@@ -42,12 +48,28 @@ export function RefusalPanel({ result }: { result: CompileResult | null }) {
 
   const gates = result.gates ?? []
   const failed = gates.filter((g) => g.status === 'fail' || g.passed === false)
-  const compiled = result.placed === true &&
-    (result.verdict === 'ok' || result.verdict === 'COMPILED')
 
-  if (compiled) return <Compiled result={result} />
+  if (result.verdict === 'ok' || result.verdict === 'COMPILED') {
+    return <Compiled result={result} />
+  }
+
+  // Which refusal this is turns on whether the hardware question was ever
+  // REACHED, not on whether an embedding was found. Branching on `placed`
+  // alone reads a gate refusal and a search that ran out of budget as the
+  // same event, because both leave a model unplaced.
+  //
+  // The compile path answers this outright: the compiler decides it and says
+  // so in `hardware_evaluated`, and names the case `EFFORT`. The preflight
+  // path predates both fields, and there the answer is inferred the way it
+  // always was, from an unplaced model with every gate passing. Inferring it
+  // when the explicit answer is available is what let a HARDWARE refusal
+  // render as "not a hardware limit".
+  const effort = result.hardware_evaluated === undefined
+    ? result.placed === false && failed.length === 0
+    : result.verdict === 'EFFORT' || result.hardware_evaluated === false
+
+  if (effort) return <EffortRefusal result={result} />
   if (failed.length) return <GateRefusal result={result} failed={failed} gates={gates} />
-  if (result.placed === false) return <EffortRefusal result={result} />
   return <UnknownRefusal result={result} />
 }
 
@@ -99,6 +121,10 @@ function GateRefusal({ result, failed, gates }: {
 
       {failed.map((g) => <GateBar key={String(g.gate ?? g.name)} gate={g} />)}
 
+      {result.repset_reason ? (
+        <p className="refusal-note">{result.repset_reason}</p>
+      ) : null}
+
       {result.remediations?.length ? (
         <>
           <h5>What would change it</h5>
@@ -144,6 +170,9 @@ function EffortRefusal({ result }: { result: CompileResult }) {
             ))}
           </tbody>
         </table>
+      ) : null}
+      {result.repset_reason ? (
+        <p className="refusal-note">{result.repset_reason}</p>
       ) : null}
       {result.place_error ? (
         <p className="refusal-note mono">{result.place_error}</p>

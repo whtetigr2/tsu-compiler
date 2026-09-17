@@ -2200,3 +2200,101 @@ button.btn.ghost {
    wrapping between every token and rendering as a vertical stack. */
 .gate-numbers { white-space: nowrap; }
 .gate-row-head { row-gap: 0.15rem; }
+
+/* ---------------------------------------------------------------------------
+   The load door and the running commentary.
+
+   The status line is the one piece of chrome that is allowed to be loud. It
+   answers "is the thing on screen the thing that compiled?", which the reader
+   should never have to work out from context.
+   --------------------------------------------------------------------------- */
+
+.load-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border: 1px dashed var(--line, #2a3340);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--panel, #11161c) 70%, transparent);
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.load-bar.dragging {
+  border-color: var(--accent, #7ec8c0);
+  border-style: solid;
+  background: color-mix(in srgb, var(--accent, #7ec8c0) 10%, transparent);
+}
+
+.load-or {
+  color: var(--dim, #7b8794);
+  font-size: 12px;
+}
+
+.load-path {
+  flex: 1 1 220px;
+  min-width: 0;
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--fg, #dfe7ee);
+  background: var(--bg, #0b0f14);
+  border: 1px solid var(--line, #2a3340);
+  border-radius: 4px;
+}
+
+.load-path:focus-visible {
+  outline: 2px solid var(--accent, #7ec8c0);
+  outline-offset: 1px;
+}
+
+.load-hint {
+  flex: 1 1 100%;
+  font-size: 11px;
+  color: var(--dim, #7b8794);
+}
+
+.status-line {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  border-radius: 4px;
+  border-left: 3px solid var(--dim, #7b8794);
+  background: color-mix(in srgb, var(--panel, #11161c) 85%, transparent);
+  font-size: 12px;
+}
+
+.status-line strong { font-weight: 600; letter-spacing: 0.02em; }
+.status-line .status-detail { color: var(--dim, #7b8794); }
+.status-line .status-next { margin-left: auto; font-weight: 600; }
+
+.status-line.loaded { border-left-color: var(--accent, #7ec8c0); }
+.status-line.working { border-left-color: #d8b25a; }
+.status-line.ok { border-left-color: #6fd38a; }
+.status-line.ok .status-next { color: #6fd38a; }
+.status-line.bad { border-left-color: #e0705f; }
+.status-line.bad strong { color: #e0705f; }
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  align-self: center;
+  flex: 0 0 auto;
+}
+
+.status-dot.pulse { animation: status-pulse 1.1s ease-in-out infinite; }
+
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-dot.pulse { animation: none; }
+}
