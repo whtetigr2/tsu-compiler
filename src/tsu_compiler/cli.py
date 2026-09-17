@@ -423,6 +423,16 @@ def main(argv=None) -> int:
             print(f"  -> {out_path}")
         print(f"  verdict: {rep.verdict.upper()}  "
               f"(bipartite={rep.bipartite}, path={rep.embedding})")
+        if rep.verdict == "effort":
+            # Neither success nor a hardware refusal, so neither 0 nor 1. A
+            # script that treats this as success would report a model as
+            # hardware-ready on the strength of a search that never finished;
+            # one that treats it as failure would report Extropic's silicon as
+            # unable to host a model whose every gate passed.
+            print("  the layout search ran out of budget. Every gate passed, "
+                  "so this says nothing about whether the model fits.")
+            print("  raise --restarts / --iters, or try a different encoding.")
+            return 3
         return 0 if rep.verdict != "fail" else 1
 
     if a.cmd == "regime":

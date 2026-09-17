@@ -601,3 +601,65 @@ def test_the_coupling_note_is_absent_when_the_target_has_no_parameter_budget():
     im = IsingModel(nodes=("a", "b"), edges=((0, 1),), weights=np.array([0.4]),
                     biases=np.zeros(2), beta=1.0, offset=0.0)
     assert _coupling_note(im, PROFILES["ideal"]) == (None, None)
+
+
+# ---------------------------------------------------------------------------
+# R27, on the preflight path.
+#
+# `compile_spec` distinguishes a search that ran out of budget (verdict EFFORT,
+# hardware_evaluated False) from a gate that refused. `preflight` did not: both
+# collapsed into the string "fail", so the most-used entry point in the project
+# reported a timer and a hardware limit identically.
+#
+# This matters on the flagship model. codon_spike_full is 3,147 spins and every
+# gate passes -- degree 12 of 16, |J| 2.5 of 6, |b| 4.05 of 6, 3,147 of 269,568
+# nodes -- and it does not place inside the default budget. Reported as "fail",
+# that reads as "Z1 cannot host this model", which is a claim about Extropic's
+# silicon resting on how long a greedy search was allowed to run.
+# ---------------------------------------------------------------------------
+
+def test_an_exhausted_placement_search_is_not_reported_as_a_gate_failure():
+    """Every gate passing plus no embedding found is a SEARCH result, and the
+    verdict has to say which kind of no it is."""
+    import networkx as nx
+    from tsu_compiler.preflight.model import IsingModel
+
+    # A 40-node expander: degree 4, well inside every Z1 cap, and not a
+    # subgraph of the offset lattice, so the budgeted search will not place it.
+    G = nx.random_regular_graph(4, 40, seed=7)
+    edges = tuple(sorted((min(u, v), max(u, v)) for u, v in G.edges()))
+    model = IsingModel(
+        nodes=tuple(f"v{i}" for i in range(40)),
+        edges=edges,
+        weights=np.full(len(edges), 0.5),
+        biases=np.zeros(40),
+        beta=1.0, offset=0.0,
+    )
+    r = preflight(model, restarts=1, iters=200)
+
+    if r.placed:
+        pytest.skip("this graph placed; the test needs one that exhausts the budget")
+
+    assert not [g for g in r.gates if g.status == "fail"], (
+        "the premise of this test is that no gate refused")
+    assert r.verdict != "fail", (
+        "an exhausted search reported as 'fail' is indistinguishable from a "
+        "hardware limit, which is the conflation R27 exists to prevent")
+    assert r.verdict == "effort"
+
+
+def test_a_real_gate_failure_still_verdicts_fail():
+    """The other half. Widening the effort case must not soften a genuine
+    hardware refusal into the same bucket."""
+    n = 24
+    edges = tuple((i, j) for i in range(n) for j in range(i + 1, n))
+    model = IsingModel(
+        nodes=tuple(f"v{i}" for i in range(n)),
+        edges=edges,
+        weights=np.full(len(edges), 0.5),
+        biases=np.zeros(n),
+        beta=1.0, offset=0.0,
+    )
+    r = preflight(model)
+    assert [g for g in r.gates if g.status == "fail"], "a 24-clique must break degree"
+    assert r.verdict == "fail"

@@ -339,8 +339,26 @@ def preflight(ising: IsingModel, target: TargetProfile = PROFILES["z1"],
     # ASSUMED gate) must not silently verdict "ok" -- that would hide from
     # a reader that a limit was overridden, not cleared -- so it counts
     # toward "warn" alongside genuine warn-fraction gates, same as before.
-    verdict = ("fail" if place_error is not None
-               or any(x.status == "fail" for x in gates)
+    # R27, on this path. A gate refusing and a search running out of budget are
+    # different events and must not share a verdict string.
+    #
+    # "fail" asserts the model does not fit the hardware. An exhausted placement
+    # search asserts nothing of the kind: it says a budgeted greedy heuristic
+    # did not find an embedding in the time it was given, which is a fact about
+    # the search. `place.py` is already careful about this -- it raises
+    # `placement_effort_exhausted` and refuses to claim `geometry_unreachable`
+    # without a proof it cannot produce -- and then this function threw the
+    # distinction away by mapping both onto "fail".
+    #
+    # It matters most on the largest models, which are exactly the ones a
+    # reader cares about. codon_spike_full is 3,147 spins with every gate
+    # passing -- degree 12 of 16, |J| 2.5 of 6, |b| 4.05 of 6 -- and it does not
+    # place inside the default budget. Reported as "fail" that reads as "Z1
+    # cannot host this", a claim about Extropic's silicon resting on how long a
+    # greedy search was allowed to run.
+    gate_failed = any(x.status == "fail" for x in gates)
+    verdict = ("fail" if gate_failed
+               else "effort" if place_error is not None
                else "warn" if any(x.status in ("warn", "downgraded")
                                   for x in gates)
                else "ok")

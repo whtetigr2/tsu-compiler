@@ -193,6 +193,21 @@ and much of the prose were written with Claude (Opus 5), and the commits carry
 real ones — the README's feature list previously conflated the mediator gadget
 with topology placement, and that came out of an outside review, not from me.
 
+The method is also part of the work rather than incidental to it. This was built
+through **agent development**: standing up autonomous and semi-autonomous agents,
+scoping them, giving them the tools and the refusal rules, and running them
+against the problem — including adversarial review agents whose job is to attack
+the claims in this repository. `audit/findings/` is largely the output of that
+loop, retractions included.
+
+The clearest external evidence that it produces real results is not in this
+repository at all. An agent of mine reported a `uint8` truncation bug in THRML's
+`CategoricalNode` upstream ([extropic-ai/thrml#62][thrml62], 2026-07-05), and
+Extropic closed it four days later. That is a real defect, in someone else's
+shipped library, found and reported by an agent built for this work.
+
+[thrml62]: https://github.com/extropic-ai/thrml/issues/62
+
 Two things are worth knowing about what that does and does not mean.
 
 It does not mean the repository was generated. `git log` is the record: work

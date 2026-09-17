@@ -41,8 +41,14 @@ def test_preflight_subcommand_writes_its_three_files_and_exits_zero(tmp_path):
     out = tmp_path / "pf"
     rc = main(["preflight", "--spec", "specs/lattice_small_8x8_k3.yaml",
                "--out", str(out)])
-    assert rc in (0, 1)  # 0 == verdict ok/warn, 1 == verdict fail; both are
-                        # a completed run, not a crash
+    # Three completed-run outcomes, and the CLI gives each its own code so a
+    # script can tell them apart:
+    #   0  every gate passed and an embedding was found
+    #   1  a gate refused -- a real hardware limit
+    #   3  the layout search ran out of budget, which says nothing about the
+    #      hardware and must not be reported as either success or refusal (R27)
+    # A crash is none of these.
+    assert rc in (0, 1, 3)
     for name in ("preflight.json", "report.md", "provenance.json"):
         assert (out / name).exists(), f"missing {name}"
 
