@@ -8,6 +8,18 @@ interface Props {
 }
 
 type Showing = 'draw' | 'mean'
+/**
+ * Two legitimate ways to place a spin, and they answer different questions.
+ *
+ * 'chip' uses the compiler's placement coordinates: where the model was laid
+ * out on the die. Truthful about the hardware and useless for seeing shape,
+ * because a 4-cube laid flat on silicon looks like a tangle.
+ *
+ * 'structure' ignores placement and lets the graph find its own arrangement,
+ * which is how a hypercube looks like a hypercube. Neither is a claim about
+ * physical position; the caption says which you are looking at.
+ */
+type LayoutMode = 'structure' | 'chip' | 'hypercube'
 
 /**
  * The lattice in three dimensions, live.
@@ -27,6 +39,9 @@ export function LatticeView3D({ graph, batch }: Props) {
   const mount = useRef<HTMLDivElement | null>(null)
   const spinsRef = useRef<THREE.InstancedMesh | null>(null)
   const [showing, setShowing] = useState<Showing>('draw')
+  const dim = graph ? hypercubeDimension(graph) : 0
+  const [layoutMode, setLayoutMode] = useState<LayoutMode>(
+    dim >= 4 ? 'hypercube' : 'structure')
   const [layoutKind, setLayoutKind] = useState<string>('unavailable')
 
   // Scene setup. Runs once per graph, because node count changes the geometry.
@@ -52,7 +67,12 @@ export function LatticeView3D({ graph, batch }: Props) {
     scene.add(key)
 
     const n = graph.n_nodes
-    const pos = layoutFor(graph)
+    const n0 = n
+    const spinning = layoutMode === 'hypercube' && dim >= 3
+    const pos = spinning
+      ? { xyz: hypercubeLayout(n0, dim, 0),
+          kind: `a ${dim}-cube, projected from ${dim} dimensions into three` }
+      : layoutFor(graph, layoutMode)
     setLayoutKind(pos.kind)
 
     // Spins as instanced spheres: one draw call regardless of node count.
@@ -73,6 +93,8 @@ export function LatticeView3D({ graph, batch }: Props) {
     spinsRef.current = mesh
 
     // Edges as one line segment buffer.
+    let edgePos: Float32Array | null = null
+    let edgeGeo: THREE.BufferGeometry | null = null
     if (graph.edges.length) {
       const pts = new Float32Array(graph.edges.length * 6)
       graph.edges.forEach(([a, b], k) => {
@@ -81,6 +103,8 @@ export function LatticeView3D({ graph, batch }: Props) {
       })
       const lg = new THREE.BufferGeometry()
       lg.setAttribute('position', new THREE.BufferAttribute(pts, 3))
+      edgePos = pts
+      edgeGeo = lg
       scene.add(new THREE.LineSegments(
         lg, new THREE.LineBasicMaterial({
           color: 0x2a3f3c, transparent: true, opacity: 0.55,
@@ -94,7 +118,14 @@ export function LatticeView3D({ graph, batch }: Props) {
     let py = 0
     let yaw = 0.5
     let pitch = 0.25
-    let dist = 90
+    // Fit the camera to what is actually there. A 16-spin hypercube and an
+    // 11,200-spin visibility lattice need very different distances, and a fixed
+    // one leaves the small model as a speck and clips the large one.
+    let radius = 1
+    for (const [x, y, z] of pos.xyz) {
+      radius = Math.max(radius, Math.hypot(x, y, z))
+    }
+    let dist = Math.max(24, radius * 2.6)
     const onDown = (e: PointerEvent) => {
       dragging = true
       px = e.clientX
@@ -110,7 +141,7 @@ export function LatticeView3D({ graph, batch }: Props) {
     }
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
-      dist = Math.max(20, Math.min(400, dist + e.deltaY * 0.08))
+      dist = Math.max(6, Math.min(radius * 12, dist + e.deltaY * radius * 0.004))
     }
     const cv = renderer.domElement
     cv.addEventListener('pointerdown', onDown)
@@ -118,8 +149,27 @@ export function LatticeView3D({ graph, batch }: Props) {
     window.addEventListener('pointermove', onMove)
     cv.addEventListener('wheel', onWheel, { passive: false })
 
+    // Edge buffer kept so the 4D rotation can move the lines with the points.
     let raf = 0
+    const t0 = performance.now()
+    const m4b = new THREE.Matrix4()
     const tick = () => {
+      if (spinning) {
+        const t = ((performance.now() - t0) / 1000) * 0.35
+        const xyz = hypercubeLayout(n, dim, t)
+        for (let i = 0; i < n; i++) {
+          m4b.setPosition(xyz[i][0], xyz[i][1], xyz[i][2])
+          mesh.setMatrixAt(i, m4b)
+        }
+        mesh.instanceMatrix.needsUpdate = true
+        if (edgePos && edgeGeo) {
+          graph.edges.forEach(([a, b], k) => {
+            edgePos.set(xyz[a], k * 6)
+            edgePos.set(xyz[b], k * 6 + 3)
+          })
+          edgeGeo.attributes.position.needsUpdate = true
+        }
+      }
       camera.position.set(
         dist * Math.cos(pitch) * Math.sin(yaw),
         dist * Math.sin(pitch),
@@ -151,7 +201,7 @@ export function LatticeView3D({ graph, batch }: Props) {
       if (cv.parentNode === el) el.removeChild(cv)
       spinsRef.current = null
     }
-  }, [graph])
+  }, [graph, layoutMode, dim])
 
   // Colour by state, every batch.
   useEffect(() => {
@@ -198,6 +248,31 @@ export function LatticeView3D({ graph, batch }: Props) {
             Mean over batch
           </button>
         </div>
+        <div className="seg">
+          {dim >= 4 ? (
+            <button
+              type="button"
+              className={layoutMode === 'hypercube' ? 'active' : ''}
+              onClick={() => setLayoutMode('hypercube')}
+            >
+              {dim}-cube
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className={layoutMode === 'structure' ? 'active' : ''}
+            onClick={() => setLayoutMode('structure')}
+          >
+            Structure
+          </button>
+          <button
+            type="button"
+            className={layoutMode === 'chip' ? 'active' : ''}
+            onClick={() => setLayoutMode('chip')}
+          >
+            Chip placement
+          </button>
+        </div>
         <span className="lattice3d-note">
           {showing === 'draw'
             ? 'A single sample. Not a distribution.'
@@ -233,9 +308,10 @@ function columnMeans(states: number[][] | undefined): number[] {
  * same graph always draws the same way: a picture that rearranges itself on
  * every reload is unreadable.
  */
-function layoutFor(graph: GraphPayload): { xyz: [number, number, number][]; kind: string } {
+function layoutFor(graph: GraphPayload, mode: LayoutMode):
+    { xyz: [number, number, number][]; kind: string } {
   const n = graph.n_nodes
-  if (graph.positions?.length === n) {
+  if (mode === 'chip' && graph.positions?.length === n) {
     const xs = graph.positions.map((p) => p[0])
     const ys = graph.positions.map((p) => p[1])
     const sx = spread(xs)
@@ -293,4 +369,88 @@ function spread(v: number[]) {
   const hi = Math.max(...v)
   const range = hi - lo || 1
   return { mid: (lo + hi) / 2, scale: 60 / range }
+}
+
+/**
+ * Is this graph an n-dimensional hypercube?
+ *
+ * Checked, not assumed. A Q(d) has 2^d vertices, every vertex has degree d, and
+ * an edge joins exactly the pairs whose binary indices differ in one bit. If all
+ * three hold, the vertex index IS a coordinate in d dimensions, and the model
+ * can be drawn as the object it describes rather than as an abstract graph.
+ *
+ * Returns the dimension, or 0 when it is not a hypercube. Offering a 4D view for
+ * a graph that is not a 4-cube would be a decoration pretending to be a
+ * measurement.
+ */
+export function hypercubeDimension(graph: GraphPayload): number {
+  const n = graph.n_nodes
+  if (n < 2 || (n & (n - 1)) !== 0) return 0
+  const d = Math.log2(n)
+  if (graph.edges.length !== (d * n) / 2) return 0
+  const degree = new Array<number>(n).fill(0)
+  for (const [a, b] of graph.edges) {
+    if (popcount(a ^ b) !== 1) return 0
+    degree[a]++
+    degree[b]++
+  }
+  return degree.every((k) => k === d) ? d : 0
+}
+
+function popcount(x: number): number {
+  let c = 0
+  for (let v = x; v; v >>= 1) c += v & 1
+  return c
+}
+
+/**
+ * A hypercube vertex, projected from d dimensions into three.
+ *
+ * The coordinate is the vertex's own binary index, mapped to -1 or +1 per bit.
+ * Dimensions beyond the third are removed by perspective division, one at a
+ * time, the same way a 3D scene is projected onto a 2D screen. That is what
+ * gives a tumbling tesseract its turning-inside-out look: the inner cube is not
+ * smaller, it is further away along the fourth axis.
+ *
+ * `t` rotates the object in the two planes that mix the fourth axis with the
+ * others, which is the rotation a 3D viewer cannot perform and the reason the
+ * shape appears to move through itself.
+ */
+function hypercubeLayout(n: number, d: number, t: number):
+    [number, number, number][] {
+  const out: [number, number, number][] = []
+  for (let i = 0; i < n; i++) {
+    const c: number[] = []
+    for (let bit = 0; bit < d; bit++) c.push((i >> bit) & 1 ? 1 : -1)
+
+    // Rotate in the x-w and y-z planes. The first is the genuinely
+    // four-dimensional one.
+    if (d >= 4) {
+      const ca = Math.cos(t)
+      const sa = Math.sin(t)
+      const x = c[0]
+      const w = c[3]
+      c[0] = x * ca - w * sa
+      c[3] = x * sa + w * ca
+
+      const cb = Math.cos(t * 0.6)
+      const sb = Math.sin(t * 0.6)
+      const y = c[1]
+      const z = c[2]
+      c[1] = y * cb - z * sb
+      c[2] = y * sb + z * cb
+    }
+
+    // Collapse the extra axes by perspective, highest first.
+    let [x, y, z] = [c[0], c[1] ?? 0, c[2] ?? 0]
+    for (let k = d - 1; k >= 3; k--) {
+      const wDist = 3.2
+      const k4 = wDist / (wDist - c[k])
+      x *= k4
+      y *= k4
+      z *= k4
+    }
+    out.push([x * 16, y * 16, z * 16])
+  }
+  return out
 }
