@@ -264,6 +264,12 @@ export interface ExampleShelfItem {
   /** What it costs on Z1. Measured, not estimated. */
   hardware: string | null
   citation: string | null
+  /**
+   * How many configurations the program can actually reach, from the
+   * receipt's own verification pass. A string when the space is too large to
+   * enumerate, which is the honest answer and is shown as such.
+   */
+  reachable: number | string | null
 }
 
 export const DEFAULT_PARAMS: SimParams = {

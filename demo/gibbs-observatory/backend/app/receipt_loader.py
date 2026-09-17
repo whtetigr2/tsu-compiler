@@ -902,6 +902,22 @@ def derive_residuals(
     }
 
 
+
+def _reachable_states(summary: dict[str, Any] | None) -> int | str | None:
+    """The receipt's own `diversity_reachable`, or why there is no number.
+
+    Large programs report a string explaining that enumeration is impossible
+    (`unavailable: 2^192 too large to enumerate`), which is the honest answer
+    and is passed through unchanged rather than flattened to null.
+    """
+    if not summary or not summary.get("path"):
+        return None
+    f = Path(summary["path"]) / "verification.json"
+    data = _read_json(f)
+    if not isinstance(data, dict):
+        return None
+    return data.get("diversity_reachable")
+
 def examples_shelf(root: Path | str | None = None) -> list[dict[str, Any]]:
     """Curated Extropic / Lattice examples shelf (includes stubs)."""
     base = receipts_root(root)
@@ -931,6 +947,11 @@ def examples_shelf(root: Path | str | None = None) -> list[dict[str, Any]]:
                 else None
             ),
             "receipt": on_disk.get(eid) if packaged and not stub else None,
+            # How many configurations the program can actually reach, read
+            # from the receipt's own verification pass. R29: this number has
+            # always been measured and never displayed, so a workload with two
+            # reachable states looked identical to one with seven hundred.
+            "reachable": _reachable_states(on_disk.get(eid)),
             "verified": workload is not None,
             "verified_by": (
                 f"oracle test, compiles at {workload.restarts} restarts / "

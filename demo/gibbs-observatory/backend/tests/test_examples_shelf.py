@@ -208,3 +208,31 @@ def test_the_spin_count_beside_the_name_matches_the_written_description():
         assert shown == record.receipt_spins, (
             f"{record.shelf_id}: picker shows {shown} spins beside the name, "
             f"the description is written for {record.receipt_spins}")
+
+
+def test_the_shelf_reports_how_many_states_a_program_can_reach():
+    """R29. The number was always measured and never displayed.
+
+    Every receipt's verification pass records `diversity_reachable`. Without it
+    on screen, `prog_ecology_lotka_lite`, whose contract admits 2 of 65,536
+    assignments, looked identical to `prog_codon_opt_tiny` at 729.
+    """
+    by_id = {i["id"]: i for i in examples_shelf()}
+    eco = by_id.get("prog_ecology_lotka_lite")
+    if eco is None or not eco["packaged"]:
+        pytest.skip("ecology receipt not packaged here")
+    assert eco["reachable"] == 2, (
+        f"expected 2 reachable states, got {eco['reachable']}; either the "
+        f"receipt changed or the shelf is reading the wrong field")
+
+    codon = by_id.get("prog_codon_opt_tiny")
+    if codon and codon["packaged"]:
+        assert codon["reachable"] == 729
+
+
+def test_a_space_too_large_to_enumerate_says_so_rather_than_reporting_null():
+    """The receipt's own refusal is the honest answer and must survive."""
+    strings = [i["reachable"] for i in examples_shelf()
+               if isinstance(i["reachable"], str)]
+    assert strings, "no receipt reported an un-enumerable space; expected several"
+    assert all("unavailable" in s or "too large" in s for s in strings), strings

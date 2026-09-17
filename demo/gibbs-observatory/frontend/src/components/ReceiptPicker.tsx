@@ -64,6 +64,11 @@ export function ReceiptPicker({
           <span className="example-name">{ex.plain_name ?? ex.title}</span>
           <span className="example-meta">
             {ex.verified ? <span className="chip verified">VERIFIED</span> : null}
+            {typeof ex.reachable === 'number' && ex.reachable < 8 ? (
+              <span className="chip warn" title="how many configurations this program can reach">
+                {ex.reachable} states
+              </span>
+            ) : null}
             {ex.receipt?.n_nodes != null ? (
               <span className="dim">{ex.receipt.n_nodes} spins</span>
             ) : null}
@@ -174,6 +179,30 @@ export function ReceiptPicker({
                     <p>{detail.hardware}</p>
                   </section>
                 ) : null}
+
+                <section>
+                  <h5>Configurations it can reach</h5>
+                  <p>
+                    {typeof detail.reachable === 'number' ? (
+                      <>
+                        <strong>{detail.reachable.toLocaleString()}</strong>
+                        {detail.reachable < 8 ? (
+                          <>
+                            {' '}states satisfy this program&rsquo;s constraints.
+                            That is a very small space, so sampling it
+                            demonstrates the constraint rather than the search.
+                          </>
+                        ) : ' distinct states satisfy its constraints.'}
+                      </>
+                    ) : typeof detail.reachable === 'string' ? (
+                      <span className="stat-unavailable" title={detail.reachable}>
+                        too large to enumerate
+                      </span>
+                    ) : (
+                      <span className="stat-unavailable">unavailable</span>
+                    )}
+                  </p>
+                </section>
 
                 {detail.citation ? (
                   <section>
