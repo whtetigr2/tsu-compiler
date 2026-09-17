@@ -57,6 +57,11 @@ PORT_MODES = ("bias", "clamp")
 BUILD_NAMES = ("build",)
 PORTS_NAMES = ("INPUT_PORTS", "input_ports")
 DECODER_NAMES = ("DECODER", "decoder")
+#: The shape the spins are laid out in, which is NOT a port shape. A port's
+#: shape describes what goes IN (a pose is three numbers); the lattice shape
+#: describes what comes OUT. Conflating them gave the visibility world's
+#: decoder a shape of (3,) for a 1536-spin lattice.
+LATTICE_NAMES = ("LATTICE_SHAPE", "lattice_shape")
 NAME_NAMES = ("NAME", "name")
 
 #: What `spec_formats` looks for when reading a .py as data.
@@ -88,6 +93,10 @@ class Program:
     build: Callable[[dict[str, Any]], Any]
     ports: tuple[InputPort, ...]
     decoder: str
+    #: How the spins are arranged, for a decoder that needs to know. Empty when
+    #: the program does not say, which is honest: a decoder that needs a shape
+    #: and was not given one should say so rather than reshape by guesswork.
+    lattice_shape: tuple[int, ...]
     source: Path
     module: ModuleType
 
@@ -292,11 +301,23 @@ def load_program(path: str | Path, *, consent: bool = False) -> Program:
     decoder = _first(module, DECODER_NAMES)
     name = _first(module, NAME_NAMES) or path.stem
 
+    raw_shape = _first(module, LATTICE_NAMES)
+    if raw_shape is None:
+        lattice_shape: tuple[int, ...] = ()
+    else:
+        try:
+            lattice_shape = tuple(int(x) for x in raw_shape)
+        except (TypeError, ValueError) as exc:
+            raise ProgramError(
+                f"LATTICE_SHAPE in {path.name} is {raw_shape!r}, which is not "
+                f"a sequence of integers") from exc
+
     return Program(
         name=str(name),
         build=build,
         ports=ports,
         decoder=str(decoder) if decoder else "",
+        lattice_shape=lattice_shape,
         source=path,
         module=module,
     )

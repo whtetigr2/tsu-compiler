@@ -310,6 +310,22 @@ class ProgramStepBody(BaseModel):
 _SESSIONS: dict[str, Any] = {}
 
 
+def _resolve_program(raw: str) -> Path:
+    """A program by name, or by path.
+
+    The frontend asks for "visibility_world.py" and should not have to know
+    where the application keeps its programs -- which differs between a repo
+    checkout and a frozen bundle. A name with no directory part is resolved
+    against the shipped programs directory; anything else is taken as a path,
+    so a reader can still point at a file of their own.
+    """
+    candidate = Path(raw).expanduser()
+    if candidate.parent != Path("."):
+        return candidate
+    from .program_service import resource_programs_root
+    return resource_programs_root() / candidate.name
+
+
 @app.post("/api/program/inspect")
 def api_program_inspect(body: LoadPathBody) -> dict[str, Any]:
     """What kind of file is this, decided WITHOUT running it.
@@ -318,7 +334,7 @@ def api_program_inspect(body: LoadPathBody) -> dict[str, Any]:
     before asking whether to. Deciding by import would mean running the file to
     find out whether running it was acceptable.
     """
-    path = Path(body.path).expanduser()
+    path = _resolve_program(body.path)
     if path.is_dir():
         raise HTTPException(status_code=400, detail=f"{path} is a directory")
     if not path.exists():
@@ -340,12 +356,24 @@ def api_program_inspect(body: LoadPathBody) -> dict[str, Any]:
     }
 
 
+def _world_of(session: Any) -> list[list[int]] | None:
+    """The program's world map as 0/1 rows, if it has one."""
+    import numpy as _np
+    world = getattr(session.program.module, "WORLD", None)
+    if world is None:
+        return None
+    arr = _np.asarray(world)
+    if arr.ndim != 2:
+        return None
+    return arr.astype(int).tolist()
+
+
 @app.post("/api/program/open")
 def api_program_open(body: ProgramOpenBody) -> dict[str, Any]:
     """Load a program and start a session. Executes the file, with consent."""
     import uuid
     try:
-        session = open_session(Path(body.path).expanduser(), {},
+        session = open_session(_resolve_program(body.path), {},
                                consent=body.consent, sweeps=body.sweeps,
                                seed=body.seed)
     except ConsentRequired as exc:
@@ -368,6 +396,12 @@ def api_program_open(body: ProgramOpenBody) -> dict[str, Any]:
             for p in session.program.ports
         ],
         "sweeps": body.sweeps,
+        # A program may expose a world map. The viewport needs it to stop the
+        # player walking through walls: movement has to be resolved on the
+        # frame the key is held, and a round trip per keystroke would make the
+        # controls lag behind the picture. The world is level data, not a
+        # secret, and the program remains the one place it is defined.
+        "world": _world_of(session),
         "label": "JAX/THRML simulation, not Extropic silicon",
     }
 

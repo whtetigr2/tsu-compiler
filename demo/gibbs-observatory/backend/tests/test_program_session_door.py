@@ -14,8 +14,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT.parents[1] / "src"))
-sys.path.insert(0, str(ROOT.parents[1] / "audit"))
+
+# Deliberately NOT adding the compiler to sys.path here. A program imports
+# tsu_compiler when it runs, and the application is what has to make that
+# importable. Helping it from the test made this file more permissive than
+# production and hid a ModuleNotFoundError that every real user would hit.
 
 from app.main import app  # noqa: E402
 

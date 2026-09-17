@@ -186,18 +186,43 @@ class Session:
                 f"{type(exc).__name__}: {exc}") from exc
 
     def _decoder_shape(self) -> tuple[int, ...]:
-        """The shape the decoder works in, taken from the first port that
-        declares one. A decoder needs to know the lattice it is reading, and
-        the ports are where that is already written down."""
+        """The shape the decoder reads the spins in.
+
+        This is the LATTICE shape, which a port shape is not. A port describes
+        what goes in -- the visibility world takes a three-number pose -- and
+        the decoder needs what comes out, which is a 48x32 lattice. Taking the
+        first port's shape handed that decoder (3,) for 1536 spins.
+
+        Preference: what the program declares, then a port whose shape happens
+        to match the spin count (true of the program that takes occupancy
+        directly, where input and lattice really are the same grid), then flat.
+        """
+        if self.program.lattice_shape:
+            return tuple(self.program.lattice_shape)
+        n = self.sampler.n_spins
         for port in self.program.ports:
-            if port.shape:
+            if port.shape and int(np.prod(port.shape)) == n:
                 return tuple(port.shape)
-        return (self.sampler.n_spins,)
+        return (n,)
 
 
 def open_session(path: str | Path, inputs: dict[str, Any], *,
                  consent: bool = False, sweeps: int = DEFAULT_SWEEPS,
                  seed: int = 0) -> Session:
-    """Load a program and start it. `consent` is required; see program_contract."""
+    """Load a program and start it. `consent` is required; see program_contract.
+
+    The compiler is put on the path FIRST, before the program is executed. A
+    program builds an IsingModel, so it imports tsu_compiler, and in a running
+    server nothing has necessarily imported it yet -- `ensure_tsu_importable`
+    is what finds it in a repo checkout, a pip install, or a frozen bundle.
+    Without this the program raises ModuleNotFoundError at exec time and the
+    reader is told their file is broken when the application simply had not
+    set the path up.
+
+    This was invisible to the tests, which insert `src` into sys.path in their
+    own module headers and so were more permissive than the real thing.
+    """
+    from .program_service import ensure_tsu_importable
+    ensure_tsu_importable()
     program = load_program(path, consent=consent)
     return Session(program, inputs, sweeps=sweeps, seed=seed)

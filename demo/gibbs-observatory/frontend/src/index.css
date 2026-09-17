@@ -2368,3 +2368,59 @@ button.btn.ghost {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ---------------------------------------------------------------------------
+   The playable level.
+
+   The consent panel is deliberately plain and slightly severe: it is asking
+   permission to run a file, and dressing that up would be the wrong tone.
+   --------------------------------------------------------------------------- */
+
+.game-consent { max-width: 62ch; }
+
+.consent-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 16px;
+  margin: 12px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line, #2a3340);
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.consent-facts > div { display: contents; }
+.consent-facts dt { color: var(--dim, #7b8794); }
+.consent-facts dd { margin: 0; }
+
+.game-view { display: flex; flex-direction: column; gap: 8px; }
+
+.game-canvas {
+  display: block;
+  width: 100%;
+  max-width: 720px;
+  aspect-ratio: 12 / 7;
+  height: auto;
+  border: 1px solid var(--line, #2a3340);
+  border-radius: 4px;
+  background: #070a0d;
+  cursor: crosshair;
+}
+
+.game-canvas:focus-visible {
+  outline: 2px solid var(--accent, #7ec8c0);
+  outline-offset: 2px;
+}
+
+.game-hud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  font-size: 11px;
+  color: var(--dim, #7b8794);
+  font-variant-numeric: tabular-nums;
+}
+
+.game-hud b { color: var(--fg, #dfe7ee); font-weight: 600; }
+.game-hud .bad b { color: #e0705f; }
+.game-hud .settling { color: #d8b25a; }

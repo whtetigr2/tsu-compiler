@@ -790,3 +790,18 @@ def dataclass_asdict_safe(obj: Any) -> Any:
     if isinstance(obj, (list, tuple)):
         return [dataclass_asdict_safe(x) for x in obj]
     return obj
+
+
+#: Where the shipped programs live. Sits beside the receipts root and is found
+#: the same way, so a frozen bundle and a repo checkout both resolve correctly:
+#: `__file__` is inside the bundle when frozen, and inside the repo when not.
+DEFAULT_PROGRAMS_ROOT = Path(__file__).resolve().parents[2] / "programs"
+
+
+def resource_programs_root(root: Path | str | None = None) -> Path:
+    """The directory holding the programs the application ships.
+
+    The frontend asks for a program by name and should not have to know where
+    that is; it differs between a checkout and a frozen bundle.
+    """
+    return Path(root) if root is not None else DEFAULT_PROGRAMS_ROOT

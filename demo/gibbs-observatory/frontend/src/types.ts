@@ -16,6 +16,7 @@ export type NavView =
   | 'ablation'
   | 'lattice3d'
   | 'structurefactor'
+  | 'game'
   | 'worlds'
 
 export interface SimParams {

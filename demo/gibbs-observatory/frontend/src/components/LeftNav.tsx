@@ -6,6 +6,7 @@ export const ITEMS: { id: NavView; label: string; phase?: string }[] = [
   { id: 'ablation', label: 'Ablation' },
   { id: 'lattice3d', label: 'Lattice 3D' },
   { id: 'structurefactor', label: 'Structure factor' },
+  { id: 'game', label: 'Playable level' },
   { id: 'spins', label: 'Spins' },
   { id: 'couplings', label: 'Couplings' },
   { id: 'connectivity', label: 'Connectivity' },

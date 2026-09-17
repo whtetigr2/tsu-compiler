@@ -28,6 +28,7 @@ import { StateSpaceView } from './components/views/StateSpaceView'
 import { AblationView } from './components/views/AblationView'
 import { LatticeView3D } from './components/views/LatticeView3D'
 import { StructureFactorView } from './components/views/StructureFactorView'
+import { GameView } from './components/views/GameView'
 import { EbmLabView } from './components/views/EbmLabView'
 import { useGibbsSocket } from './hooks/useGibbsSocket'
 import { exportSnapshot } from './lib/snapshot'
@@ -332,6 +333,9 @@ export default function App() {
     case 'structurefactor':
       stage = <StructureFactorView batch={batch} />
       break
+    case 'game':
+      stage = <GameView />
+      break
     case 'lattice3d':
       stage = <LatticeView3D graph={graph} batch={batch} />
       break
@@ -396,6 +400,7 @@ export default function App() {
     scope: 'Scope',
     statespace: 'State space',
     notepad: 'Thermodynamic Program notepad',
+    game: 'Walk a level solved by sampling',
     ablation: 'Ablation runner',
     lattice3d: 'Lattice in 3D',
     structurefactor: 'Structure factor S(k)',

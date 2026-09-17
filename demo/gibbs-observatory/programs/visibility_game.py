@@ -51,6 +51,9 @@ from tsu_compiler.preflight.model import IsingModel  # noqa: E402
 NAME = "visibility"
 DECODER = "visibility"
 
+#: How the spins are laid out: columns x depth. Not a port shape.
+LATTICE_SHAPE = [48, 32]
+
 #: Occupancy in front of the player, one cell per (column, depth). It enters as
 #: a BIAS, not a clamp: see the module docstring and R23.
 INPUT_PORTS = [

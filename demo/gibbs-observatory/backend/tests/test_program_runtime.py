@@ -164,3 +164,26 @@ class TestItGetsTheAnswerRight:
         assert scores[True] > scores[False] * 2, (
             f"couplings on {scores[True]:.1%}, off {scores[False]:.1%}; "
             f"without a large gap the couplings are not doing the work")
+
+
+class TestLatticeShapeIsNotPortShape:
+    """A port's shape describes what goes IN; the lattice shape describes what
+    comes OUT. They are equal for the program that takes occupancy directly and
+    wildly different for the one that takes a pose, and conflating them handed
+    a 1536-spin decoder a shape of (3,).
+    """
+
+    def test_a_three_number_port_does_not_set_the_decoder_shape(self):
+        s = open_session(ROOT / "programs" / "visibility_world.py", {},
+                         consent=True)
+        port = {p.name: p for p in s.program.ports}["pose"]
+        assert tuple(port.shape) == (3,)
+        assert s._decoder_shape() == (N_COLS, N_DEPTH)
+
+    def test_the_declared_shape_wins_over_a_matching_port(self, session):
+        assert session.program.lattice_shape == (N_COLS, N_DEPTH)
+        assert session._decoder_shape() == (N_COLS, N_DEPTH)
+
+    def test_the_shape_multiplies_out_to_the_spin_count(self, session):
+        shape = session._decoder_shape()
+        assert int(np.prod(shape)) == session.sampler.n_spins
