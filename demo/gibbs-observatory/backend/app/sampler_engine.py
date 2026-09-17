@@ -13,7 +13,7 @@ from thrml.models import IsingEBM, IsingSamplingProgram, hinton_init
 
 from .graph_presets import GraphSpec, build_from_receipt_arrays, build_preset
 from .metrics import ising_energy, magnetization, summarize_series
-from .structure_factor import recover_lattice, structure_factor
+from .structure_factor import raw_spectrum, recover_lattice, summarise
 
 
 @dataclass
@@ -59,6 +59,11 @@ class EngineState:
     step: int = 0
     history_energy: list[float] = field(default_factory=list)
     history_mag: list[float] = field(default_factory=list)
+    # Running sum of |FFT|^2 and the draws behind it. A single batch is a
+    # handful of draws and S(k) from a handful is mostly noise; accumulating
+    # lets the Bragg peak sharpen out of the haze as the run proceeds.
+    sk_total: Any = None
+    sk_draws: int = 0
     last_state: np.ndarray | None = None
     active_block: int = 0
 
@@ -269,22 +274,33 @@ class SamplerEngine:
 
 
     def _structure_factor(self, samples) -> dict | None:
-        """S(k) for this batch, or None when there is no lattice to transform.
+        """S(k) accumulated over the run, or None when there is no lattice.
 
         Uses the model's OWN site coordinates, read from names the grid
         generator wrote. Never placement coordinates: those say where a spin
         landed on the die, and transforming them would picture the router's
         output rather than the physics.
+
+        The accumulator resets with the model, in `reset`, so switching
+        programs never mixes one lattice's spectrum into another's.
         """
         assert self.state is not None
-        lattice = recover_lattice(self.state.graph.node_names)
+        st = self.state
+        lattice = recover_lattice(st.graph.node_names)
         if lattice is None:
             return None
         try:
             spins = np.asarray(samples)
             if spins.ndim == 3:
                 spins = spins.reshape(-1, spins.shape[-1])
-            return structure_factor(spins.tolist(), lattice)
+            total, n = raw_spectrum(spins.tolist(), lattice)
+            if st.sk_total is None or np.shape(st.sk_total) != np.shape(total):
+                st.sk_total = total
+                st.sk_draws = n
+            else:
+                st.sk_total = st.sk_total + total
+                st.sk_draws += n
+            return summarise(st.sk_total, st.sk_draws, lattice)
         except Exception as exc:  # noqa: BLE001
             return {"available": False,
                     "reason": f"unavailable: transform failed: {exc!r}"}

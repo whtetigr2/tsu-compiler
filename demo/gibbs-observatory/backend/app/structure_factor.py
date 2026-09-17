@@ -80,6 +80,62 @@ def recover_lattice(node_names: Sequence[Any] | None) -> Lattice | None:
                    source="site names written by the grid generator")
 
 
+def raw_spectrum(states: Sequence[Sequence[float]],
+                 lattice: Lattice) -> tuple[np.ndarray, int]:
+    """Unshifted, unnormalised sum of |FFT|^2 over these draws, and the count.
+
+    Separated so a caller can ACCUMULATE across batches. A single streaming
+    batch is a handful of draws, and S(k) from a handful of draws is mostly
+    noise: the Bragg peak is there but barely above the background. Summing as
+    the run proceeds is both better statistics and the better picture, because
+    the peak visibly sharpens out of the haze while the sampler works, which is
+    what the quantity actually does.
+    """
+    arr = np.asarray(states, dtype=float)
+    if arr.ndim == 1:
+        arr = arr.reshape(1, -1)
+    W, H = lattice.width, lattice.height
+    total = np.zeros((H, W), dtype=float)
+    for row in arr:
+        field = np.zeros((H, W), dtype=float)
+        for i, (x, y) in lattice.index_to_xy.items():
+            if i < len(row):
+                field[y, x] = 1.0 if row[i] > 0 else -1.0
+        total += np.abs(np.fft.fft2(field)) ** 2
+    return total, int(len(arr))
+
+
+def summarise(total: np.ndarray, n_draws: int, lattice: Lattice,
+              *, drop_k0: bool = True) -> dict[str, Any]:
+    """Turn an accumulated spectrum into the payload the interface renders."""
+    if n_draws <= 0:
+        return {"available": False,
+                "reason": "unavailable: no draws to transform yet"}
+    W, H = lattice.width, lattice.height
+    spectrum = np.fft.fftshift(total / n_draws)
+    cx, cy = W // 2, H // 2
+    k0 = float(spectrum[cy, cx])
+    if drop_k0:
+        spectrum[cy, cx] = 0.0
+    ky, kx = np.unravel_index(int(np.argmax(spectrum)), spectrum.shape)
+    peak = ((kx - cx) / (W / 2.0), (ky - cy) / (H / 2.0))
+    return {
+        "available": True,
+        "width": W,
+        "height": H,
+        "values": spectrum.tolist(),
+        "max": float(spectrum.max()),
+        "peak_k_over_pi": [float(round(peak[0], 4)), float(round(peak[1], 4))],
+        "peak_label": _label(peak),
+        "k0_intensity": k0,
+        "n_draws": int(n_draws),
+        "source": lattice.source,
+        "note": ("k = 0 sits at the centre and is excluded from the peak "
+                 "search, because S(0) is the squared net magnetisation and "
+                 "would swamp everything else."),
+    }
+
+
 def structure_factor(states: Sequence[Sequence[float]], lattice: Lattice,
                      *, drop_k0: bool = True) -> dict[str, Any]:
     """Average |FFT(spin field)|^2 over draws, with k = 0 at the centre.

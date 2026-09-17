@@ -134,3 +134,28 @@ def test_the_shipped_alloy_orders_into_a_checkerboard_when_sampled():
     assert abs(abs(kx) - 1.0) < 0.2 and abs(abs(ky) - 1.0) < 0.2, (
         f"the ordering alloy prefers unlike neighbours, so it must order into "
         f"a checkerboard peaking at (pi, pi). Got ({kx}, {ky}).")
+
+
+@pytest.mark.slow
+def test_the_accumulator_resets_when_the_model_changes():
+    """Mixing one lattice's spectrum into another's would be silent and wrong.
+
+    S(k) accumulates across batches so the Bragg peak sharpens out of the haze
+    while the sampler runs. That is only safe if switching programs starts over.
+    """
+    from backend.app.sampler_engine import SamplerConfig, SamplerEngine
+
+    engine = SamplerEngine(SamplerConfig(
+        receipt_id="prog_alloy_ordering_8x8", beta=0.9, batch_size=8, seed=0))
+    first = engine.sample_batch(n_samples=8, warmup=200)["structure_factor"]
+    second = engine.sample_batch(n_samples=8, warmup=0)["structure_factor"]
+    assert second["n_draws"] > first["n_draws"], (
+        "draws must accumulate across batches within one model")
+
+    engine.reset(SamplerConfig(receipt_id="prog_mrf_denoise_8x8",
+                               beta=0.6, batch_size=8, seed=0))
+    after = engine.sample_batch(n_samples=8, warmup=200)["structure_factor"]
+    assert after["n_draws"] == 8, (
+        f"after switching programs the accumulator carried {after['n_draws']} "
+        f"draws forward; the new model's spectrum is contaminated by the old "
+        f"model's")
