@@ -1,0 +1,72 @@
+bars-and-stripes on 4x4: 30 valid configurations out of 2**16 = 65536
+  2 are the uniform patterns, 28 carry real bar/stripe structure
+  the target is uniform over the 30: 0.0333 each
+  a uniform distribution over all 65536 states puts 0.000458 on valid
+
+For each interaction graph: fit the max-entropy model whose
+sufficient statistics are the site values and the pair products on
+THAT graph, then ask what the fitted model actually generates.
+
+graph                edges  deg   residual  KL(p||q)    valid  structured
+-------------------------------------------------------------------------
+complete               120   15    1.5e-08    -0.000   1.0000      0.9333
+rook                    48    6    1.4e-13     4.694   0.1387      0.0078
+rows only               24    3    1.7e-10     5.848   0.0698      0.0611
+nearest neighbour       24    4    1.1e-12     5.295   0.0709      0.0143
+8 neighbour             42    8    7.0e-08     0.000   1.0000      0.9333
+ring                    16    2    1.1e-12     6.321   0.0244      0.0221
+none (independent)       0    0    1.1e-16     7.689   0.0005      0.0004
+random (seed 0)         42    8    6.0e-08     3.591   0.0637      0.0408
+random (seed 1)         42    9    1.9e-08     5.632   0.0072      0.0048
+random (seed 2)         42    9    3.5e-08     5.111   0.0100      0.0082
+
+  complete: mass leaked outside the target's support 4.01e-18, spread across the 30 valid states 3.18e-09
+  8 neighbour: mass leaked outside the target's support 2.73e-13, spread across the 30 valid states 1.37e-08
+  Both are optimiser noise around an exact reconstruction, not a small imperfection.
+
+Within the 8-neighbour graph, by edge type:
+  type                     count   target <s_i s_j>   fitted |J|
+  row/column adjacent         24             0.4667      23.8373
+  diagonal                    18            -0.0667      15.8915
+  The diagonals carry 7x LESS correlation than the edges you
+  would pick by looking at the data, and couplings of the same order.
+  They are also indispensable: dropping them is the `nearest neighbour`
+  row above, where KL goes from 0.000 to 5.295. A heuristic that spends
+  connectivity where the correlation is drops every one of them, and
+  lands on `rook`, which is worse than a random graph of the same size.
+
+Against Z1's published |J| <= 6.0, on the 8-neighbour graph:
+    |J| cap  KL(p||q)    valid  structured  moment err
+       none     0.000   1.0000      0.9333     7.0e-08
+        6.0     0.013   0.9873      0.9214     1.3e-03
+        4.0     0.097   0.9074      0.8463     9.9e-03
+        2.0     0.796   0.4531      0.4170     8.1e-02
+        1.0     2.314   0.1044      0.0919     2.0e-01
+  A capped fit does not match the moments and is not supposed to:
+  it is the best a Z1-legal model can do, which is the question the
+  compiler's |J| gate is asking. The moment error column says how far
+  the cap pushes it off the target's own statistics.
+
+KL(p||q)     nats from the target. 0 means the moment readout
+             lost nothing: the model it determines IS the target.
+valid        mass the fitted model puts on bars-and-stripes.
+structured   that mass minus the two trivial uniform patterns,
+             which any ferromagnet produces for free.
+
+For reference, KL(target || uniform over all states) = 7.689 nats.
+A KL printed as -0.000 is float noise below the precision of the
+sum; the leaked-mass line above gives the honest magnitude.
+
+Same 42-edge budget, different choice of edges:
+  8 neighbour        KL 0.000
+  random (seed 0)    KL 3.591
+  random (seed 1)    KL 5.632
+  random (seed 2)    KL 5.111
+  and `rook`, with 48 edges, KL 4.694, is beaten
+  by a random graph holding six FEWER edges.
+
+The two levers, priced against each other on this workload:
+  Z1's |J| <= 6.0 instead of unbounded couplings   0.013 nats
+  the wrong 42 edges instead of the right 42       5.632 nats
+  Connectivity structure costs 433x what the
+  coupling cap costs. The cap is the number people quote.
