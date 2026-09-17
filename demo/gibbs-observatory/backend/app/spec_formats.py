@@ -31,6 +31,8 @@ from typing import Any
 
 import yaml
 
+from .program_contract import describe_source
+
 #: Module-level names a Python file may bind its spec to, in search order.
 SPEC_NAMES = ("SPEC", "spec", "WORKLOAD", "workload", "PROGRAM", "program")
 
@@ -131,6 +133,20 @@ def _python_spec(text: str) -> dict[str, Any]:
     except SyntaxError as e:
         raise DetectionError(
             f"this .py file does not parse: {e.msg} at line {e.lineno}") from e
+
+    # A .py that defines build() is a PROGRAM: code that makes a model on
+    # demand, which is the only way to express something like the game, whose
+    # biases are rewritten every frame. It is not malformed data, and handing
+    # its author the data door's complaint -- "SPEC is not a literal" --
+    # describes a problem they do not have and points at a fix that would
+    # destroy what they wrote. Route it, and say what it is.
+    kind = describe_source(text)
+    if kind.kind == "program":
+        raise DetectionError(
+            f"this file defines build(), so it is a program rather than a "
+            f"model: code that builds a model on demand. Opening it as data "
+            f"would lose that. Loading a program runs the file on this "
+            f"machine, so the Workbench asks first.")
 
     found: list[tuple[str, ast.expr]] = []
     for node in tree.body:

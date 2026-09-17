@@ -278,3 +278,56 @@ class TestPythonRefusalReadability:
             load_text("m.py", src)
         msg = str(e.value).lower()
         assert "yaml" in msg or "json" in msg
+
+
+class TestProgramFilesAreRoutedNotRefused:
+    """A .py that defines build() is a program, not malformed data.
+
+    Telling its author "SPEC is not a literal" describes a problem they do not
+    have and points at a fix that would destroy what they wrote.
+    """
+
+    PROGRAM = (
+        "from tsu_compiler.preflight.model import IsingModel\n"
+        "INPUT_PORTS = []\n"
+        "DECODER = 'grid'\n"
+        "def build(inputs):\n"
+        "    return None\n"
+    )
+
+    def test_it_is_named_as_a_program(self):
+        """Asserting on the word "program" alone is not enough: the data
+        door's own refusal lists PROGRAM among the names it looked for, so
+        that test passed before any routing existed. Assert on build()."""
+        with pytest.raises(DetectionError) as e:
+            load_text("game.py", self.PROGRAM)
+        msg = str(e.value)
+        assert "build()" in msg
+        assert "program" in msg.lower()
+        assert "whose value is a literal" not in msg
+
+    def test_it_does_not_complain_about_a_missing_literal(self):
+        with pytest.raises(DetectionError) as e:
+            load_text("game.py", self.PROGRAM)
+        msg = str(e.value)
+        assert "literal" not in msg.lower(), (
+            "that is the data door's complaint and it misdescribes this file")
+
+    def test_it_says_the_file_would_run(self):
+        with pytest.raises(DetectionError) as e:
+            load_text("game.py", self.PROGRAM)
+        msg = str(e.value).lower()
+        assert "run" in msg or "execut" in msg
+
+    def test_a_data_py_still_gets_the_data_path(self):
+        src = ("SPEC = {'name': 'demo', 'generate': {'kind': 'grid', "
+               "'width': 2, 'height': 2, 'variable_domain': "
+               "{'domain': 'binary'}}, 'terms': []}\n")
+        assert load_text("m.py", src).detection.format == "python"
+
+    def test_detecting_a_program_does_not_run_it(self, tmp_path):
+        marker = tmp_path / "ran.txt"
+        src = self.PROGRAM + f"\nopen(r'{marker}', 'w').write('x')\n"
+        with pytest.raises(DetectionError):
+            load_text("game.py", src)
+        assert not marker.exists()
