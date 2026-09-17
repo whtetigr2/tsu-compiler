@@ -124,6 +124,23 @@ export function StructureFactorView({ batch }: Props) {
 
           <h5>Where the coordinates come from</h5>
           <p className="sk-source">{sf.source}</p>
+
+          <h5>What this picture cannot see</h5>
+          <p>
+            Taking the squared magnitude throws the phase away, so S(k) is a
+            shadow of the configuration rather than the configuration. Measured
+            on a {sf.width}&times;{sf.height} lattice: all {sf.width * sf.height}{' '}
+            translations of a pattern give an <em>identical</em> spectrum, and
+            so does a global spin flip. It cannot tell a pattern from the same
+            pattern shifted one cell, nor a configuration from its exact
+            opposite.
+          </p>
+          <p>
+            Recovering the configuration from S(k) is the <em>phase problem</em>,
+            the same inverse problem that makes X-ray crystallography hard. The
+            Spins view shows the configuration itself, phase included, and the
+            two are complementary rather than redundant.
+          </p>
         </div>
       </div>
 

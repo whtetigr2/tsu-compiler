@@ -159,3 +159,77 @@ def test_the_accumulator_resets_when_the_model_changes():
         f"after switching programs the accumulator carried {after['n_draws']} "
         f"draws forward; the new model's spectrum is contaminated by the old "
         f"model's")
+
+
+# --------------------------------------------------------------------------
+# What S(k) throws away. The view states these, so they must stay true.
+# --------------------------------------------------------------------------
+
+def _field_to_state(field, lat):
+    return [field[y][x] for _, (x, y) in sorted(lat.index_to_xy.items())]
+
+
+def _spectrum(field, lat):
+    return np.array(structure_factor([_field_to_state(field, lat)], lat)["values"])
+
+
+@pytest.mark.parametrize("pattern", ["checkerboard", "random"])
+def test_every_translation_gives_an_identical_spectrum(pattern):
+    """S(k) is translation invariant, so it cannot locate a pattern.
+
+    This is the precise content of calling it a shadow: the transform maps
+    2^(W*H) configurations onto W*H numbers, and every shift lands on the same
+    point. The view says so, and this keeps that honest.
+    """
+    W = H = 6
+    lat = _lattice(W, H)
+    if pattern == "checkerboard":
+        base = np.array([[1.0 if (x + y) % 2 == 0 else -1.0 for x in range(W)]
+                         for y in range(H)])
+    else:
+        base = np.random.default_rng(0).choice([-1.0, 1.0], size=(H, W))
+
+    reference = _spectrum(base, lat)
+    identical = sum(
+        1 for dy in range(H) for dx in range(W)
+        if np.allclose(_spectrum(np.roll(np.roll(base, dy, 0), dx, 1), lat),
+                       reference, atol=1e-9))
+    assert identical == W * H, (
+        f"only {identical} of {W * H} translations matched; the view claims "
+        f"all of them do")
+
+
+def test_a_global_spin_flip_is_invisible_to_it():
+    lat = _lattice(6, 6)
+    base = np.array([[1.0 if (x + y) % 2 == 0 else -1.0 for x in range(6)]
+                     for y in range(6)])
+    assert np.allclose(_spectrum(-base, lat), _spectrum(base, lat), atol=1e-9)
+
+
+def test_a_mirror_reflects_the_spectrum_rather_than_leaving_it_unchanged():
+    """An earlier version of this claimed a mirror was invisible to S(k).
+
+    That was generalised from a checkerboard, which is already symmetric, so
+    the spectrum happened not to move. It is false for a general field: for a
+    real input |FFT|^2 obeys Friedel's law, S(-k) = S(k), and mirroring x maps
+    S(kx, ky) to S(-kx, ky). The spectrum is reflected, not preserved.
+
+    The claim reached the interface before this test caught it.
+    """
+    lat = _lattice(6, 6)
+    base = np.random.default_rng(1).choice([-1.0, 1.0], size=(6, 6))
+    S = _spectrum(base, lat)
+    mirrored = _spectrum(base[:, ::-1], lat)
+    assert not np.allclose(mirrored, S, atol=1e-9), (
+        "a mirror must move the spectrum of an asymmetric field")
+    assert np.allclose(mirrored, np.roll(S[:, ::-1], 1, axis=1), atol=1e-9), (
+        "mirroring the field must reflect the spectrum in kx")
+
+
+def test_the_spectrum_is_centrosymmetric():
+    """Friedel's law, S(-k) = S(k), which holds for any real field."""
+    lat = _lattice(6, 6)
+    base = np.random.default_rng(2).choice([-1.0, 1.0], size=(6, 6))
+    S = _spectrum(base, lat)
+    assert np.allclose(np.roll(np.roll(S[::-1, ::-1], 1, 0), 1, 1), S,
+                       atol=1e-9)
