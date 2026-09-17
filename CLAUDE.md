@@ -15,6 +15,7 @@ Run from the repo root with `sys.path.insert(0, "src")`.
 | If you are about to work out… | Call this instead |
 |---|---|
 | whether a model fits the hardware | `preflight.check.preflight(ising, target)` |
+| whether the contract makes variables impossible | `passes.presolve.presolve(spec)` |
 | degree / |J| cap / |b| cap / colouring gates | `gates.gate_checks(ising, report, target)` |
 | quantisation, precision, coupling collisions | `regime.analyse_regime(report, target, weights=…)` |
 | graph shape: degree, bipartite, colour blocks | `passes.analyse.analyse(ising)` |
@@ -43,7 +44,8 @@ up as a citation.
 
 ## The compile pipeline
 
-`spec.load_spec` → `passes.encode.encode` → `passes.lower.lower` →
+`spec.load_spec` → `passes.presolve.presolve` (analysis; reports what the
+contract makes impossible, does not yet rewrite the model) → `passes.encode.encode` → `passes.lower.lower` →
 `passes.analyse.analyse` → `passes.place.place` / `passes.route.route`
 (`insert_mediators`, `split_high_degree`) → `passes.program.build_program` →
 a backend. `passes.search.compile_spec` drives the whole thing.
