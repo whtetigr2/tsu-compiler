@@ -34,6 +34,15 @@ for pkg in ("jax", "jaxlib", "thrml", "equinox", "webview", "clr_loader",
 
 hiddenimports += collect_submodules("tsu_compiler")
 
+# The chain embedder. `minorminer` carries compiled extensions and pulls
+# `dimod`/`fasteners`/`homebase` behind them, and `tsu_compiler.passes.embed`
+# imports it lazily inside a function, so static analysis never sees it. A
+# bundle without these imports cleanly and then fails to place anything that is
+# not already lattice-shaped -- which is a failure only the frozen build
+# exhibits, the same shape as the missing audit module in an earlier build.
+hiddenimports += collect_submodules("minorminer")
+hiddenimports += ["dimod", "fasteners", "homebase"]
+
 # uvicorn resolves its protocol and loop implementations by string at runtime,
 # so static analysis cannot see them.
 hiddenimports += [

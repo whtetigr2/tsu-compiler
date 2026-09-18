@@ -218,6 +218,45 @@ def _check_program() -> tuple[str, bool, str]:
             f"{len(decoded)} columns, one compilation")
 
 
+def _check_chain_embedding() -> tuple[str, bool, str]:
+    """Place a model that direct placement cannot, inside the bundle.
+
+    R33: direct one-spin-one-cell placement only works when the interaction
+    graph is already a subgraph of the lattice. Chains are what let the
+    published sequence-design models place at all, and `minorminer` is imported
+    lazily inside a function, so PyInstaller cannot see it statically. A bundle
+    that missed it would import cleanly, serve every asset, pass every other
+    check, and quietly refuse to place anything interesting.
+    """
+    try:
+        import networkx as nx
+        from tsu_compiler.passes.embed import find_chain_embedding
+        from tsu_compiler.preflight.model import IsingModel
+        from tsu_compiler.target import PROFILES
+        import numpy as np
+    except Exception as exc:  # pragma: no cover - import failure path
+        return ("chain embed", False, f"unavailable: import failed: {exc!r}")
+
+    # A 4-regular expander: well inside every gate, and not a lattice subgraph.
+    G = nx.random_regular_graph(4, 32, seed=5)
+    edges = tuple(sorted((min(u, v), max(u, v)) for u, v in G.edges()))
+    model = IsingModel(
+        nodes=tuple(f"v{i}" for i in range(32)), edges=edges,
+        weights=np.full(len(edges), 0.5), biases=np.zeros(32),
+        beta=1.0, offset=0.0)
+    try:
+        emb = find_chain_embedding(model, PROFILES["z1"], seed=1)
+    except Exception as exc:
+        return ("chain embed", False,
+                f"unavailable: {type(exc).__name__}: {exc}")
+    if emb.n_physical < 32:
+        return ("chain embed", False,
+                f"embedding covers {emb.n_physical} cells for 32 spins")
+    return ("chain embed", True,
+            f"placed a 32-spin expander direct placement cannot: "
+            f"{emb.n_physical} p-bits, longest chain {emb.max_chain}")
+
+
 def _check_frontend() -> tuple[str, bool, str]:
     try:
         dist = frontend_dist()
@@ -229,7 +268,8 @@ def _check_frontend() -> tuple[str, bool, str]:
 def run_selftest() -> tuple[int, list[str]]:
     """Run every check. Returns (exit_code, report_lines)."""
     checks = (_check_compiler(), _check_service(), _check_load_door(),
-              _check_program(), _check_thrml(), _check_frontend())
+              _check_program(), _check_chain_embedding(),
+              _check_thrml(), _check_frontend())
     lines = ["Thermodynamic Workbench -- self-test", ""]
     failed = 0
     for name, ok, detail in checks:
